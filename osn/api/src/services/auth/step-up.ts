@@ -11,6 +11,7 @@ import { accounts, passkeys, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailService } from "@shared/email";
 import type {
+  RecoveryCooldownOutcome,
   StepUpFactor,
   StepUpPurpose,
   StepUpVerifyResult,
@@ -34,7 +35,7 @@ import {
 import { CHALLENGE_TTL_MS, RECOVERY_COOLDOWN_MS, STEP_UP_CLAIM_MARGIN_MS } from "./constants";
 import type { AuthContext } from "./context";
 import type { EmailLinkModule } from "./email-link";
-import { AuthError, type CoordinationError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError, PasskeyHeldError } from "./errors";
 import {
   JWT_CLOCK_TOLERANCE_S,
   logDevLink,
@@ -54,10 +55,11 @@ import { requestOptions, type RequestOptions, storedTransports } from "./webauth
  * post-recovery cooldown. The caller does the reads — it already has the rows —
  * and the verifier makes the single decision.
  *
- * Both variants carry `lastRecoveredAt` because the recovery window applies to
+ * The first two carry `lastRecoveredAt` because the recovery window applies to
  * both, and `passkey_mutation` additionally carries the credential being acted
  * on, because that window's question is "is the target older than the thing
- * asking to remove it".
+ * asking to remove it". `app_delete` carries nothing: only W1 applies there,
+ * and it reads the token's own claims.
  */
 type ProvenanceCheck =
   | {
@@ -68,7 +70,21 @@ type ProvenanceCheck =
       readonly targetCreatedAt: number | null;
       readonly lastRecoveredAt: number | null;
     }
-  | { readonly gate: "email_change"; readonly lastRecoveredAt: number | null };
+  | { readonly gate: "email_change"; readonly lastRecoveredAt: number | null }
+  | { readonly gate: "app_delete" };
+
+/** The one check both app-data gates hand the verifier. */
+export const APP_DELETE_HOLD: ProvenanceCheck = { gate: "app_delete" };
+
+/** What the cooldown metric records when each gate's provenance check refuses. */
+const PROVENANCE_REFUSAL = {
+  passkey_mutation: "passkey_mutation_refused",
+  email_change: "email_change_refused",
+  app_delete: "app_delete_refused",
+} as const satisfies Record<ProvenanceCheck["gate"], RecoveryCooldownOutcome>;
+
+/** The purposes spent as a token at `/internal/step-up/verify`, by their own app. */
+export type ExternalStepUpPurpose = Extract<StepUpPurpose, "pulse_app_delete" | "zap_app_delete">;
 
 /**
  * The session a step-up token is minted for: the account, and the family of
@@ -145,8 +161,11 @@ const LINK_EXPIRED = { status: "expired" } as const;
  * `emailChangeAllowedAmr` constrain only the direct path: register a credential
  * of your own, assert it, and you hold a token either gate accepts. W1 refuses
  * a credential whose own provenance is weaker than `webauthn`, inside 72 hours
- * of its registration, when it asks to remove something older than itself or to
- * change the account email.
+ * of its registration, when it asks to remove something older than itself, to
+ * change the account email, or to remove an app's data. At that last gate
+ * (`app_delete`) W1 is the whole rule: the allow-list admits a passkey alone, so
+ * the "is the mailbox still the owner's" question W2 asks of an emailed link
+ * cannot arise, and there is no credential being removed to compare against.
  *
  * **W2, the recovery window.** After any recovery, a step-up minted from the
  * recovery-enrolled credential — or from the emailed link, whose "proves control
@@ -185,10 +204,13 @@ function provenanceRefusal(
   claims: StepUpProvenanceClaims,
   check: ProvenanceCheck,
   nowMs: number,
-): "passkey_mutation_refused" | "email_change_refused" | null {
-  const refusal =
-    check.gate === "email_change" ? "email_change_refused" : "passkey_mutation_refused";
+): RecoveryCooldownOutcome | null {
+  const refusal = PROVENANCE_REFUSAL[check.gate];
   const assertedByPasskey = claims.amr.includes("webauthn");
+
+  // Only a passkey removes an app's data. The allow-list has already refused
+  // every other factor; this keeps the hold from being skipped if it ever did not.
+  if (check.gate === "app_delete" && !assertedByPasskey) return refusal;
 
   // W1 — the credential's own provenance.
   if (assertedByPasskey) {
@@ -198,7 +220,7 @@ function provenanceRefusal(
     const weak = claims.provenance !== "webauthn";
     const inOwnWindow = nowMs - claims.createdAt * 1000 < RECOVERY_COOLDOWN_MS;
     if (weak && inOwnWindow) {
-      if (check.gate === "email_change") return refusal;
+      if (check.gate === "email_change" || check.gate === "app_delete") return refusal;
       if (
         check.targetCreatedAt !== null &&
         check.targetId !== claims.passkeyId &&
@@ -208,6 +230,9 @@ function provenanceRefusal(
       }
     }
   }
+
+  // W1 is the whole rule at the app-data gate (see the docstring).
+  if (check.gate === "app_delete") return null;
 
   // W2 — the account's recovery window.
   const recoveredAt = check.lastRecoveredAt;
@@ -257,6 +282,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     passkeyDeleteAllowedAmr,
     passkeyRegisterAllowedAmr,
     emailChangeAllowedAmr,
+    appDeleteAllowedAmr,
   } = ctx;
 
   const STEP_UP_AUDIENCE = "osn-step-up";
@@ -377,7 +403,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   > =>
     Effect.gen(function* () {
       const record = (result: StepUpVerifyResult) =>
-        Effect.sync(() => metricStepUpVerified(result));
+        Effect.sync(() => metricStepUpVerified(result, expectedPurpose ?? "none"));
 
       const payloadResult = yield* Effect.tryPromise({
         try: () => verifyJwt(token, config.jwtPublicKey, config.issuerUrl),
@@ -457,6 +483,20 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
         if (refusal) {
           yield* record("provenance_blocked");
           metricRecoveryCooldown(refusal);
+          // At an app-data gate, a passkey that names itself and its weaker
+          // registration is held until its 72 hours end, and the refusal says
+          // when. One that names no credential is refused like any other.
+          if (
+            provenance.gate === "app_delete" &&
+            assertingProvenance !== null &&
+            assertingProvenance !== "webauthn" &&
+            assertingCreatedAt !== null &&
+            typeof passkeyIdClaim === "string"
+          ) {
+            return yield* Effect.fail(
+              new PasskeyHeldError(assertingCreatedAt + RECOVERY_COOLDOWN_MS / 1000),
+            );
+          }
           return yield* Effect.fail(
             new AuthError({
               message:
@@ -551,7 +591,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
           }).then(requestOptions),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
-      // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
+      // Growth under ceremony-begin spam is bounded inside the store.
       yield* storeCall(stores.stepUpPasskeyChallenges, "set", () =>
         stores.stepUpPasskeyChallenges.set(
           accountId,
@@ -567,8 +607,8 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * own challenge (not an identifier-keyed one — defence against a stolen
    * session being used to step up as somebody else) and mints the token.
    *
-   * `purpose` binds the resulting JWT to a specific destructive operation
-   * (S-C1) — verifiers that require a matching purpose (e.g.
+   * `purpose` binds the resulting JWT to a specific destructive operation —
+   * verifiers that require a matching purpose (e.g.
    * `verifyStepUpForAccountDelete`) reject tokens minted for any other
    * purpose. Tokens minted without a purpose remain valid for legacy
    * callers that don't enforce one.
@@ -982,7 +1022,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     });
 
   /**
-   * S-L4: separate step-up verifier for `DELETE /passkeys/:id` and
+   * The step-up verifier for `DELETE /passkeys/:id` and
    * `PATCH /passkeys/:id`. Defaults to passkey-only AMR — the caller
    * necessarily has a passkey (the last-passkey lockout guard fires
    * otherwise), so requiring one for deletion is the strongest available
@@ -1057,7 +1097,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     });
 
   /**
-   * S-H1: step-up verifier for `/passkey/register/{begin,complete}` on
+   * The step-up verifier for `/passkey/register/{begin,complete}` on
    * accounts that already have ≥1 passkey. Without this gate, a stolen
    * access token (XSS) could silently bind an attacker-controlled
    * authenticator to the victim account — every other high-value auth
@@ -1142,7 +1182,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   /**
    * Step-up verifier for `POST /recovery/generate`.
    *
-   * S-M1: requires the token's `purpose` claim to be `"recovery_generate"`.
+   * Requires the token's `purpose` claim to be `"recovery_generate"`.
    * Generating burns the account's whole existing set, so a token minted for
    * any other ceremony — an email change, a passkey delete — must not be
    * replayable here.
@@ -1168,7 +1208,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * out users who legitimately want to delete after losing their
    * authenticator.
    *
-   * S-C1: requires the token's `purpose` claim to be `"account_delete"`.
+   * Requires the token's `purpose` claim to be `"account_delete"`.
    * Tokens minted for any other ceremony (recovery, passkey, email change)
    * are rejected, defending against confused-deputy reuse.
    */
@@ -1186,8 +1226,8 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     });
 
   /**
-   * Step-up verifier for `GET /account/export` (C-H1 — DSAR Art. 15 / 20
-   * data export). Reuses the recovery-AMR allowlist (passkey OR the emailed
+   * Step-up verifier for `GET /account/export` (the DSAR Art. 15 / 20 data
+   * export). Reuses the recovery-AMR allowlist (passkey OR the emailed
    * link), same
    * rationale as account-delete: exporting is a sensitive read that must
    * survive the user having lost their last passkey.
@@ -1235,6 +1275,12 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * {@link StepUpPurpose} so a token minted for one app cannot be
    * replayed at another (confused-deputy guard).
    *
+   * Removing an app's data takes a passkey (`appDeleteAllowedAmr`), and one
+   * registered under an emailed link, an authenticator code or recovery is
+   * held for its first 72 hours (the `app_delete` provenance gate): without
+   * the hold, whoever holds the mailbox could add a passkey of their own and
+   * use it at once.
+   *
    * `profileId` is the profile the calling service verified its own caller
    * as. The token must belong to the account that owns that profile: the
    * service holds no account ids, so only this check stops a caller of the
@@ -1250,7 +1296,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    */
   const verifyStepUpForExternalPurpose = (
     stepUpToken: string,
-    expectedPurpose: StepUpPurpose,
+    expectedPurpose: ExternalStepUpPurpose,
     profileId: string,
   ): Effect.Effect<{ accountId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -1266,14 +1312,15 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
       });
       const owner = owners[0];
       if (!owner) {
-        metricStepUpVerified("wrong_subject");
+        metricStepUpVerified("wrong_subject", expectedPurpose);
         return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
       }
       const result = yield* verifyStepUpToken(
         stepUpToken,
         owner.accountId,
-        recoveryGenerateAllowedAmr,
+        appDeleteAllowedAmr,
         expectedPurpose,
+        APP_DELETE_HOLD,
       );
       return { accountId: result.accountId };
     });

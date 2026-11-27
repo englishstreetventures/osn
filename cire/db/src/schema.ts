@@ -54,8 +54,8 @@ export const weddings = sqliteTable(
     // NOT NULL with a DEFAULT so historical rows + inserts that omit it land
     // on AUD.
     currency: text("currency").notNull().default("AUD"),
-    // Total budget in MINOR units (cents) of `currency` — integers only, no
-    // float money.
+    // Total budget in MINOR units of `currency` (not always hundredths: JPY
+    // has none, KWD three) — integers only, no float money.
     budgetTotalMinor: integer("budget_total_minor"),
     // ── RSVP deadline (migration 0055) ─────────────────────────────────────
     // The "kindly respond by" date. Unlike the rest of the profile above this
@@ -1133,6 +1133,59 @@ export const registryStripeOAuthStates = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.weddingId, t.osnProfileId] }),
     index("registry_stripe_oauth_states_expires_idx").on(t.expiresAt),
+  ],
+);
+
+// One row per Stripe account a wedding stopped naming by a retire: a hand-over,
+// a disconnect, or another owner replacing it (`POST …/registry/stripe/retire`).
+// A retire calls Stripe for nothing, so the account stays connected to cire
+// and its refunds and disputes on old gifts keep arriving; this row is cire's
+// record that it still holds the account, and of when it let it go
+// (`released_at`). Written in the same D1 batch as the settings row's clear,
+// with the account's id, type and connect time copied from that row. No
+// profile id: the record outlives every seat. Cascades with the wedding.
+export const registryRetiredAccounts = sqliteTable(
+  "registry_retired_accounts",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    stripeAccountId: text("stripe_account_id").notNull(),
+    // As the settings row stored it: NULL reads as `express`.
+    stripeAccountType: text("stripe_account_type", { enum: ["express", "standard"] }),
+    // The settings row's `stripe_connected_at`: a deauthorization releases only
+    // rows connected at or before Stripe's event, as it clears settings rows.
+    stripeConnectedAt: integer("stripe_connected_at", { mode: "timestamp" }),
+    retiredAt: integer("retired_at", { mode: "timestamp" }).notNull(),
+    // Whose standing retired it: `handed_over` and `disconnected` by its
+    // holder, `replaced` by another owner while the holder was seated,
+    // `holder_absent` by an owner while the holder held no owner seat.
+    reason: text("reason", {
+      enum: ["handed_over", "disconnected", "replaced", "holder_absent"],
+    }).notNull(),
+    // When cire let the account go: Stripe said it is no longer connected, or
+    // cire handed a Standard account back. NULL while cire still holds it,
+    // which is what keeps the hand-back paths from giving it back early.
+    releasedAt: integer("released_at", { mode: "timestamp" }),
+    // The last time cire tried to hand this account back and could not.
+    lastHandBackAt: integer("last_hand_back_at", { mode: "timestamp" }),
+  },
+  (t) => [
+    // The hand-back paths and the unmatched-event log ask "does a retired row
+    // name this account?", and a deauthorization releases every row naming it.
+    index("registry_retired_accounts_account_idx").on(t.stripeAccountId),
+    // The purge reads one wedding's rows, and the wedding's delete cascades
+    // to them.
+    index("registry_retired_accounts_wedding_idx").on(t.weddingId),
+    check(
+      "registry_retired_accounts_reason_ck",
+      sql`reason in ('handed_over','disconnected','replaced','holder_absent')`,
+    ),
+    check(
+      "registry_retired_accounts_type_ck",
+      sql`stripe_account_type IS NULL OR stripe_account_type in ('express','standard')`,
+    ),
   ],
 );
 

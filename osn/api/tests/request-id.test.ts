@@ -5,9 +5,9 @@ import { REQUEST_ID_RE, resolveRequestId } from "../src/index";
 /**
  * `resolveRequestId` / `REQUEST_ID_RE`.
  *
- * The Workers entry re-applies the x-request-id sanitization the omitted
- * observability plugin used to do: echo a client-supplied id ONLY when it
- * matches the strict format, otherwise mint a fresh one. A client-controlled
+ * The Workers entry sanitizes x-request-id itself, since the observability
+ * plugin is off on Workers: it echoes a client-supplied id only when it matches
+ * the strict format, and otherwise mints a fresh one. A client-controlled
  * value must never be echoed back untouched (log / header / terminal
  * injection). These tests exercise the three branches directly.
  */
@@ -36,7 +36,7 @@ describe("REQUEST_ID_RE", () => {
   });
 });
 
-describe("resolveRequestId (S-H3)", () => {
+describe("resolveRequestId", () => {
   it("echoes a valid client-supplied id verbatim", () => {
     const id = "req_clientSupplied-123.OK";
     expect(REQUEST_ID_RE.test(id)).toBe(true);

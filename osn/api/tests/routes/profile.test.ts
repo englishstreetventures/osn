@@ -341,7 +341,7 @@ describe("profile routes", () => {
       expect(res.status).toBe(429);
     });
 
-    it("fails closed when rate limiter backend throws (S-M1)", async () => {
+    it("fails closed when the rate limiter backend throws", async () => {
       const brokenBackend: RateLimiterBackend = {
         check: async () => {
           throw new Error("store unreachable");

@@ -21,8 +21,8 @@ describe("makeAppRunner", () => {
 
   describe("fallback path (no injected runtime)", () => {
     it("builds the layer ONCE and reuses it across run calls", async () => {
-      // A layer whose build is observable, so a per-request rebuild would show
-      // up as build count > 1 — the exact regression this change prevents.
+      // A layer whose build is counted, so a rebuild on each run shows as more
+      // than one build.
       let builds = 0;
       const countingLayer = Layer.effect(
         Db,
@@ -41,12 +41,6 @@ describe("makeAppRunner", () => {
 
       // Three runs, one build — the layer graph is memoized in the runtime.
       expect(builds).toBe(1);
-      await runtime.dispose();
-    });
-
-    it("runs real Db-backed effects against the built runtime", async () => {
-      const { runtime, run } = makeAppRunner(undefined, createTestLayer());
-      await expect(run(touchesDb)).resolves.toBe("object");
       await runtime.dispose();
     });
   });

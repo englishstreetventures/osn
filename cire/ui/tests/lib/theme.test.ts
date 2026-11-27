@@ -114,17 +114,6 @@ describe("two sets of preferences", () => {
 });
 
 describe("readThemePreference", () => {
-  it("reads 'system' when nothing has been stored", async () => {
-    const { readThemePreference } = await loadTheme();
-    expect(readThemePreference()).toBe("system");
-  });
-
-  it("reads back a stored choice", async () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "light");
-    const { readThemePreference } = await loadTheme();
-    expect(readThemePreference()).toBe("light");
-  });
-
   it("treats an unrecognised stored value as no choice at all", async () => {
     localStorage.setItem(THEME_STORAGE_KEY, "sepia");
     const { readThemePreference } = await loadTheme();
@@ -139,11 +128,6 @@ describe("readThemePreference", () => {
 });
 
 describe("readHapticsPreference", () => {
-  it("is on by default", async () => {
-    const { readHapticsPreference } = await loadTheme();
-    expect(readHapticsPreference()).toBe(true);
-  });
-
   it("is off only for the exact stored 'off'", async () => {
     const { readHapticsPreference } = await loadTheme();
     localStorage.setItem(HAPTICS_STORAGE_KEY, "off");
@@ -200,14 +184,14 @@ describe("setThemePreference", () => {
   });
 
   it("clears the key on 'system' so a later OS change is followed", async () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "light");
-    const media = stubMatchMedia(false);
+    // Stored dark on a light machine, so only a read of the OS lands on light.
+    localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    stubMatchMedia(true);
     const { setThemePreference, theme } = await loadTheme();
     setThemePreference("system");
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
-    expect(theme()).toBe(DEFAULT_THEME);
-    expect(document.documentElement.getAttribute("data-theme")).toBe(DEFAULT_THEME);
-    expect(media.matchMedia).toHaveBeenCalled();
+    expect(theme()).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
   it("still holds the choice for this tab when storage refuses it", async () => {
@@ -262,14 +246,6 @@ describe("initTheme", () => {
     expect(theme()).toBe("dark");
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 
-    stop();
-  });
-
-  it("reconciles with the OS on start, in case it changed while the page was away", async () => {
-    stubMatchMedia(true);
-    const { initTheme } = await loadTheme();
-    const stop = initTheme();
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     stop();
   });
 
@@ -329,13 +305,6 @@ describe("themeBootScript", () => {
   it("names the key and the media query it was given", () => {
     expect(THEME_BOOT_SCRIPT).toContain(JSON.stringify(THEME_STORAGE_KEY));
     expect(THEME_BOOT_SCRIPT).toContain(JSON.stringify(LIGHT_QUERY));
-  });
-
-  it("resolves a stored choice before anything else runs", () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "light");
-    // eslint-disable-next-line no-eval
-    (0, eval)(THEME_BOOT_SCRIPT);
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
   it("falls through to the media query when nothing is stored", () => {

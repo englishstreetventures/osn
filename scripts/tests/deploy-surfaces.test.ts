@@ -320,6 +320,49 @@ describe("changesContent: what a surface is built from", () => {
   });
 });
 
+// A workspace's Bend law sets ship in no Worker or site, so a change to one
+// alone redeploys nothing, on either tier, and runs no stack; the code beside
+// them still redeploys.
+describe("a Bend law set redeploys nothing", () => {
+  const laws = [
+    "osn/api/laws/account-deletion/LAWS.bend",
+    "osn/api/laws/account-deletion/model.mjs",
+    "cire/api/laws/account-deletion/weddings.bend",
+    "cire/api/laws/account-deletion/model.d.mts",
+    "zap/api/laws/messaging/PROOF.bend",
+    "shared/ui/laws/focus/LAWS.bend",
+    // Beside a stack's own files, so the stack lookups' guard is tested too.
+    "cire/infra/laws/x/LAWS.bend",
+    "shared/infra/laws/x/LAWS.bend",
+  ];
+
+  test.each(laws)("%s, alone, redeploys no surface and no stack", (file) => {
+    expect(redeployed([file], "production")).toEqual([]);
+    expect(redeployed([file], "dev")).toEqual([]);
+    expect(stacksDeployed([file])).toEqual([]);
+    for (const target of SURFACES) expect(changesContent(target, file)).toBe(false);
+  });
+
+  test("beside a change to the service, the service still redeploys, for the service's file", () => {
+    expect(
+      redeployed(["osn/api/laws/account-deletion/LAWS.bend", "osn/api/src/index.ts"], "production"),
+    ).toEqual(["osn_api"]);
+    expect(
+      deployReason(surface("cire_api"), ["cire/api/laws/x/LAWS.bend", "cire/api/src/a.ts"], "dev"),
+    ).toBe("cire/api/src/a.ts changed");
+  });
+
+  test.each([
+    "osn/api/tests/laws/deletion-lifecycle.test.ts",
+    "osn/api/src/laws.ts",
+    "cire/api/src/laws/x.ts",
+    // In `laws/` but in no topic folder.
+    "osn/api/laws/helper.ts",
+  ])("%s is not a law set, and still redeploys its surface", (file) => {
+    expect(redeployed([file], "production").length).toBeGreaterThan(0);
+  });
+});
+
 describe("devDecisions: the dev tier's push diff", () => {
   const dev = SURFACES.filter((s) => s.dev !== undefined).map((s) => s.key);
 

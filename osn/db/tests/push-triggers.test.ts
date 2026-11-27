@@ -17,6 +17,7 @@ const PACKAGE_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const REFUSAL = "organisation member role is not admin or member";
 const EMAIL_REFUSAL = "account email is not lower case";
 const CHOICES_REFUSAL = "a deletion job that deletes everything holds no choices";
+const RESTRICTION_REFUSAL = "session restriction record is not known or has no deadline";
 
 function push(url: string): void {
   const result = spawnSync("bun", ["run", "db:push"], {
@@ -27,7 +28,7 @@ function push(url: string): void {
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
 }
 
-it("a database built by db:push, then pushed again, refuses a member role outside the set, a capital in an email, and answers beside delete everything", () => {
+it("a database built by db:push, then pushed again, refuses a member role outside the set, a capital in an email, answers beside delete everything, and an unknown session restriction record", () => {
   const dir = mkdtempSync(join(tmpdir(), "osn-db-push-"));
   try {
     const url = join(dir, "osn.db");
@@ -48,6 +49,8 @@ it("a database built by db:push, then pushed again, refuses a member role outsid
         "deletion_jobs_delete_everything_no_choices_update",
         "organisation_members_role_known",
         "organisation_members_role_known_update",
+        "sessions_restriction_known",
+        "sessions_restriction_known_update",
       ]);
 
       const add = db.query(
@@ -76,6 +79,17 @@ it("a database built by db:push, then pushed again, refuses a member role outsid
       expect(() =>
         db.run("UPDATE deletion_jobs SET choices = '{}' WHERE account_id = 'acc_plain'"),
       ).toThrow(CHOICES_REFUSAL);
+
+      const addSession = db.query(
+        "INSERT INTO sessions (id, account_id, family_id, expires_at, created_at, restricted_until, restricted_amr) VALUES (?, 'acc_plain', ?, 900, 1, ?, ?)",
+      );
+      expect(() => addSession.run("ses_bogus", "sfam_bogus", 900, "bogus")).toThrow(
+        RESTRICTION_REFUSAL,
+      );
+      addSession.run("ses_signup", "sfam_signup", 900, "signup");
+      expect(() =>
+        db.run("UPDATE sessions SET restricted_until = NULL WHERE id = 'ses_signup'"),
+      ).toThrow(RESTRICTION_REFUSAL);
     } finally {
       db.close();
     }

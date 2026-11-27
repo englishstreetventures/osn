@@ -25,6 +25,7 @@
  */
 
 import { emailButton } from "./button";
+import { utcDate, utcDay } from "./date";
 import type { RenderedEmail } from "./index";
 
 /** One line of what the deletion does outside the account itself. */
@@ -114,34 +115,6 @@ const wrap = (bodyHtml: string): string =>
 /** The button, then the link as text for a client that drops its styles. */
 const button = (url: string, label: string): string =>
   `${emailButton(url, label)}<p style="color:#666;word-break:break-all">${esc(url)}</p>`;
-
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-] as const;
-
-/** "23 November 2026": the date in UTC. The sender cannot know the reader's time zone. */
-const utcDate = (unixSeconds: number): string => {
-  const at = new Date(unixSeconds * 1_000);
-  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}`;
-};
-
-/**
- * "23 November 2026 (UTC)": a day on its own names its zone, since the same
- * day starts up to 26 hours apart across zones, and a line that offers
- * something "before" it holds only in the zone it names.
- */
-const utcDay = (unixSeconds: number): string => `${utcDate(unixSeconds)} (UTC)`;
 
 /** "23 November 2026 at 14:05 UTC". */
 const utcDateTime = (unixSeconds: number): string => {

@@ -6,9 +6,8 @@ import { makeAppRunner } from "../../src/lib/route-runtime";
 import { CoordinationError } from "../../src/services/auth/errors";
 
 /**
- * The tag walk (P-I2) reads each own key through a plain
- * property access now, not `Object.getOwnPropertyDescriptor`. These tests pin
- * the behaviour that read has to preserve.
+ * The tag walk reads each own key with one property read. These tests pin
+ * what that read must keep doing.
  *
  * Three tags collapse to the same 400 (`ValidationError`, `AuthError`, and the
  * `default`), so a test asserting 400 cannot tell a found tag from a missed
@@ -70,20 +69,14 @@ describe("publicError", () => {
   });
 
   it("finds a tag stored under a symbol key", () => {
-    // Effect v4 brands its own `Cause`/`Reason` by STRING key, so this is no
-    // longer the reason the walk uses `Reflect.ownKeys` (see the
-    // non-enumerable case below for that). It stays because `e` is an
-    // arbitrary thrown value and a symbol-keyed tag carrier costs nothing to
-    // cover.
+    // An arbitrary thrown value may carry its tag under a symbol key.
     const err = { [Symbol("Cause")]: { _tag: "DatabaseError" } };
     expect(publicError(err)).toEqual({ status: 500, body: { error: "internal_error" } });
   });
 
   it("finds a tag behind a NON-enumerable own key", () => {
-    // This is what `Reflect.ownKeys` actually buys now. `new Error(msg,
-    // { cause })` — the form `OpaqueDefect` uses to retain its `Cause` —
-    // defines `cause` non-enumerable, so an `Object.values` walk would miss
-    // every defect and fall through to the 400 default.
+    // `new Error(msg, { cause })`, the form OpaqueDefect uses, defines `cause`
+    // non-enumerable; an `Object.values` walk would miss every defect.
     const err = new Error("opaque", { cause: { _tag: "DatabaseError" } });
     expect(publicError(err)).toEqual({ status: 500, body: { error: "internal_error" } });
   });
@@ -100,10 +93,22 @@ describe("publicError", () => {
     expect(publicError(err)).toEqual({ status: 500, body: { error: "internal_error" } });
   });
 
-  it("returns rather than looping on a self-referencing error", () => {
+  it("visits each node once, so self-references do not use up the walk", () => {
     const err: Record<string, unknown> = { note: "no tag here" };
     err.self = err;
     expect(publicError(err)).toEqual({ status: 400, body: { error: "invalid_request" } });
+
+    // Five nodes, each pointing at itself ten times and at the next through
+    // `cause`; the last cause is tagged. Visited once each, they cost about
+    // sixty steps of the budget. Walked again at every reference, the queue
+    // grows elevenfold a level and the budget ends before the tag.
+    let node: Record<string, unknown> = { _tag: "DatabaseError" };
+    for (let level = 0; level < 5; level++) {
+      const wrapper: Record<string, unknown> = { cause: node };
+      for (let k = 0; k < 10; k++) wrapper[`self${k}`] = wrapper;
+      node = wrapper;
+    }
+    expect(publicError(node)).toEqual({ status: 500, body: { error: "internal_error" } });
   });
 
   it("truncates past the 512-node budget instead of walking a large graph", () => {
@@ -114,11 +119,8 @@ describe("publicError", () => {
     expect(publicError(node)).toEqual({ status: 400, body: { error: "invalid_request" } });
   });
 
-  // a wide-but-shallow cause chain (many string fields per hop)
-  // must not spend the 512-node budget on primitives. Against the unfixed
-  // walk — which dequeues (and so charges budget for) every pushed value,
-  // primitives included — this chain exhausts the budget before reaching the
-  // tagged node and falls through to 400; that is the bug this test pins.
+  // A wide, shallow chain (sixty string fields per hop) must not spend the
+  // 512-node budget on primitives: only objects are queued.
   it("reaches a tagged error past a wide chain of primitive fields", () => {
     let node: Record<string, unknown> = { _tag: "DatabaseError" };
     for (let hop = 0; hop < 10; hop++) {
@@ -129,8 +131,7 @@ describe("publicError", () => {
     expect(publicError(node)).toEqual({ status: 500, body: { error: "internal_error" } });
   });
 
-  // The #473 seed narrowing's regression test: a primitive `e` must not reach
-  // `Reflect.ownKeys`, which throws on a primitive in strict mode.
+  // A primitive `e` never reaches `Reflect.ownKeys`, which throws on a primitive.
   it.each([["a string error"], [null]])(
     "falls through for a primitive %p without throwing",
     (e) => {
@@ -193,8 +194,7 @@ describe("publicError on what makeAppRunner's run rejects with", () => {
   });
 
   it("falls through to the 400 default for an untagged defect", async () => {
-    // Pinned as-is, not endorsed: an untagged crash has always mapped to the
-    // generic `invalid_request`, and this change does not move it.
+    // An untagged crash maps to the generic invalid_request.
     const e = await rejectionOf(Effect.die(new Error("boom")));
     expect(publicError(e)).toEqual({ status: 400, body: { error: "invalid_request" } });
   });

@@ -1,7 +1,6 @@
 import { ProfileOnboarding } from "@osn/auth-ui/ProfileOnboarding";
 import { useAuth } from "@osn/client/solid";
 import { clsx } from "@shared/ui/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
@@ -11,15 +10,14 @@ import { createMemo, lazy, Show, Suspense } from "solid-js";
 
 import { AccountDataActions } from "../components/AccountDataActions";
 import { AppRowsLoading } from "../components/AppRowsLoading";
+import { ProfileAvatar } from "../components/Avatars";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
-import { placeholderRows } from "../lib/page-cache";
-import { PAGE_DATA } from "../lib/page-names";
 import { usePageTitle } from "../lib/page-title";
-import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
+import { getTokenClaims } from "../lib/utils";
 
 // Code-split the Security section so `@simplewebauthn/browser` is only
 // fetched when the user opens that tab.
@@ -111,19 +109,7 @@ export function SettingsPage() {
         <Show when={section() === "profile"}>
           <Card padding="md" class="flex flex-col gap-5">
             <div class="flex items-center gap-4">
-              <Avatar class="h-16 w-16">
-                <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
-                  {(url) => (
-                    <AvatarImage
-                      src={url()}
-                      alt={claims().handle ?? ""}
-                      referrerpolicy="no-referrer"
-                      loading="lazy"
-                    />
-                  )}
-                </Show>
-                <AvatarFallback size="lg">{profileInitials(activeProfile())}</AvatarFallback>
-              </Avatar>
+              <ProfileAvatar profile={activeProfile()} class="size-16" size="lg" decorative />
               <div>
                 <p class="text-foreground text-title font-medium">
                   {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}
@@ -257,11 +243,14 @@ function SecurityLoading() {
   );
 }
 
-/** The connected apps' list's place while their code loads: as many rows as it last landed, one when none. */
+/**
+ * The connected apps' list's place while their code loads: as many rows as it
+ * last landed, each at its height, one when none.
+ */
 function ConnectedAppsLoading() {
   return (
     <div aria-busy="true">
-      <AppRowsLoading count={placeholderRows(PAGE_DATA.connectedApps)} />
+      <AppRowsLoading />
     </div>
   );
 }

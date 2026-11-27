@@ -14,7 +14,7 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
  * still reads.
  *
  * The database is built from the migration files up to the one under test,
- * never from `createSchemaSql()`, which no longer declares the column. Rows of
+ * never from `createSchemaSql()`, which does not declare the column. Rows of
  * two accounts are stored before the migration runs, as production holds them.
  */
 

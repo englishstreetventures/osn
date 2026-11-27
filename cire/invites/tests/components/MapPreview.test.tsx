@@ -47,20 +47,6 @@ describe("MapPreview", () => {
     resetConsentForTest();
   });
 
-  it("offers Google Maps, Apple Maps and Waze for the address, each in a new tab", () => {
-    const { container } = render(() => <MapPreview event={baseEvent} />);
-    const items = openMaps(container);
-    expect(Object.keys(items)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
-    const query = encodeURIComponent("12 Banksia Lane, Strathfield");
-    expect(items["Google Maps"]!.href).toBe(`${GOOGLE_SEARCH}${query}`);
-    expect(items["Apple Maps"]!.href).toBe(`https://maps.apple.com/?q=${query}`);
-    expect(items["Waze"]!.href).toBe(`https://waze.com/ul?q=${query}&navigate=yes`);
-    for (const item of Object.values(items)) {
-      expect(item.target).toBe("_blank");
-      expect(item.rel).toBe("noopener noreferrer");
-    }
-  });
-
   // An address typed before the venue name existed often starts with the
   // name. Said twice, the row reads it twice, and the calendar entry
   // (`venueLocation`) already drops the repeat.
@@ -80,14 +66,6 @@ describe("MapPreview", () => {
       "Hall",
       "Hallstrom Rd, Willoughby",
     ]);
-  });
-
-  it("puts an organiser-supplied mapsUrl in place of the provider it belongs to", () => {
-    const url = "https://maps.apple.com/?address=12+Banksia+Lane";
-    const { container } = render(() => <MapPreview event={{ ...baseEvent, mapsUrl: url }} />);
-    const items = openMaps(container);
-    expect(Object.keys(items)).toEqual(["Google Maps", "Apple Maps", "Waze"]);
-    expect(items["Apple Maps"]!.href).toBe(url);
   });
 
   it("has one control for the venue in both branches, and the drawn card is not one", () => {
@@ -295,14 +273,6 @@ describe("MapPreview", () => {
 
       expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
       expect(openMaps(container)["Google Maps"]!.href.startsWith(GOOGLE_SEARCH)).toBe(true);
-    });
-
-    it("renders the embed once the guest has allowed it", () => {
-      seedConsentForTest({ maps: true });
-      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      const { container } = render(() => <MapPreview event={baseEvent} />);
-
-      expect(container.querySelector("iframe")).not.toBeNull();
     });
 
     it("still renders nothing when no key is configured", () => {

@@ -122,7 +122,7 @@ export const NO_DELETION_APPS: DeletionAppsConfig = {
   local: true,
   urls: {},
   absent: new Set(),
-  arc: { kidSecret: undefined },
+  arc: { kidSecret: undefined, serviceSecret: undefined },
   previewTimeoutMs: PREVIEW_TIMEOUT_MS,
   fanoutTimeoutMs: FANOUT_TIMEOUT_MS,
 };
@@ -134,6 +134,7 @@ export interface DeletionAppsEnv {
   readonly ZAP_API_URL?: string;
   readonly CIRE_API_URL?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
+  readonly OSN_ARC_KID_SECRET?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
 }
 
@@ -168,7 +169,9 @@ const isUsableAppUrl = (url: string, local: boolean): boolean => {
  * `OSN_DELETION_ABSENT_APPS` that is no app, an app both given a URL and
  * declared absent, an app URL that is not `https:` (or, on a local run,
  * `http:` to a loopback host), or a deployed tier without
- * `INTERNAL_SERVICE_SECRET`, whose calls every app would refuse.
+ * `INTERNAL_SERVICE_SECRET`, whose calls every app holding only that secret
+ * would refuse. `OSN_ARC_KID_SECRET` is optional: unset, kids carry the
+ * service secret's MAC alone.
  */
 export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
   const local = !env.OSN_ENV || env.OSN_ENV === "local";
@@ -206,17 +209,19 @@ export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
     }
     urls[entry.app] = url.replace(/\/+$/, "");
   }
-  const kidSecret = env.INTERNAL_SERVICE_SECRET || undefined;
-  if (!local && !kidSecret) {
+  // Both secrets key the kid's MACs: an app checks the one it holds.
+  const kidSecret = env.OSN_ARC_KID_SECRET || undefined;
+  const serviceSecret = env.INTERNAL_SERVICE_SECRET || undefined;
+  if (!local && !serviceSecret) {
     throw new DeletionAppsConfigError(
-      "INTERNAL_SERVICE_SECRET must be set: apps refuse osn-api's ARC calls without its key-id MAC",
+      "INTERNAL_SERVICE_SECRET must be set: apps that hold only it refuse osn-api's ARC calls without its key-id MAC",
     );
   }
   return {
     local,
     urls,
     absent,
-    arc: { kidSecret },
+    arc: { kidSecret, serviceSecret },
     previewTimeoutMs: PREVIEW_TIMEOUT_MS,
     fanoutTimeoutMs: FANOUT_TIMEOUT_MS,
   };

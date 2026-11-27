@@ -3,7 +3,7 @@
  * ink and its mark on the warn wash, the one place Musubi paints warn as ink
  * (DESIGN.md §Status colours).
  *
- * No E2E flow opens Musubi's legal pages, so the look is held here, in a real
+ * No E2E flow checks the draft line's look, so it is held here, in a real
  * engine: the line's computed paint against a reference `Notice` rendered
  * beside it, in both themes. A line drawn by hand in look-alike classes still
  * fails on the mark and the word read in its place.

@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import openapi from "../../../shared/openapi/osn.json";
 import {
   createOrgClient,
+  type OrgCaller,
   type OrgClient,
   type OrgMember,
   type OrgSummary,
@@ -126,10 +127,12 @@ const ORG_MEMBER: Record<keyof OrgMember, true> = {
   joinedAt: true,
 };
 
+const ORG_CALLER: Record<keyof OrgCaller, true> = { role: true, owner: true };
+
 type Body<K extends keyof OrgClient> = Awaited<ReturnType<OrgClient[K]>>;
 
 const LIST_MY_ORGS: Record<keyof Body<"listMyOrgs">, true> = { organisations: true };
-const GET_ORG: Record<keyof Body<"getOrg">, true> = { organisation: true };
+const GET_ORG: Record<keyof Body<"getOrg">, true> = { organisation: true, caller: true };
 const CREATE_ORG: Record<keyof Body<"createOrg">, true> = { ok: true, organisation: true };
 const UPDATE_ORG: Record<keyof Body<"updateOrg">, true> = { ok: true, organisation: true };
 const LIST_MEMBERS: Record<keyof Body<"listMembers">, true> = { members: true };
@@ -188,6 +191,12 @@ describe("organisations client against shared/openapi/osn.json", () => {
     expect(
       fieldsOf(successBody("patch", "/organisations/{handle}").properties?.organisation),
     ).toEqual(expected);
+  });
+
+  it("OrgCaller names the fields of the caller's standing", () => {
+    expect(fieldsOf(successBody("get", "/organisations/{handle}").properties?.caller)).toEqual(
+      keysOf(ORG_CALLER),
+    );
   });
 
   it("OrgMember names the fields of a roster row", () => {

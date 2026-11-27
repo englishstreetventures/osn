@@ -87,7 +87,8 @@ const CIRE_COLOR = {
 /**
  * cire's radius roles, the same in both themes (englishstreetventures/osn#1821):
  * pill buttons, 14px text fields, 16px cards, and the 2, 6 and 10px steps for
- * the small marks — a checkbox or a tooltip stays small-cornered.
+ * the small marks — a checkbox or a tooltip stays small-cornered, and so does
+ * a menu row.
  */
 const CIRE_RADIUS = {
   "--ui-radius-hair": "2px",
@@ -101,6 +102,9 @@ const CIRE_RADIUS = {
   /* A sheet's grip is measured against the screen edge it is pulled from, not
      against a card's corner. */
   "--ui-radius-sheet": "28px",
+  /* cire maps no menu-row corner, so its menu rows take its 6px `sm`; without
+     `initial` a cire subtree would draw them at the lab's own mapping. */
+  "--ui-radius-menu-row": "initial",
 } as const satisfies Record<RadiusToken, string>;
 
 const CIRE_TEXT = {

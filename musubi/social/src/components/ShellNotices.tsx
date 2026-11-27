@@ -8,6 +8,7 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { osnAuth } from "../lib/auth";
 import { PageCacheScope } from "../lib/page-cache";
 import { useShellDialogs } from "./ShellDialogs";
+import { LOAD_FAILED } from "./ShellFrame";
 
 /**
  * What the shell says about the session itself, above every page.
@@ -23,6 +24,11 @@ import { useShellDialogs } from "./ShellDialogs";
  * **Profiles failed.** The account's profile list did not load. The shell
  * keeps the last list it had; this says the list is stale, and offers to list
  * again.
+ *
+ * **Sign-in failed to load.** Signed out, the sign-in and create-account
+ * dialogs' chunk did not load, so every Sign in stays invisible; this says to
+ * reload, in the shell frame's words. A load that succeeds later (the other
+ * shell's, after a crossing) takes it away.
  */
 export function ShellNotices() {
   const { session, profiles, profilesError, refetchProfiles } = useAuth();
@@ -39,6 +45,7 @@ export function ShellNotices() {
   });
 
   const listFailed = () => (session() && !signedOut() ? profilesError() : undefined);
+  const dialogsFailed = () => !session() && dialogs.failed();
 
   return (
     <>
@@ -48,7 +55,7 @@ export function ShellNotices() {
           cleared when the shell goes. In the shell's lazy chunk rather than
           the entry. */}
       <PageCacheScope />
-      <Show when={signedOut() || listFailed() !== undefined}>
+      <Show when={signedOut() || listFailed() !== undefined || dialogsFailed()}>
         <div class="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pt-6 md:px-8 md:pt-8">
           <Show when={signedOut()}>
             <Notice tone="info" size="sm" alert>
@@ -69,6 +76,11 @@ export function ShellNotices() {
                   Sign in
                 </Button>
               </div>
+            </Notice>
+          </Show>
+          <Show when={dialogsFailed()}>
+            <Notice tone="danger" size="inline" alert>
+              {LOAD_FAILED}
             </Notice>
           </Show>
           <Show when={listFailed() !== undefined}>

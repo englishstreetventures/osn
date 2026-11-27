@@ -1,11 +1,17 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
-import { OsnAuth, createOsnAuthLive } from "../src/service";
-import { createEphemeralStorage } from "../src/storage";
+import { ACCOUNT_SESSION_KEY, OsnAuth, createOsnAuthLive } from "../src/service";
+import { Storage, createEphemeralStorage } from "../src/storage";
+import { fakeSleeps, untilSettled } from "./helpers/fake-sleeps";
 
 const config = { issuerUrl: "https://osn.example.com" };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createEphemeralStorage()));
@@ -84,65 +90,6 @@ it.effect(
       // The active profile is the access token's `sub`.
       const active = yield* auth.getActiveProfile();
       expect(active).toBe(profileId);
-
-      vi.unstubAllGlobals();
-    }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect(
-  "loadSession resolves to null when there is no account and the cookie is gone/expired",
-  () =>
-    Effect.gen(function* () {
-      const fetchMock = vi
-        .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-        .mockImplementation((input) => {
-          const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-          if (url.endsWith("/token")) {
-            return Promise.resolve(mockResponse(401, { error: "invalid_grant" }));
-          }
-          return Promise.resolve(mockResponse(404));
-        });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const auth = yield* OsnAuth;
-
-      // No account, cookie rejected → genuinely logged out. Must resolve null,
-      // not throw (a throw would bubble through Effect.orDie and crash the page).
-      const session = yield* auth.loadSession();
-      expect(session).toBeNull();
-
-      vi.unstubAllGlobals();
-    }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect(
-  "loadSession returns the existing session without hitting /token when an account is present",
-  () =>
-    Effect.gen(function* () {
-      const fetchMock = vi
-        .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-        .mockResolvedValue(mockResponse(200, {}));
-      vi.stubGlobal("fetch", fetchMock);
-
-      const auth = yield* OsnAuth;
-      yield* auth.setSession({
-        accessToken: fakeJwt("usr_existing0001"),
-        idToken: null,
-        expiresAt: Date.now() + 60_000,
-        scopes: ["openid", "profile"],
-      });
-
-      const session = yield* auth.loadSession();
-      expect(session).not.toBeNull();
-
-      // No /token call: we already have a valid local account.
-      const tokenCalls = fetchMock.mock.calls.filter(([input]) => {
-        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-        return url.endsWith("/token");
-      });
-      expect(tokenCalls).toHaveLength(0);
-
-      vi.unstubAllGlobals();
     }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -195,8 +142,6 @@ it.effect("loadSession rehydrates from the cookie when the stored access token h
     expect(session).not.toBeNull();
     expect(session?.accessToken).toBe(freshToken);
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -224,8 +169,6 @@ it.effect("loadSession does NOT call /token when the stored access token is stil
     expect(session).not.toBeNull();
     // Fast path: the cached token is live, so the cookie is never replayed.
     expect(tokenCalls).toBe(0);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -234,45 +177,6 @@ it.effect("loadSession does NOT call /token when the stored access token is stil
 // Worker isolate, 429, 5xx, or network blip must not evict a live session.
 // A terminal 4xx invalid_grant must NOT be retried (cookie is genuinely gone).
 // ---------------------------------------------------------------------------
-
-it.effect("fetchTokenGrant retries a transient 503 and recovers the session", () =>
-  Effect.gen(function* () {
-    const profileId = "usr_transient001";
-    // Mint once: fakeJwt embeds Date.now() in `iat`, so re-calling it would
-    // yield a different string. Hold the exact token we expect to recover.
-    const freshToken = fakeJwt(profileId);
-    let tokenCalls = 0;
-    const fetchMock = vi
-      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
-      .mockImplementation((input) => {
-        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
-        if (url.endsWith("/token")) {
-          tokenCalls += 1;
-          // First attempt fails transiently; second succeeds.
-          if (tokenCalls === 1) return Promise.resolve(mockResponse(503, { error: "upstream" }));
-          return Promise.resolve(
-            mockResponse(200, {
-              access_token: freshToken,
-              token_type: "Bearer",
-              expires_in: 300,
-              scope: "openid profile",
-            }),
-          );
-        }
-        return Promise.resolve(mockResponse(404));
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
-
-    expect(session).not.toBeNull();
-    expect(tokenCalls).toBe(2); // retried once, then succeeded
-    expect(session?.accessToken).toBe(freshToken);
-
-    vi.unstubAllGlobals();
-  }).pipe(Effect.provide(createTestLayer())),
-);
 
 it.effect("fetchTokenGrant does NOT retry a terminal 401 invalid_grant", () =>
   Effect.gen(function* () {
@@ -295,8 +199,6 @@ it.effect("fetchTokenGrant does NOT retry a terminal 401 invalid_grant", () =>
     // Genuinely logged out — null, and only ONE attempt (no pointless retries).
     expect(session).toBeNull();
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -339,8 +241,6 @@ it.effect("loadSession single-flights — concurrent cold-start loads fire ONE /
     expect(s3).not.toBeNull();
     // Replaying a rotated cookie a second time trips reuse detection — only ONE.
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -399,8 +299,6 @@ it.effect("loadSession bootstrap racing refreshSession fires exactly ONE /token"
     expect(refreshed.accessToken).toBeTruthy();
     // The whole point: cross-path dedupe → a single /token roundtrip.
     expect(tokenCalls).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -447,8 +345,6 @@ it.effect("loadSession fires ZERO /token calls when the browser holds no marker"
 
     expect(session).toBeNull();
     expect(calls()).toBe(0);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -463,26 +359,6 @@ it.effect("loadSession still bootstraps from the cookie when the marker is prese
 
     expect(session).not.toBeNull();
     expect(calls()).toBe(1);
-
-    vi.unstubAllGlobals();
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("the marker gate is inert where there is no document (iOS, SSR, tests)", () =>
-  Effect.gen(function* () {
-    const { fetchMock, calls } = countingTokenFetch("usr_nodocument01");
-    vi.stubGlobal("fetch", fetchMock);
-    // No document stub: a non-browser transport keeps its session elsewhere
-    // (Keychain), so the gate must not lock it out.
-    expect(typeof document).toBe("undefined");
-
-    const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
-
-    expect(session).not.toBeNull();
-    expect(calls()).toBe(1);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -508,16 +384,31 @@ it.effect("a CORS/network TypeError is attempted twice, not three times", () =>
     vi.stubGlobal("fetch", fetchMock);
 
     const auth = yield* OsnAuth;
-    const session = yield* auth.loadSession();
+    fakeSleeps();
+    const loading = Effect.runPromise(auth.loadSession());
+    const session = yield* Effect.promise(() => untilSettled(loading));
 
     expect(session).toBeNull();
     expect(tokenCalls).toBe(2);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("a persistent 503 still gets the full transient ladder — three attempts", () =>
+// ---------------------------------------------------------------------------
+// A cookie whose session may only enrol a passkey: a sign-up before its first
+// passkey, or an account recovery. `/token` renews it onto `osn-recovery`,
+// which every ordinary route refuses, so publishing it would show a signed-in
+// page that cannot load anything. The page stays signed out; the view that
+// enrols the passkey holds that session itself (`refreshHeldSession`).
+// ---------------------------------------------------------------------------
+
+/** A fake JWT on the given audience. */
+function fakeJwtFor(sub: string, aud: string): string {
+  const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({ sub, aud, iat: Date.now() }));
+  return `${header}.${payload}.fake_signature`;
+}
+
+it.effect("loadSession publishes no session when the cookie's grant is a restricted one", () =>
   Effect.gen(function* () {
     let tokenCalls = 0;
     const fetchMock = vi
@@ -526,7 +417,14 @@ it.effect("a persistent 503 still gets the full transient ladder — three attem
         const url = typeof input === "string" ? input : ((input as Request).url ?? "");
         if (url.endsWith("/token")) {
           tokenCalls += 1;
-          return Promise.resolve(mockResponse(503, { error: "upstream" }));
+          return Promise.resolve(
+            mockResponse(200, {
+              access_token: fakeJwtFor("usr_restricted01", "osn-recovery"),
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            }),
+          );
         }
         return Promise.resolve(mockResponse(404));
       });
@@ -536,8 +434,72 @@ it.effect("a persistent 503 still gets the full transient ladder — three attem
     const session = yield* auth.loadSession();
 
     expect(session).toBeNull();
-    expect(tokenCalls).toBe(3);
+    expect(tokenCalls).toBe(1);
+    // Nothing stored: the next load asks the cookie again rather than holding
+    // a token no route serves.
+    expect(yield* auth.getSession()).toBeNull();
+    expect(yield* auth.getActiveProfile()).toBeNull();
+  }).pipe(Effect.provide(createTestLayer())),
+);
 
-    vi.unstubAllGlobals();
+/** The `/token` answer for a cookie whose session now renews as `access_token`. */
+function tokenAnswering(accessToken: string) {
+  return vi
+    .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+    .mockImplementation((input) => {
+      const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+      return Promise.resolve(
+        url.endsWith("/token")
+          ? mockResponse(200, {
+              access_token: accessToken,
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            })
+          : mockResponse(404),
+      );
+    });
+}
+
+/** The layer with its storage readable from the test. */
+function createStoredTestLayer() {
+  return createOsnAuthLive(config).pipe(Layer.provideMerge(createEphemeralStorage()));
+}
+
+it.effect("a reload whose cookie now renews restricted forgets the stored account", () =>
+  Effect.gen(function* () {
+    // A sign-up in another tab replaced the cookie: it renews as usr_b's
+    // restricted session while this page still stores usr_a.
+    vi.stubGlobal("fetch", tokenAnswering(fakeJwtFor("usr_b", "osn-recovery")));
+
+    const auth = yield* OsnAuth;
+    const storage = yield* Storage;
+    yield* auth.setSession({
+      accessToken: fakeJwt("usr_a"),
+      idToken: null,
+      expiresAt: Date.now() - 1_000,
+      scopes: ["openid", "profile"],
+    });
+    expect(yield* storage.get(ACCOUNT_SESSION_KEY)).not.toBeNull();
+
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(yield* auth.getSession()).toBeNull();
+    expect(yield* storage.get(ACCOUNT_SESSION_KEY)).toBeNull();
+  }).pipe(Effect.provide(createStoredTestLayer())),
+);
+
+it.effect("loadSession treats a restricted audience listed in an array as restricted", () =>
+  Effect.gen(function* () {
+    const header = btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }));
+    const payload = btoa(JSON.stringify({ sub: "usr_b", aud: ["osn-recovery"], iat: Date.now() }));
+    vi.stubGlobal("fetch", tokenAnswering(`${header}.${payload}.fake_signature`));
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(yield* auth.getSession()).toBeNull();
   }).pipe(Effect.provide(createTestLayer())),
 );

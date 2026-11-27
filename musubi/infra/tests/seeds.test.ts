@@ -3,16 +3,17 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { origin, stageHosts } from "@shared/infra";
+import { origin, PRODUCTION_HOSTS, stageHosts } from "@shared/infra";
 import { beforeAll, describe, expect, test } from "vitest";
 
 import { listMigrations, migrationStatements } from "../../../scripts/migration-files";
-import { osnSeedSql, SeedInputError } from "../src/seeds";
+import { cireManageDataUrl, osnSeedSql, SeedInputError } from "../src/seeds";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const readRepo = (path: string): string => readFileSync(join(repoRoot, path), "utf8");
 
 const CIRE_API_ORIGIN = origin(stageHosts("example.test", "dev").cireApi);
+const CIRE_ORGANISER_ORIGIN = origin(stageHosts("example.test", "dev").cireHost);
 const ARC_KEY_ID = "0b6f8f5e-2d1c-4c7a-9f3e-5a4b3c2d1e0f";
 /**
  * SHA-256("abc"), FIPS 180-2 appendix B.1: a hash of the shape the cire_seed
@@ -37,6 +38,7 @@ let sql = "";
 const seedOf = (overrides: Partial<Parameters<typeof osnSeedSql>[0]> = {}): string =>
   osnSeedSql({
     cireApiOrigin: CIRE_API_ORIGIN,
+    cireOrganiserOrigin: CIRE_ORGANISER_ORIGIN,
     clientSecretSha256: CLIENT_SECRET_SHA256,
     arcKeyId: ARC_KEY_ID,
     arcPublicJwk: publicJwk,
@@ -81,6 +83,7 @@ interface ClientRow {
   readonly allowed_scopes: string;
   readonly is_first_party: number;
   readonly disabled_at: number | null;
+  readonly manage_data_url: string | null;
 }
 
 interface KeyRow {
@@ -127,6 +130,52 @@ describe("osnSeedSql", () => {
       .query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'")
       .get();
     expect(JSON.parse(row?.redirect_uris ?? "null")).toEqual([`${CIRE_API_ORIGIN}${path}`]);
+  });
+
+  test("S11: cire's manage-your-data link is its organiser portal's removal screen", () => {
+    const db = migratedDb();
+    db.exec(sql);
+    const row = db
+      .query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'")
+      .get();
+    expect(row?.manage_data_url).toBe(`${CIRE_ORGANISER_ORIGIN}/#/remove-data`);
+  });
+
+  test("S12: the removal screen's route is the one cire's organiser portal reads", () => {
+    const route = readRepo("cire/host/src/lib/dashboard-route.ts");
+    expect(route).toMatch(/if \(route\.view === "remove-data"\) return "#\/remove-data";/);
+    expect(cireManageDataUrl("https://host.example.test")).toBe(
+      "https://host.example.test/#/remove-data",
+    );
+  });
+
+  test("S13: the link is canonical, so osn-api's read rule answers it", () => {
+    for (const host of [CIRE_ORGANISER_ORIGIN, origin(PRODUCTION_HOSTS.cireHost)]) {
+      const link = cireManageDataUrl(host);
+      expect(new URL(link).href).toBe(link);
+      expect(new URL(link).origin).toBe(host);
+    }
+  });
+
+  test("S14: the production statement in the runbook sets the link this builder makes from the production host", () => {
+    const runbook = readRepo("wiki/shared/production-deploy.md");
+    const link = cireManageDataUrl(origin(PRODUCTION_HOSTS.cireHost));
+    expect(runbook).toContain(
+      `UPDATE oauth_clients SET manage_data_url = '${link}' WHERE client_id = 'cid_cire';`,
+    );
+  });
+
+  test("S15: a re-import sets cid_cire's link to the stack's, as it sets its redirect URIs", () => {
+    const db = migratedDb();
+    db.exec(sql);
+    db.exec("UPDATE oauth_clients SET manage_data_url = NULL WHERE client_id = 'cid_cire'");
+
+    db.exec(sql);
+
+    const row = db
+      .query<ClientRow, []>("SELECT * FROM oauth_clients WHERE client_id = 'cid_cire'")
+      .get();
+    expect(row?.manage_data_url).toBe(`${CIRE_ORGANISER_ORIGIN}/#/remove-data`);
   });
 
   test("S5: identical inputs give identical bytes", () => {
@@ -201,6 +250,14 @@ describe("osnSeedSql", () => {
       "https://API.cire.example.test",
     ]) {
       expect(() => seedOf({ cireApiOrigin })).toThrow(SeedInputError);
+    }
+    for (const cireOrganiserOrigin of [
+      "http://host.cire.example.test",
+      "https://host.cire.example.test/",
+      "https://host.cire.example.test'",
+      "https://HOST.cire.example.test",
+    ]) {
+      expect(() => seedOf({ cireOrganiserOrigin })).toThrow(SeedInputError);
     }
     for (const clientSecretSha256 of [
       `${CLIENT_SECRET_SHA256.slice(0, 63)}'`,

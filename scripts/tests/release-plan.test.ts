@@ -1903,6 +1903,27 @@ describe("a production stack ships on its own record", () => {
     expect(sameStackContent("cire", ["cire/infra/a.ts"])).toBe(false);
     expect(sameStackContent("cire", ["musubi/infra/a.ts"])).toBe(true);
     expect(sameStackContent("cire", undefined)).toBe(false);
+    // A Bend law set beside the stack's files builds into nothing.
+    expect(sameStackContent("cire", ["cire/infra/laws/x/LAWS.bend"])).toBe(true);
+  });
+
+  test("a change only inside Bend law sets ships no stack and no surface", async () => {
+    await withRepo(async (repo) => {
+      const sets = (n: string) => ({
+        "cire/infra/laws/x/LAWS.bend": n,
+        "osn/api/laws/account-deletion/LAWS.bend": n,
+      });
+      const a = await commit(repo, sets("1"));
+      const b = await commit(repo, sets("2"));
+      const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs)).toMatchObject({
+        stack_cire: "false",
+        osn_api: "false",
+        cire_api: "false",
+        any_stack: "false",
+      });
+    });
   });
 
   test("RP13: the planner holds a stack whose paths dev has not deployed", async () => {

@@ -6,16 +6,19 @@ import { commands, page, userEvent } from "vitest/browser";
 import "../src/App.css";
 
 /**
- * The shell dialogs' chunk fails to load. The shell waits for it as well as
- * for its own chunk, so it never offers a Sign in that cannot open: the rail's
- * frame stays and says to reload, and the page beside it still renders. The
- * page's signed-out note holds its Sign in back too, keeping its place: the
- * note is as tall then as once the button shows.
+ * The shell dialogs' chunk fails to load. The shell does not wait for it: the
+ * rail draws on its own chunk, with its Sign in and Create account held
+ * `invisible` in the place they take, so it never offers a Sign in that cannot
+ * open. The page's signed-out note holds its Sign in back too, keeping its
+ * place: the note is as tall then as once the button shows. Above the page the
+ * shell says to reload.
  *
- * Then the network comes back and the window crosses 768px. The phone shell
- * loads the chunk again, and once it draws, its Sign in opens the dialog: the
- * dialogs mount on the load that succeeds, not only on the first. The note's
- * Sign in shows then, once, outside the note's `<output>`.
+ * Then the network comes back and the window crosses 768px. The phone shell,
+ * drawn after the failure, loads the chunk again, and its Sign in opens the
+ * dialog: the dialogs mount on the load that succeeds, not only on the first.
+ * The note's Sign in shows then, once, outside the note's `<output>`, and the
+ * reload line goes. Back at 1440px the rail's Sign in shows in the room it
+ * held.
  *
  * Its own file because the request fails for the whole page, and the page
  * keeps the dialogs' module once a load of it succeeds: a test before this one
@@ -25,13 +28,13 @@ import "../src/App.css";
  * Nothing a test can reach unloads that module, so a repeat of this test in
  * the same page (`--repeats`) finds the dialogs already in, and their chunk
  * cannot fail. A later run checks what the page holds then: with the request
- * still failing, the rail draws at once with its Sign in, and the note shows
- * its own. The failed load's alert, and a note that holds its Sign in back,
+ * still failing, the rail draws its Sign in at once, the note shows its own,
+ * and nothing says to reload. The failed load's line, and buttons held back,
  * are checked on the first run only. From the window crossing 768px on, every
- * run makes the same checks, but only the first run's closing height check
- * shows the note kept the room its Sign in takes: on a later run the note
- * never held the button back, so that check shows only that the note is
- * steady across the round trip to 390px.
+ * run makes the same checks, but only the first run's closing height checks
+ * show the rail's buttons and the note's kept the room they take: on a later
+ * run nothing was held back, so those checks show only that both are steady
+ * across the round trip to 390px.
  */
 
 vi.mock("@osn/client/solid", async () => {
@@ -104,7 +107,7 @@ vi.mock("@osn/auth-ui/Register", async () => {
 
 import { Layout } from "../src/App";
 import { SignedOutNote } from "../src/components/SignedOutNote";
-import { railChunks, topBarChunks } from "./test-support/shell-chunks";
+import { dialogChunk, railChunks, topBarChunks } from "./test-support/shell-chunks";
 
 // Set before each run, not once for the file: the test lifts the route part-way
 // through.
@@ -122,7 +125,17 @@ afterEach(async () => {
   }
 });
 
-it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a later load mounts them", async ({
+/**
+ * The shell's Sign in, drawn or held back, in the rail (`aside`) or the top
+ * bar (`header`). By its words: held back, it has no accessible name.
+ */
+const shellSignIn = (shell: "aside" | "header") =>
+  [...document.querySelectorAll<HTMLElement>(`${shell} button`)].find(
+    (b) => b.textContent === "Sign in",
+  );
+const shown = (element: Element) => getComputedStyle(element).visibility === "visible";
+
+it("draws the rail with its Sign in held back when the dialogs fail to load; a later load mounts them", async ({
   task,
 }) => {
   // Vitest's index of this repeat. A retry keeps its run's index, so a retry
@@ -143,23 +156,33 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
     </MemoryRouter>
   ));
 
-  // The dialogs' chunk cannot arrive on the first run. A later run finds it
-  // in the page already, so the rail's load needs no request.
-  const railLoad = await railChunks().then(
+  // The rail waits for its own chunk alone, so it loads either way. The
+  // dialogs' chunk cannot arrive on the first run; a later run finds it in
+  // the page already.
+  await railChunks();
+  const dialogsLoad = await dialogChunk().then(
     () => "loaded",
     () => "failed",
   );
-  expect(railLoad).toBe(first ? "failed" : "loaded");
-  const rail = () => within(document.querySelector("aside")!);
-  const settled = await waitFor(() =>
-    first ? rail().getByRole("alert") : rail().getByRole("button", { name: "Sign in" }),
-  );
-  expect(settled.closest("aside")!.getBoundingClientRect().width).toBe(240);
-  expect(screen.queryByRole("alert")?.textContent).toBe(
-    first ? "Musubi could not finish loading. Reload and try again." : undefined,
+  expect(dialogsLoad).toBe(first ? "failed" : "loaded");
+  const railSignIn = await waitFor(() => {
+    const button = shellSignIn("aside");
+    expect(button).toBeDefined();
+    return button!;
+  });
+  expect(railSignIn.closest("aside")!.getBoundingClientRect().width).toBe(240);
+  // The rail's two buttons, held back or shown, in one slot.
+  const slot = railSignIn.parentElement!;
+  const slotHeight = slot.getBoundingClientRect().height;
+  expect(slotHeight).toBeGreaterThan(0);
+  await waitFor(() =>
+    expect(screen.queryByRole("alert")?.textContent).toBe(
+      first ? "Error: Musubi could not finish loading. Reload and try again." : undefined,
+    ),
   );
   // A Sign in shows only where its dialog can open: on the first run neither
   // the shell's nor the note's, on a later run both.
+  expect(shown(railSignIn)).toBe(!first);
   expect(screen.queryAllByRole("button", { name: "Sign in" })).toHaveLength(first ? 0 : 2);
   expect(screen.getByRole("status").textContent).toBe("Sign in to discover people.");
   const note = screen.getByRole("status").parentElement!;
@@ -172,8 +195,10 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
 
   await commands.restoreRequests();
   await page.viewport(390, 844);
-  // The top bar's first load, and the dialogs' chunk fetched again.
+  // The top bar's first load; drawn after the failure, it fetches the
+  // dialogs' chunk again.
   await topBarChunks();
+  await dialogChunk();
   const signIn = await waitFor(() => {
     const button = screen
       .queryAllByRole("button", { name: "Sign in" })
@@ -186,6 +211,7 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   });
   expect(inNote).toHaveLength(1);
   expect(inNote[0]!.closest("output")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
   await userEvent.click(signIn);
   await waitFor(() =>
     expect(screen.getByRole("dialog", { name: "Sign in to Musubi" })).toBeDefined(),
@@ -193,17 +219,19 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-  // Back at the first width, where the rail now draws its own Sign in. On the
-  // first run the note's button shows in the room it held, so the note is no
-  // taller. On a later run the note never held its Sign in back, so this
-  // checks only that the note is steady across the round trip.
+  // Back at the first width, where the rail now shows its own Sign in. On
+  // the first run the rail's buttons and the note's show in the room they
+  // held, so neither is taller. On a later run nothing was held back, so this
+  // checks only that both are steady across the round trip.
   await page.viewport(1440, 900);
   await railChunks();
-  await waitFor(() => {
-    const inRail = screen
+  const railShown = await waitFor(() => {
+    const button = screen
       .queryAllByRole("button", { name: "Sign in" })
       .find((b) => b.closest("aside"));
-    expect(inRail).toBeDefined();
+    expect(button).toBeDefined();
+    return button!;
   });
+  expect(railShown.parentElement!.getBoundingClientRect().height).toBe(slotHeight);
   expect(note.getBoundingClientRect().height).toBe(noteHeight);
 });

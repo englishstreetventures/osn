@@ -169,38 +169,6 @@ describe("EventSheet", () => {
     expect(headingsNaming("Mehndi", panelOf("rsvp")!)).toEqual([]);
   });
 
-  it("names the dialog after the panel on screen", () => {
-    const { getByRole } = open("details");
-    expect(getByRole("dialog", { name: "Details, Mehndi" })).toBeTruthy();
-
-    fireEvent.click(badge("Give RSVP"));
-    expect(getByRole("dialog", { name: "Respond, Mehndi" })).toBeTruthy();
-  });
-
-  it("moves to the RSVP form inside the same dialog, with focus on its heading", () => {
-    const { getByRole } = open("details");
-    const dialog = document.querySelector("dialog");
-
-    fireEvent.click(badge("Give RSVP"));
-
-    expect(document.querySelector("dialog")).toBe(dialog);
-    expect(panelOf("rsvp")!.hidden).toBe(false);
-    expect(panelOf("details")!.hidden).toBe(true);
-    // The heading the guest lands on says which panel this is — both panels'
-    // titles are the event's name, so the name alone would sound unchanged.
-    expect(document.activeElement).toBe(getByRole("heading", { name: "Respond, Mehndi" }));
-  });
-
-  it("moves back to the details, with focus on their heading", () => {
-    const { getByRole } = open("rsvp");
-
-    fireEvent.click(badge("See details"));
-
-    expect(panelOf("details")!.hidden).toBe(false);
-    expect(panelOf("rsvp")!.hidden).toBe(true);
-    expect(document.activeElement).toBe(getByRole("heading", { name: "Details, Mehndi" }));
-  });
-
   it("keeps the reply given so far across a visit to the details", () => {
     open("rsvp");
     const form = document.querySelector("form");

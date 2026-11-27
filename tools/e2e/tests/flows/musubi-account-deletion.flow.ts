@@ -72,6 +72,9 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   await callOsnApiFrom(context, ACCOUNT_DELETION_ADDRESS);
   const authenticator = await addVirtualAuthenticator(page);
 
+  /** The drawn box's corner, read the first time "Delete everything" is ticked. */
+  let boxCorner: string | undefined;
+
   /** Deletes the account again from Settings, with "Delete everything". */
   const deleteEverything = (name: string) =>
     flow.step(name, async () => {
@@ -80,6 +83,10 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
       const everything = page.getByRole("checkbox", { name: "Delete everything" });
       await page.locator("label").filter({ has: everything }).click();
       await expect(everything).toBeChecked();
+      // The box is drawn beside the input, which is visually hidden.
+      boxCorner ??= await everything.evaluate(
+        (input) => getComputedStyle(input.nextElementSibling!).borderTopLeftRadius,
+      );
       await page.getByRole("button", { name: "Continue" }).click();
       await page.getByRole("textbox", { name: "Your handle" }).fill(P.handle);
       await page.getByRole("button", { name: "Delete my account" }).click();
@@ -422,6 +429,10 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   // once, and after Keep my account the sign-in carries on into cire.
   // -------------------------------------------------------------------------
   await deleteEverything("delete again, choosing to delete everything");
+  // `@shared/ui`'s drawn Checkbox keeps Musubi's 6px small corner: Musubi
+  // rounds its menu rows at 8px through their own role, never by raising the
+  // small corner, which would turn this 16px box round.
+  flow.check("delete everything: the drawn box keeps the 6px small corner", "6px", boxCorner ?? "");
   flow.check("delete everything stores no answers", true, storedChoices() === null);
   const second = (
     await mailFor(P.email, (m) => m.text.includes("so Cire deletes this as soon as it can"))
@@ -453,8 +464,17 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   await flow.step("keep the account on /authorize, then allow cire", async () => {
     await page.getByRole("button", { name: "Keep my account" }).click();
     await page.getByRole("button", { name: "Use passkey" }).click();
+    // The portal's list read is the flow's only one, and the deletion below
+    // leaves the page; awaited here, it is in the record on every run.
+    const listRead = page.waitForResponse(
+      (r) =>
+        r.request().method() === "GET" &&
+        r.url().startsWith(ORIGINS.cireApi) &&
+        new URL(r.url()).pathname === "/api/organiser/weddings",
+    );
     await page.getByRole("button", { name: "Allow" }).click();
     await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/weddings`);
+    await listRead;
   });
   await mailFor(P.email, (m) => m.subject === "Your Musubi account will not be deleted");
   flow.check("kept on /authorize, the account is live again", true, deletedAt() === null);

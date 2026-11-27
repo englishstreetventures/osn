@@ -971,10 +971,16 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     OVERVIEW,
     toModule("Overview"),
   );
+  // The by-event list alone, matched on the whole name: the agenda's rows
+  // name events too, once one falls inside its horizon.
   flow.check(
     "overview: the replies name the renamed event",
-    true,
-    await page.locator("li").filter({ hasText: cached.renamed }).first().isVisible(),
+    1,
+    await page
+      .getByRole("list", { name: "Attending by event", exact: true })
+      .getByRole("listitem")
+      .filter({ has: page.getByText(cached.renamed, { exact: true }) })
+      .count(),
   );
 
   // A reply recorded on the RSVP table, which the Overview shows unread.
@@ -997,15 +1003,18 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   );
   flow.check("RSVPs: the reply is recorded", 200, recorded);
   await logged("overview, after a reply was recorded", "", OVERVIEW, toModule("Overview"));
+  // The figure is recorded, so a red run says what the row counted.
   flow.check(
     "overview: the Ceremony counts the recorded reply",
-    true,
-    await page
-      .locator("li")
-      .filter({ hasText: cached.ceremony })
-      .filter({ hasText: "2 attending" })
-      .first()
-      .isVisible(),
+    "2",
+    (
+      await page
+        .getByRole("list", { name: "Attending by event", exact: true })
+        .getByRole("listitem")
+        .filter({ has: page.getByText(cached.ceremony, { exact: true }) })
+        .getByText(/^\d+$/)
+        .allInnerTexts()
+    ).join(" "),
   );
   // Time moves again, from the suite's clock, for the steps that follow.
   await page.clock.setSystemTime(suiteNow());

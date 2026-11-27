@@ -10,9 +10,14 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  noticeDigest,
+  parseChangeNotices,
+} from "../../osn/api/src/services/change-notice-registry";
 import { PRODUCTION_HOSTS } from "../../shared/infra/src/production-sites";
 import { listMigrations, migrationStatements } from "../migration-files";
 import {
+  CHANGE_NOTICES_FILE,
   countSql,
   type Deps,
   generatePublicJwk,
@@ -1128,6 +1133,362 @@ describe("register-cire-arc", () => {
 
 // ── the command line ────────────────────────────────────────────────────────
 
+// ── change notices ──────────────────────────────────────────────────────────
+
+const NOTICE_ID = "privacy-2027-01";
+const NOTICE_REGISTRY = {
+  [NOTICE_ID]: {
+    document: "privacy notice",
+    path: "/privacy",
+    takesEffect: "2027-01-01",
+    changes: ["We now keep sign-in records for 12 months, not 6."],
+  },
+};
+const NOTICE_DIGEST = await noticeDigest(parseChangeNotices(NOTICE_REGISTRY).get(NOTICE_ID)!);
+
+describe("check-notice and send-change-notice", () => {
+  const NOTICE_BEARER = "change-notice-secret-for-tests-0123456789abcdef";
+  const SEND = `POST https://${PRODUCTION_HOSTS.osnApi}/internal/change-notices/${NOTICE_ID}/send`;
+  const REGISTRY = NOTICE_REGISTRY;
+  const DIGEST = NOTICE_DIGEST;
+  const at = (registry: unknown) => (_: string, path: string) =>
+    path === CHANGE_NOTICES_FILE ? JSON.stringify(registry) : undefined;
+  const inputs = {
+    NOTICE_ID,
+    DRY_RUN: "false",
+    RESEND_UNCONFIRMED: "false",
+    MAX_SENDS: "250",
+    GITHUB_TOKEN: GH_TOKEN,
+    GITHUB_REPOSITORY: "englishstreetventures/osn",
+  };
+  const sendEnv = {
+    ...inputs,
+    OSN_CHANGE_NOTICE_SECRET: NOTICE_BEARER,
+    EXPECTED_OSN_COMMIT: OSN_COMMIT,
+    EXPECTED_NOTICE_DIGEST: DIGEST,
+  };
+  const sent = (n: number, sentSoFar: number) =>
+    json(200, { ok: true, finished: false, sent: n, failed: 0, sentSoFar, failedSoFar: 0 });
+  const finished = (sentSoFar: number) =>
+    json(200, { ok: true, finished: true, sent: 0, failed: 0, sentSoFar, failedSoFar: 0 });
+  const bodies = (h: Harness) => h.sent.map((s) => JSON.parse(s.body ?? "{}"));
+  const clean = (h: Harness) => {
+    expectClean(h);
+    expect(h.text()).not.toContain(NOTICE_BEARER);
+  };
+
+  test("N1: check-notice refuses bad inputs before reading anything", async () => {
+    for (const env of [
+      { ...inputs, NOTICE_ID: "Privacy_2027" },
+      { ...inputs, NOTICE_ID: "" },
+      { ...inputs, DRY_RUN: "yes" },
+      { ...inputs, RESEND_UNCONFIRMED: "" },
+      { ...inputs, MAX_SENDS: "" },
+      { ...inputs, MAX_SENDS: "0" },
+      { ...inputs, MAX_SENDS: "100001" },
+      { ...inputs, MAX_SENDS: "1e3" },
+      { ...inputs, MAX_SENDS: "-5" },
+    ]) {
+      let read = false;
+      const h = harness({
+        env,
+        deps: {
+          productionCommits: async () => {
+            read = true;
+            return new Map();
+          },
+        },
+      });
+      expect({ env, code: await run(["check-notice"], h.deps) }).toEqual({ env, code: 2 });
+      expect(read).toBe(false);
+    }
+  });
+
+  test("N2: check-notice reads the registry at the commit production osn-api runs, and shows the notice in full", async () => {
+    const h = harness({ env: inputs, show: at(REGISTRY) });
+    expect(await run(["check-notice"], h.deps)).toBe(0);
+    expect(h.shown).toEqual([{ commit: OSN_COMMIT, path: CHANGE_NOTICES_FILE }]);
+    const text = h.text();
+    for (const part of [
+      NOTICE_ID,
+      "privacy notice",
+      "/privacy",
+      "2027-01-01",
+      REGISTRY[NOTICE_ID].changes[0]!,
+      DIGEST,
+      "250",
+    ]) {
+      expect(text).toContain(part);
+    }
+    expect(h.files.get("/github/output")).toBe(
+      `osn_commit=${OSN_COMMIT}\nnotice_digest=${DIGEST}\n`,
+    );
+    expect(text).not.toContain("::warning::");
+  });
+
+  test("N3: check-notice refuses a notice production osn-api does not hold, or a registry it cannot read", async () => {
+    for (const show of [at({}), at("not an object"), () => undefined, () => "{"]) {
+      const h = harness({ env: inputs, show });
+      expect(await run(["check-notice"], h.deps)).toBe(1);
+      expect(h.files.get("/github/output")).toBeUndefined();
+    }
+  });
+
+  test("N4: check-notice warns when the notice takes effect in under 30 days, and refuses one already in effect", async () => {
+    const soon = { [NOTICE_ID]: { ...REGISTRY[NOTICE_ID], takesEffect: "2026-12-01" } };
+    const warned = harness({ env: inputs, show: at(soon) });
+    expect(await run(["check-notice"], warned.deps)).toBe(0);
+    expect(warned.text()).toContain("::warning::");
+    const past = { [NOTICE_ID]: { ...REGISTRY[NOTICE_ID], takesEffect: "2026-11-01" } };
+    const refused = harness({ env: inputs, show: at(past) });
+    expect(await run(["check-notice"], refused.deps)).toBe(1);
+    expect(refused.files.get("/github/output")).toBeUndefined();
+  });
+
+  test("N5: send refuses before any request when production moved off the commit or the words the approver saw", async () => {
+    for (const env of [
+      { ...sendEnv, EXPECTED_OSN_COMMIT: "c".repeat(40) },
+      { ...sendEnv, EXPECTED_NOTICE_DIGEST: "0".repeat(64) },
+    ]) {
+      const h = harness({ env, show: at(REGISTRY) });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      expect(h.sent).toEqual([]);
+    }
+  });
+
+  test("N6: a dry run is one POST with the bearer, the CI user agent, no redirect and the digest, and prints counts", async () => {
+    const h = harness({
+      env: { ...sendEnv, DRY_RUN: "true" },
+      show: at(REGISTRY),
+      routes: {
+        [SEND]: [
+          json(200, {
+            ok: true,
+            dryRun: true,
+            finished: false,
+            toSend: 1234,
+            skipped: 2,
+            sentSoFar: 0,
+            failedSoFar: 0,
+            unconfirmed: 0,
+          }),
+        ],
+      },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(0);
+    expect(h.sent).toHaveLength(1);
+    const [call] = h.sent;
+    expect(call?.headers.get("authorization")).toBe(`Bearer ${NOTICE_BEARER}`);
+    expect(call?.headers.get("user-agent")).toBe(CI_USER_AGENT);
+    expect(call?.redirect).toBe("manual");
+    expect(bodies(h)).toEqual([{ dryRun: true, expect: DIGEST }]);
+    expect(h.text()).toContain("1234");
+    clean(h);
+  });
+
+  test("N7: a live run sends batch after batch, a second apart, until finished", async () => {
+    const waits: number[] = [];
+    const h = harness({
+      env: sendEnv,
+      show: at(REGISTRY),
+      deps: { sleep: async (ms) => void waits.push(ms) },
+      routes: { [SEND]: [sent(100, 100), sent(50, 150), finished(150)] },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(0);
+    expect(bodies(h)).toEqual([
+      { dryRun: false, expect: DIGEST, limit: 100 },
+      { dryRun: false, expect: DIGEST, limit: 100 },
+      { dryRun: false, expect: DIGEST, limit: 100 },
+    ]);
+    expect(waits.filter((ms) => ms >= 1_000)).toHaveLength(2);
+    expect(h.text()).toContain("150");
+    clean(h);
+  });
+
+  test("N8: max_sends caps every call, and the run stops cleanly when it is reached", async () => {
+    const h = harness({
+      env: { ...sendEnv, MAX_SENDS: "130" },
+      show: at(REGISTRY),
+      routes: { [SEND]: [sent(100, 100), sent(30, 130)] },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(0);
+    expect(bodies(h).map((b) => b.limit)).toEqual([100, 30]);
+    expect(h.text()).toContain("max_sends");
+  });
+
+  test("N9: resend_unconfirmed goes on the first call only, and a later unconfirmed batch stops the run", async () => {
+    const h = harness({
+      env: { ...sendEnv, RESEND_UNCONFIRMED: "true" },
+      show: at(REGISTRY),
+      routes: {
+        [SEND]: [sent(100, 100), json(409, { error: "unconfirmed_batch", unconfirmed: 100 })],
+      },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(1);
+    expect(bodies(h).map((b) => b.resendUnconfirmed)).toEqual([true, undefined]);
+    expect(h.text()).toContain("resend_unconfirmed");
+    expect(h.text()).toContain("100");
+  });
+
+  test("N9b: resend_unconfirmed is not sent again on the retry of a first call whose answer was lost", async () => {
+    const h = harness({
+      env: { ...sendEnv, RESEND_UNCONFIRMED: "true" },
+      show: at(REGISTRY),
+      routes: { [SEND]: [json(503, { error: "unknown_outcome" }), sent(1, 1), finished(1)] },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(0);
+    expect(bodies(h).map((b) => b.resendUnconfirmed)).toEqual([true, undefined, undefined]);
+  });
+
+  test("N10: a 429 waits 30, 60 and 120 seconds, then stops with the resume hint", async () => {
+    const waits: number[] = [];
+    const limited = () => json(429, { error: "rate_limited" });
+    const h = harness({
+      env: sendEnv,
+      show: at(REGISTRY),
+      deps: { sleep: async (ms) => void waits.push(ms) },
+      routes: { [SEND]: [limited(), limited(), limited(), limited()] },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(1);
+    expect(waits).toEqual([30_000, 60_000, 120_000]);
+    expect(h.sent).toHaveLength(4);
+    expect(h.text()).toContain("dispatch again");
+  });
+
+  test("N11: an unknown outcome or a busy answer is retried, then stops", async () => {
+    const waits: number[] = [];
+    const h = harness({
+      env: sendEnv,
+      show: at(REGISTRY),
+      deps: { sleep: async (ms) => void waits.push(ms) },
+      routes: {
+        [SEND]: [
+          json(503, { error: "unknown_outcome" }),
+          json(409, { error: "busy" }),
+          new TypeError("socket hang up"),
+          json(503, { error: "unknown_outcome" }),
+        ],
+      },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(1);
+    expect(waits).toEqual([5_000, 10_000, 20_000]);
+    clean(h);
+  });
+
+  test("N12: an unconfirmed batch on the first call stops at once with its count and the input that resends it", async () => {
+    const h = harness({
+      env: sendEnv,
+      show: at(REGISTRY),
+      routes: { [SEND]: [json(409, { error: "unconfirmed_batch", unconfirmed: 37 })] },
+    });
+    expect(await run(["send-change-notice"], h.deps)).toBe(1);
+    expect(h.sent).toHaveLength(1);
+    expect(h.text()).toContain("37");
+    expect(h.text()).toContain("resend_unconfirmed");
+  });
+
+  test("N13: an answer it does not read stops the run and prints nothing from it", async () => {
+    for (const answer of [
+      json(200, { ok: true, finished: false, sent: 1.5, failed: 0, sentSoFar: 1, failedSoFar: 0 }),
+      json(200, { ok: true, finished: false, sent: -1, failed: 0, sentSoFar: 1, failedSoFar: 0 }),
+      json(200, { ok: true, finished: false, sent: 1, failed: 0, sentSoFar: 1, note: CANARY }),
+      json(200, { ok: false }),
+      json(409, { error: CANARY }),
+      new Response(CANARY, { status: 200 }),
+    ]) {
+      const h = harness({ env: sendEnv, show: at(REGISTRY), routes: { [SEND]: [answer] } });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      clean(h);
+    }
+  });
+
+  test("N15: a commit lookup that fails, names no osn-api commit or a malformed one refuses before any request", async () => {
+    for (const productionCommits of [
+      async () => {
+        throw new TypeError(`${CANARY} lookup`);
+      },
+      async () => new Map([["cire_api", CIRE_COMMIT]]),
+      async () => new Map([["osn_api", "not-a-sha"]]),
+    ]) {
+      for (const action of ["check-notice", "send-change-notice"]) {
+        const h = harness({ env: sendEnv, show: at(REGISTRY), deps: { productionCommits } });
+        expect(await run([action], h.deps)).toBe(1);
+        expect(h.sent).toEqual([]);
+        expect(h.files.get("/github/output")).toBeUndefined();
+        clean(h);
+      }
+    }
+  });
+
+  test("N16: a malformed expected commit or digest is a usage error before any read", async () => {
+    for (const env of [
+      { ...sendEnv, EXPECTED_OSN_COMMIT: "abc" },
+      { ...sendEnv, EXPECTED_NOTICE_DIGEST: "ABC" },
+      { ...sendEnv, EXPECTED_NOTICE_DIGEST: "" },
+    ]) {
+      let read = false;
+      const h = harness({
+        env,
+        show: at(REGISTRY),
+        deps: {
+          productionCommits: async () => {
+            read = true;
+            return new Map();
+          },
+        },
+      });
+      expect(await run(["send-change-notice"], h.deps)).toBe(2);
+      expect(read).toBe(false);
+    }
+  });
+
+  test("N17: a dry run osn-api refuses or answers in another form stops with nothing printed from it", async () => {
+    for (const answer of [
+      json(401, { error: "Unauthorized" }),
+      json(200, { ok: true, finished: false, sent: 0, failed: 0, sentSoFar: 0, failedSoFar: 0 }),
+      json(200, { ok: true, dryRun: true, toSend: 1, note: CANARY }),
+      new TypeError(`${CANARY} socket`),
+    ]) {
+      const h = harness({
+        env: { ...sendEnv, DRY_RUN: "true" },
+        show: at(REGISTRY),
+        routes: { [SEND]: [answer] },
+      });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      expect(h.sent).toHaveLength(1);
+      clean(h);
+    }
+  });
+
+  test("N18: Resend refusing a batch, keyed batches missing, and a registry that does not parse each stop the run with a fixed hint", async () => {
+    for (const [answer, hint] of [
+      [json(502, { error: "refused" }), "Resend refused the batch"],
+      [json(501, { error: "no_batch_transport" }), "keyed batches"],
+      [json(500, { error: "bad_registry" }), "does not parse"],
+    ] as const) {
+      const h = harness({ env: sendEnv, show: at(REGISTRY), routes: { [SEND]: [answer] } });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      expect(h.text()).toContain(hint);
+      clean(h);
+    }
+  });
+
+  test("N14: words that changed since the approval, a missing notice, or the route switched off stop the run with a fixed hint", async () => {
+    for (const [answer, hint] of [
+      [json(409, { error: "notice_changed" }), "words"],
+      [json(404, { error: "unknown_notice" }), "release"],
+      [json(501, { error: "Change notices are off on this instance" }), "OSN_CHANGE_NOTICE_SECRET"],
+      [json(401, { error: "Unauthorized" }), "OSN_CHANGE_NOTICE_SECRET"],
+      [json(409, { error: "pending_exceeds_limit", pending: 100 }), "max_sends"],
+    ] as const) {
+      const h = harness({ env: sendEnv, show: at(REGISTRY), routes: { [SEND]: [answer] } });
+      expect(await run(["send-change-notice"], h.deps)).toBe(1);
+      expect(h.text()).toContain(hint);
+      clean(h);
+    }
+  });
+});
+
 describe("the command line", () => {
   async function cli(args: string[]) {
     const proc = Bun.spawn(["bun", "--no-install", "scripts/production-operator.ts", ...args], {
@@ -1150,6 +1511,8 @@ describe("the command line", () => {
       ["plan-register", "GITHUB_TOKEN"],
       ["register-cire-arc", "INTERNAL_SERVICE_SECRET"],
       ["count-deletion-fanouts", "WINDOW_START"],
+      ["check-notice", "NOTICE_ID"],
+      ["send-change-notice", "OSN_CHANGE_NOTICE_SECRET"],
     ] as const) {
       const result = await cli([action]);
       expect({ action, exitCode: result.exitCode }).toEqual({ action, exitCode: 2 });
@@ -1166,7 +1529,7 @@ describe("the command line", () => {
     });
     expect(await run(["check-window", "--force"], h.deps)).toBe(2);
     expect(h.out).toEqual([
-      "::error::production-operator: usage: production-operator.ts <check-window|plan-register|register-cire-arc|count-deletion-fanouts>",
+      "::error::production-operator: usage: production-operator.ts <check-window|plan-register|register-cire-arc|count-deletion-fanouts|check-notice|send-change-notice>",
     ]);
   });
 });
@@ -1211,7 +1574,7 @@ describe("the workflow", () => {
       { type?: string; options?: string[]; default?: unknown; required?: boolean }
     >;
   };
-  const ACTIONS = ["count-deletion-fanouts", "register-cire-arc"];
+  const ACTIONS = ["count-deletion-fanouts", "register-cire-arc", "send-change-notice"];
   const secretsRead = (fragment: unknown): string[] =>
     [
       ...new Set(
@@ -1270,6 +1633,33 @@ describe("the workflow", () => {
         secrets: ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
       },
     ]);
+    expect(reading("send-change-notice")).toEqual([
+      {
+        run: "bun --no-install scripts/production-operator.ts send-change-notice",
+        secrets: ["OSN_CHANGE_NOTICE_SECRET"],
+      },
+    ]);
+  });
+
+  test("F9: send-change-notice runs one at a time, never cancels a run in progress, and sends what the check job showed", () => {
+    expect(workflow.jobs["send-change-notice"]?.concurrency).toEqual({
+      group: "production-operator-send-change-notice",
+      "cancel-in-progress": false,
+    });
+    expect(dispatch.inputs.dry_run).toMatchObject({ type: "boolean", default: true });
+    expect(dispatch.inputs.resend_unconfirmed).toMatchObject({ type: "boolean", default: false });
+    expect(dispatch.inputs.max_sends?.default).toBeUndefined();
+    const send = steps("send-change-notice").find((step) => step.run?.includes("scripts/"));
+    expect(send?.env).toEqual({
+      OSN_CHANGE_NOTICE_SECRET: "${{ secrets.OSN_CHANGE_NOTICE_SECRET }}",
+      NOTICE_ID: "${{ inputs.notice_id }}",
+      DRY_RUN: "${{ inputs.dry_run }}",
+      RESEND_UNCONFIRMED: "${{ inputs.resend_unconfirmed }}",
+      MAX_SENDS: "${{ inputs.max_sends }}",
+      EXPECTED_OSN_COMMIT: "${{ needs.check.outputs.osn_commit }}",
+      EXPECTED_NOTICE_DIGEST: "${{ needs.check.outputs.notice_digest }}",
+      GITHUB_TOKEN: "${{ github.token }}",
+    });
   });
 
   test("F8: register-cire-arc runs one at a time and never cancels a run in progress, so the last list stored comes from the newest read", () => {
@@ -1323,10 +1713,24 @@ describe("the workflow", () => {
         run: "bun --no-install scripts/production-operator.ts plan-register",
         env: { GITHUB_TOKEN: "${{ github.token }}" },
       },
+      {
+        id: "notice",
+        if: "inputs.action == 'send-change-notice'",
+        run: "bun --no-install scripts/production-operator.ts check-notice",
+        env: {
+          NOTICE_ID: "${{ inputs.notice_id }}",
+          DRY_RUN: "${{ inputs.dry_run }}",
+          RESEND_UNCONFIRMED: "${{ inputs.resend_unconfirmed }}",
+          MAX_SENDS: "${{ inputs.max_sends }}",
+          GITHUB_TOKEN: "${{ github.token }}",
+        },
+      },
     ]);
     expect((workflow.jobs.check as { outputs?: unknown }).outputs).toMatchObject({
       commit: "${{ steps.plan.outputs.commit }}",
       method: "${{ steps.plan.outputs.method }}",
+      osn_commit: "${{ steps.notice.outputs.osn_commit }}",
+      notice_digest: "${{ steps.notice.outputs.notice_digest }}",
     });
     expect(scriptSteps("register-cire-arc")[0]?.env).toEqual({
       INTERNAL_SERVICE_SECRET: "${{ secrets.INTERNAL_SERVICE_SECRET }}",
@@ -1343,9 +1747,12 @@ describe("the workflow", () => {
     // `0` is false in an expression, so the condition is on the other side.
     const depth = (job: string) =>
       steps(job).find((step) => step.uses?.startsWith("actions/checkout@"))?.with?.["fetch-depth"];
-    expect(depth("check")).toBe("${{ inputs.action != 'register-cire-arc' && 1 || 0 }}");
+    expect(depth("check")).toBe(
+      "${{ inputs.action != 'register-cire-arc' && inputs.action != 'send-change-notice' && 1 || 0 }}",
+    );
     expect(depth("register-cire-arc")).toBe(0);
-    for (const job of ["check", "register-cire-arc"]) {
+    expect(depth("send-change-notice")).toBe(0);
+    for (const job of ["check", "register-cire-arc", "send-change-notice"]) {
       expect(workflow.jobs[job]?.permissions).toEqual({
         contents: "read",
         deployments: "read",

@@ -79,15 +79,19 @@ export type RunPasskeyRegistration = (
  *
  * This mirrors the **defaults** in `osn/api/src/services/auth/context.ts`
  * (`recoveryGenerateAllowedAmr`, `passkeyRegisterAllowedAmr`,
- * `passkeyDeleteAllowedAmr`, `emailChangeAllowedAmr`). Three of those four are
- * `AuthConfig` fields, so a deployment that narrows one reintroduces the dead
- * end here; no deployment sets them today.
+ * `passkeyDeleteAllowedAmr`, `emailChangeAllowedAmr`, `appDeleteAllowedAmr`).
+ * Three of those five are `AuthConfig` fields, so a deployment that narrows one
+ * reintroduces the dead end here; no deployment sets them today.
  *
- * The two `false` entries each have a reason worth keeping:
+ * The `false` entries each have a reason worth keeping:
  * `passkey_delete` (which gates rename as well) stays WebAuthn-only because
  * the caller necessarily holds a passkey already, so requiring one costs
- * nothing; `email_change` admits the emailed link because it proves control of
- * the current mailbox, which an authenticator seed does not.
+ * nothing; removing an app's data (`pulse_app_delete`, `zap_app_delete`,
+ * `cire_app_delete`) takes a passkey, and one added by emailed link,
+ * authenticator code or recovery only once it is 72 hours old, which the gate
+ * checks and the host explains; `email_change` admits the emailed link because
+ * it proves control of the current mailbox, which an authenticator seed does
+ * not.
  */
 const PURPOSE_FACTORS = {
   recovery_generate: { email: true, totp: true },
@@ -95,9 +99,9 @@ const PURPOSE_FACTORS = {
   account_delete: { email: true, totp: true },
   account_export: { email: true, totp: true },
   account_restore: { email: true, totp: true },
-  pulse_app_delete: { email: true, totp: true },
-  zap_app_delete: { email: true, totp: true },
-  cire_app_delete: { email: true, totp: true },
+  pulse_app_delete: { email: false, totp: false },
+  zap_app_delete: { email: false, totp: false },
+  cire_app_delete: { email: false, totp: false },
   passkey_register: { email: true, totp: true },
   totp_enroll: { email: true, totp: true },
   totp_disable: { email: true, totp: true },
@@ -121,19 +125,44 @@ const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a
 
 /**
  * How long after closing the sheet hands its outcome over even though its
- * exit has not ended. The exit is the host's: below `md` the sheet slides down,
- * or under reduced motion fades, over `--ui-dur-base` (200ms unless the host
- * retimes it), and from `md` the card fades over `--ui-dur-exit` (80ms in
- * Musubi). This must stay above the
- * longer of the two, or the outcome arrives while the sheet is still on its
- * way out. A tab the browser has hidden runs no animation, so its end never
- * comes; without this the token would wait for the person to come back.
+ * exit has not ended, at least. The exit is the host's: below `md` the sheet
+ * slides down, or under reduced motion fades, over `--ui-dur-base` (200ms
+ * unless the host retimes it), and from `md` the card fades over
+ * `--ui-dur-exit` (80ms in Musubi). A sheet dragged down and let go leaves on
+ * a spring instead, as long as its release needs (about 300 to 460ms), which
+ * it writes as the panel's `animation-duration`; so the wait is this or that
+ * run plus {@link EXIT_MARGIN_MS}, whichever is longer, read as the sheet
+ * closes. It must stay above the exit, or the outcome arrives while the sheet
+ * is still on its way out. A tab the browser has hidden runs no animation, so
+ * its end never comes; without this the token would wait for the person to
+ * come back.
  *
  * The outcome waits for the exit so that a host which removes the sheet on it
  * never cuts the exit short. The host's own request starts only then, so a
  * step-up below `md` reaches its host the slide's length after the confirm.
  */
 const EXIT_FALLBACK_MS = 300;
+/** How far past the exit's own length the fallback waits, so the exit's end comes first. */
+const EXIT_MARGIN_MS = 100;
+/**
+ * The longest exit the fallback waits out: the longest settle a drag's spring
+ * can run (`settleCurve`, `@shared/ui/lib/spring`). A stylesheet that gives the
+ * panel a longer run cannot hold the outcome back past it, so a token is never
+ * handed over long after the person confirmed.
+ */
+const EXIT_RUN_CAP_MS = 2000;
+
+/**
+ * The exit `panel` runs now it has closed, in ms, as its computed style gives
+ * it, at most {@link EXIT_RUN_CAP_MS}; 0 when none.
+ */
+function exitRunMs(panel: Element | undefined): number {
+  if (!panel?.isConnected) return 0;
+  const run = getComputedStyle(panel).animationDuration.split(",")[0]!.trim();
+  const n = Number.parseFloat(run);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(EXIT_RUN_CAP_MS, run.endsWith("ms") ? n : n * 1000);
+}
 
 /**
  * The step-up (sudo) ceremony, as a sheet: it asks for a fresh factor before a
@@ -283,6 +312,8 @@ export function StepUpDialog(props: StepUpDialogProps) {
   let outcome: (() => void) | undefined;
   let fallback: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
+  // The sheet's panel, whose exit run the fallback outwaits.
+  let panel: HTMLDivElement | undefined;
   onCleanup(() => {
     disposed = true;
     clearTimeout(fallback);
@@ -342,7 +373,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     outcome = deliver;
     endEmailWait();
     setOpen(false);
-    fallback = setTimeout(handOver, EXIT_FALLBACK_MS);
+    fallback = setTimeout(handOver, Math.max(EXIT_FALLBACK_MS, exitRunMs(panel) + EXIT_MARGIN_MS));
   }
 
   function handOver() {
@@ -636,13 +667,21 @@ export function StepUpDialog(props: StepUpDialogProps) {
   return (
     <Dialog
       open={open()}
-      // Escape and a press outside close it, as Cancel does — but never while
-      // a call the sheet started runs, since Cancel is disabled then too.
+      // Escape, a press outside and a drag down close it, as Cancel does —
+      // but never while a call the sheet started runs, since Cancel is
+      // disabled then too: `dismissible` refuses them at the panel, and
+      // `cancel()` refuses again here.
       onOpenChange={(next) => {
         if (!next) cancel();
       }}
     >
-      <DialogContent presentation="sheet" class="md:max-w-sm" {...focusHooks}>
+      <DialogContent
+        ref={(el) => (panel = el)}
+        presentation="sheet"
+        class="md:max-w-sm"
+        dismissible={!busy()}
+        {...focusHooks}
+      >
         <OnUnmount onGone={() => queueMicrotask(handOver)} />
         {/* A title can carry a passkey's name, one word of up to 64
             characters; `AuthHeader` breaks it anywhere. */}

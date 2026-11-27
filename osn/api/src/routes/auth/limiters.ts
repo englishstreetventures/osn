@@ -352,6 +352,14 @@ export const OSN_RATE_LIMITS = {
   // unauthenticated flood from spending token-verification time.
   accountExport: { store: "account.export", maxRequests: 1, windowMs: DAY_MS },
   accountExportIp: { store: "account.export_ip", maxRequests: 30, windowMs: MINUTE_MS },
+  // `GET /.well-known/arc-jwks.json`, which anyone may call. The minute
+  // budget, per IP or per configured app zone, turns a flood away at the edge,
+  // and also budgets the asks for one key osn-api cannot verify, and a direct
+  // caller's asks. The hour budget bounds the whole list's reads, about 2,000
+  // rows a call when the key set is full: one budget every IP shares, and one
+  // per app zone for apps that still fetch the list.
+  arcJwksIp: { store: "arc.jwks_ip", maxRequests: 30, windowMs: MINUTE_MS },
+  arcJwksIpHour: { store: "arc.jwks_ip_hour", maxRequests: 60, windowMs: HOUR_MS },
   // Per IP: `routes/account-erasure.ts` keys each on the caller's address.
   // Deletion is a destructive ceremony; the step-up gate is the primary
   // defence and these only curb noise.

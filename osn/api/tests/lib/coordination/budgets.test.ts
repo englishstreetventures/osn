@@ -6,6 +6,7 @@ import { createInMemoryCoordination } from "../../../src/lib/coordination/memory
 import {
   RECOVERY_LOCKOUT_MS,
   RECOVERY_LOCKOUT_THRESHOLD,
+  type RecoveryLockoutStore,
 } from "../../../src/lib/recovery-lockout-store";
 import {
   AUTH_RATE_LIMITS,
@@ -33,109 +34,72 @@ interface Slot {
   readonly budget: RateLimitBudget;
 }
 
+/**
+ * How each non-auth limiter is reached on a bundle. Keyed by every
+ * `OSN_RATE_LIMITS` entry, so the type checker refuses a limiter left out.
+ */
+const OSN_LIMITERS: Record<keyof typeof OSN_RATE_LIMITS, (b: CoordinationStores) => Slot["check"]> =
+  {
+    graphWrite: (b) => (k) => b.graphRateLimiter.check(k),
+    orgWrite: (b) => (k) => b.orgRateLimiter.check(k),
+    recommendationSuggest: (b) => (k) => b.recommendationRateLimiters.suggest.check(k),
+    recommendationSearch: (b) => (k) => b.recommendationRateLimiters.search.check(k),
+    profileCreate: (b) => (k) => b.profileRateLimiters.profileCreate.check(k),
+    profileDelete: (b) => (k) => b.profileRateLimiters.profileDelete.check(k),
+    profileSetDefault: (b) => (k) => b.profileRateLimiters.profileSetDefault.check(k),
+    healthCoordination: (b) => (k) => b.healthProbeLimiter.check(k),
+    accountExport: (b) => (k) => b.accountExportLimiter.check(k),
+    accountExportIp: (b) => (k) => b.accountExportIpLimiter.check(k),
+    arcJwksIp: (b) => (k) => b.arcJwksRateLimiters.minute.check(k),
+    arcJwksIpHour: (b) => (k) => b.arcJwksRateLimiters.hour.check(k),
+    accountDelete: (b) => (k) => b.accountErasureRateLimiters.accountDelete.check(k),
+    accountRestore: (b) => (k) => b.accountErasureRateLimiters.accountRestore.check(k),
+    accountDeletionStatus: (b) => (k) =>
+      b.accountErasureRateLimiters.accountDeletionStatus.check(k),
+    accountDataLink: (b) => (k) => b.accountErasureRateLimiters.accountDataLink.check(k),
+    profileSwitchCap: (b) => (k) => b.profileSwitchCap.check(k),
+    emailChangeBeginCap: (b) => (k) => b.emailChangeBeginCap.check(k),
+    recoveryLinkAddressCap: (b) => (k) => b.recoveryLinkAddressCap.check(k),
+    recoveryResendCap: (b) => (k) => b.recoveryResendCap.check(k),
+    recoveryLinkCeiling: (b) => (k) => b.recoveryLinkCeiling.check(k),
+    registrationSendCap: (b) => (k) => b.registrationSendCap.check(k),
+    registrationFirstLinkCap: (b) => (k) => b.registrationFirstLinkCap.check(k),
+    stepUpLinkCeiling: (b) => (k) => b.stepUpLinkCeiling.check(k),
+    linkResendCap: (b) => (k) => b.linkResendCap.check(k),
+  };
+
 function slots(bundle: CoordinationStores): Slot[] {
-  const out: Slot[] = (Object.keys(AUTH_RATE_LIMITS) as (keyof AuthRateLimiters)[]).map((key) => ({
+  const auth: Slot[] = (Object.keys(AUTH_RATE_LIMITS) as (keyof AuthRateLimiters)[]).map((key) => ({
     label: `auth.${key}`,
     check: (k) => bundle.authRateLimiters[key].check(k),
     budget: AUTH_RATE_LIMITS[key],
   }));
-  const add = (label: string, limiter: Slot["check"], budget: RateLimitBudget) =>
-    out.push({ label, check: limiter, budget });
-  add("graphWrite", (k) => bundle.graphRateLimiter.check(k), OSN_RATE_LIMITS.graphWrite);
-  add("orgWrite", (k) => bundle.orgRateLimiter.check(k), OSN_RATE_LIMITS.orgWrite);
-  add(
-    "recommendationSuggest",
-    (k) => bundle.recommendationRateLimiters.suggest.check(k),
-    OSN_RATE_LIMITS.recommendationSuggest,
+  const osn: Slot[] = (Object.keys(OSN_RATE_LIMITS) as (keyof typeof OSN_RATE_LIMITS)[]).map(
+    (key) => ({
+      label: key,
+      check: OSN_LIMITERS[key](bundle),
+      budget: OSN_RATE_LIMITS[key],
+    }),
   );
-  add(
-    "recommendationSearch",
-    (k) => bundle.recommendationRateLimiters.search.check(k),
-    OSN_RATE_LIMITS.recommendationSearch,
-  );
-  add(
-    "profileCreate",
-    (k) => bundle.profileRateLimiters.profileCreate.check(k),
-    OSN_RATE_LIMITS.profileCreate,
-  );
-  add(
-    "profileDelete",
-    (k) => bundle.profileRateLimiters.profileDelete.check(k),
-    OSN_RATE_LIMITS.profileDelete,
-  );
-  add(
-    "profileSetDefault",
-    (k) => bundle.profileRateLimiters.profileSetDefault.check(k),
-    OSN_RATE_LIMITS.profileSetDefault,
-  );
-  add(
-    "healthCoordination",
-    (k) => bundle.healthProbeLimiter.check(k),
-    OSN_RATE_LIMITS.healthCoordination,
-  );
-  add("accountExport", (k) => bundle.accountExportLimiter.check(k), OSN_RATE_LIMITS.accountExport);
-  add(
-    "accountExportIp",
-    (k) => bundle.accountExportIpLimiter.check(k),
-    OSN_RATE_LIMITS.accountExportIp,
-  );
-  add(
-    "accountDelete",
-    (k) => bundle.accountErasureRateLimiters.accountDelete.check(k),
-    OSN_RATE_LIMITS.accountDelete,
-  );
-  add(
-    "accountRestore",
-    (k) => bundle.accountErasureRateLimiters.accountRestore.check(k),
-    OSN_RATE_LIMITS.accountRestore,
-  );
-  add(
-    "accountDeletionStatus",
-    (k) => bundle.accountErasureRateLimiters.accountDeletionStatus.check(k),
-    OSN_RATE_LIMITS.accountDeletionStatus,
-  );
-  add(
-    "accountDataLink",
-    (k) => bundle.accountErasureRateLimiters.accountDataLink.check(k),
-    OSN_RATE_LIMITS.accountDataLink,
-  );
-  add(
-    "profileSwitchCap",
-    (k) => bundle.profileSwitchCap.check(k),
-    OSN_RATE_LIMITS.profileSwitchCap,
-  );
-  add(
-    "emailChangeBeginCap",
-    (k) => bundle.emailChangeBeginCap.check(k),
-    OSN_RATE_LIMITS.emailChangeBeginCap,
-  );
-  add(
-    "recoveryLinkAddressCap",
-    (k) => bundle.recoveryLinkAddressCap.check(k),
-    OSN_RATE_LIMITS.recoveryLinkAddressCap,
-  );
-  add(
-    "recoveryResendCap",
-    (k) => bundle.recoveryResendCap.check(k),
-    OSN_RATE_LIMITS.recoveryResendCap,
-  );
-  add(
-    "recoveryLinkCeiling",
-    (k) => bundle.recoveryLinkCeiling.check(k),
-    OSN_RATE_LIMITS.recoveryLinkCeiling,
-  );
-  add(
-    "registrationSendCap",
-    (k) => bundle.registrationSendCap.check(k),
-    OSN_RATE_LIMITS.registrationSendCap,
-  );
-  add(
-    "registrationFirstLinkCap",
-    (k) => bundle.registrationFirstLinkCap.check(k),
-    OSN_RATE_LIMITS.registrationFirstLinkCap,
-  );
-  return out;
+  return [...auth, ...osn];
 }
+
+/** Every field of the bundle that holds a lockout store. */
+type LockoutField = {
+  [K in keyof CoordinationStores]: CoordinationStores[K] extends RecoveryLockoutStore ? K : never;
+}[keyof CoordinationStores];
+
+/**
+ * Each lockout's threshold and window. Keyed by every lockout field of the
+ * bundle, so the type checker refuses a lockout left out.
+ */
+const LOCKOUTS: Record<LockoutField, readonly [threshold: number, lockoutMs: number]> = {
+  recoveryLockoutStore: [RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
+  recoveryOtpLockoutStore: [RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
+  totpLockoutStore: [TOTP_LOCKOUT_THRESHOLD, TOTP_LOCKOUT_MS],
+  registrationLinkLockoutStore: [REGISTRATION_LINK_LOCKOUT_THRESHOLD, REGISTRATION_LINK_LOCKOUT_MS],
+  stepUpLinkLockoutStore: [RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
+};
 
 const builders = {
   memory: () => createInMemoryCoordination(),
@@ -189,27 +153,14 @@ describe.each(Object.entries(builders))("%s bundle", (_name, build) => {
   });
 
   it("holds each lockout for its whole window, then opens", async () => {
-    const lockouts = [
-      ["recovery_lockout", RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
-      ["recovery_otp_lockout", RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
-      ["totp_lockout", TOTP_LOCKOUT_THRESHOLD, TOTP_LOCKOUT_MS],
-      [
-        "registration_link_lockout",
-        REGISTRATION_LINK_LOCKOUT_THRESHOLD,
-        REGISTRATION_LINK_LOCKOUT_MS,
-      ],
-    ] as const;
-    const storeOf = (bundle: CoordinationStores, name: (typeof lockouts)[number][0]) =>
-      ({
-        recovery_lockout: bundle.recoveryLockoutStore,
-        recovery_otp_lockout: bundle.recoveryOtpLockoutStore,
-        totp_lockout: bundle.totpLockoutStore,
-        registration_link_lockout: bundle.registrationLinkLockoutStore,
-      })[name];
+    const lockouts = Object.entries(LOCKOUTS) as [
+      LockoutField,
+      readonly [threshold: number, lockoutMs: number],
+    ][];
     vi.useFakeTimers();
     try {
-      for (const [name, threshold, lockoutMs] of lockouts) {
-        const store = storeOf(build(), name);
+      for (const [name, [threshold, lockoutMs]] of lockouts) {
+        const store = build()[name];
         const start = Date.now();
         for (let i = 0; i < threshold; i++) {
           // eslint-disable-next-line no-await-in-loop -- failures count in order

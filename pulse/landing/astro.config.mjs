@@ -4,9 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 
 // Pure static marketing site for Pulse. Like cire/landing it prerenders to plain
-// HTML (the page is the same for everyone) and deploys to Cloudflare Pages —
-// `wrangler pages deploy dist`. No Cloudflare adapter is needed for a static
-// build; there is no first-party API call from this site.
+// HTML (the page is the same for everyone). The pulse stack (`pulse/infra`)
+// serves `dist` as a Worker's static assets, and the Worker's own entry
+// (`worker/index.ts`) answers the one first-party call, `GET /api/geo`. No
+// Cloudflare adapter is needed for a static build.
 export default defineConfig({
   // Portless assigns the port and passes it as `PORT`; the literal is the
   // fallback for a devloop without portless (`PORTLESS=0`, or running

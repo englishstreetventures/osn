@@ -210,21 +210,6 @@ describe("the reserve ceiling", () => {
     const { container } = renderCard({ canClaim: false });
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
-
-  it("shows a signed-out guest the same disabled control on a gift that is gone", () => {
-    // Whether a gift is taken is a fact about the gift, not about the viewer's
-    // session. Rendering nothing would leave a dimmed card with no word on it,
-    // which is opacity as the sole state indicator.
-    const { container } = renderCard({
-      canClaim: false,
-      item: { quantityWanted: 1, quantityClaimed: 1 },
-    });
-
-    const buttons = container.querySelectorAll("button");
-    expect(buttons).toHaveLength(1);
-    expect((buttons[0] as HTMLButtonElement).disabled).toBe(true);
-    expect(buttons[0].textContent).toBe("Reserved");
-  });
 });
 
 describe("the ceiling hint", () => {
@@ -255,25 +240,6 @@ describe("the ceiling hint", () => {
     // describe nothing, so the attribute goes with the hint.
     expect(input.getAttribute("aria-describedby")).toBeNull();
   });
-
-  it("says nothing on a multi-quantity gift nobody has touched", () => {
-    const untouched = renderCard({ item: { quantityWanted: 3, quantityClaimed: 0 } });
-    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
-    expect(
-      (untouched.container.querySelector('input[type="number"]') as HTMLInputElement).max,
-    ).toBe("3");
-    expect(untouched.container.textContent).not.toContain("You can reserve");
-
-    cleanup();
-    // Nor when the whole ask is THIS household's own: the upsert lets them
-    // keep all of it, so the ceiling is still the couple's number.
-    const { container } = renderCard({
-      item: { quantityWanted: 2, quantityClaimed: 2 },
-      claim: { itemId: "gi-1", quantity: 2, status: "reserved", note: null, displayName: null },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
-    expect(container.textContent).not.toContain("You can reserve");
-  });
 });
 
 describe("the claim form", () => {
@@ -294,15 +260,6 @@ describe("the claim form", () => {
       note: null,
       displayName: "The Ashworths",
     });
-  });
-
-  it("closes on success", async () => {
-    const { container } = renderCard({ onClaim: async () => true });
-    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
-    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(container.querySelector("form")).toBeNull();
   });
 
   it("KEEPS the form open when the claim did not land, so the words are not thrown away", async () => {

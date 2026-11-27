@@ -1,5 +1,49 @@
 # @musubi/infra
 
+## 0.7.2
+
+### Patch Changes
+
+- c05552d: osn-api can mail a change notice — a privacy notice or the terms are changing, what changes, the day it takes effect, a link to the page — to every account that can still sign in or restore, when the operator runs `send-change-notice` in the production operator workflow.
+
+  `@shared/email` adds the `change-notice` template, a legal notice with no unsubscribe link or header, and `sendKeyedBatch`: one batch of at most 100 in one Resend call, under an idempotency key and in permissive validation, answering how many addresses Resend accepted and refused. `EmailError` carries Resend's HTTP status and error name when Resend answered.
+
+  `@osn/db` adds `change_notice_runs`: per notice, a cursor and the batch in hand, so a run that stops half way resumes without skipping or repeating anyone. It stores no address.
+
+  `@osn/api` adds `POST /internal/change-notices/:noticeId/send`, behind its own optional secret, `OSN_CHANGE_NOTICE_SECRET` (off while unset or under 32 characters). It sends only notices in the reviewed registry `services/change-notices.json`, which ships empty, refuses unless the notice's words match the digest the approver saw, and answers counts only. Metrics `osn.change_notice.batches` and `osn.change_notice.emails`.
+
+  `@shared/infra` lists `OSN_CHANGE_NOTICE_SECRET` as an optional osn-api production secret; `@musubi/infra`'s parity and read checks name it, and `OSN_CHANGE_NOTICES_FILE`, as unset on dev.
+
+- Updated dependencies [c05552d]
+  - @shared/infra@0.12.1
+
+## 0.7.1
+
+### Patch Changes
+
+- 1bf7502: osn-api's outbound ARC key ids can carry a MAC under `OSN_ARC_KID_SECRET`, a secret held for that alone, beside the one under `INTERNAL_SERVICE_SECRET`. `@shared/crypto/arc-kid` takes both secrets (`ArcKidSecrets`): `mintArcKid` puts one MAC in the kid for each secret of at least 32 characters, and `checkArcKid` admits a kid one of whose MACs verifies under a secret the app holds, answering what to look the key up by (`ArcKidLookup`), or `null`. A checked kid is looked up and cached by the `<uuid>.<expiry>` its verified MAC covers, through the new `names` argument of `resolvePublicKeyForKid` (`@shared/osn-auth-client/jwks-cache`), never by a part the app did not verify. `OsnArcVerification` takes `kidSecret` and `serviceSecret`. osn-api, Zap and Pulse read `OSN_ARC_KID_SECRET`; unset, each behaves as before. osn-api warns once per key, naming the secret, when either is too short to key a MAC. Every Worker ignores a kid secret equal to the service secret, and osn-api warns of it. The inventory lists the secret as optional for osn-api, zap-api and cire-api on dev and production, one value per tier; dev refuses one under 32 characters, or equal to `INTERNAL_SERVICE_SECRET` on a Worker holding both.
+- Updated dependencies [1bf7502]
+  - @shared/infra@0.12.0
+
+## 0.7.0
+
+### Minor Changes
+
+- 91b32ae: Musubi's Settings › Connected apps links an app's own screen for removing a person's data from it, as "Remove my data from <app>". `oauth_clients` gains a nullable `manage_data_url` that only an operator sets (migration `20261119150713_oauth_clients_manage_data_url`). `GET /oidc/connections` answers it as `manageDataUrl` only while it passes a read rule in `osn/api/src/services/auth/client-links.ts`: at most 512 characters, canonical, no user name or password, `https:` (or `http:` to localhost), on the origin of a registered redirect URI or of the app origin osn-api's deployment pins to the client (`CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID`), and never for a disabled client; a refused value counts on the new `osn.oidc.manage_data_link.refused`, and a client whose stored `redirect_uris` is no JSON list refuses only its own link. `@osn/client`'s `OidcConnection` carries `manageDataUrl`. Musubi draws the link on its own line in the app's row, through `followableLink`, in a new tab; the page cache records each Connected apps row's kind so the placeholder keeps each row's height. The musubi stack's dev seed sets cire's link to the organiser portal's `/#/remove-data`. Account erasure keeps the time an owner disabled their client, where it had one.
+
+## 0.6.12
+
+### Patch Changes
+
+- Updated dependencies [6223317]
+  - @shared/infra@0.11.1
+
+## 0.6.11
+
+### Patch Changes
+
+- 0bdcb05: Production osn-api sends account email as `Musubi <hello@musubi.social>` instead of `hello@cireweddings.com`, so sign-up, recovery and step-up links and security notices come from Musubi's own verified domain and no longer share cire's sending reputation. `OSN_EMAIL_FROM` in `osn/api/wrangler.toml` matches it.
+
 ## 0.6.10
 
 ### Patch Changes

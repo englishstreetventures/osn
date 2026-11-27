@@ -99,9 +99,8 @@ describe("WebAuthn browser ceremony", () => {
     });
   });
 
-  // SignIn's explicit passkey path (src/SignIn.tsx) checks
-  // `err instanceof Error && err.name === "NotAllowedError"` to send the user to
-  // recovery codes, so the library must surface the platform's error name.
+  // `describePasskeyError` (src/passkey-errors.ts) picks its sentence by the
+  // error's name, so the library must surface the platform's error name.
   it("keeps the NotAllowedError name when the platform refuses an authentication", async () => {
     const get = vi.fn(async (_options: CredentialRequestOptions): Promise<never> => {
       throw new DOMException("", "NotAllowedError");

@@ -22,10 +22,12 @@ import {
 } from "./lib/totp-secret-crypto";
 import type { AuthConfig } from "./services/auth";
 import { appStepUpReturnConfig } from "./services/auth/app-step-up";
+import { clientAppOrigins } from "./services/auth/client-links";
 import {
   createIssuerNetwork,
   emulatedIssuerFetch,
 } from "./services/auth/email-verification-network";
+import changeNotices from "./services/change-notices.json";
 import { cireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
 import { deletionAppsConfig } from "./services/deletion-apps";
 
@@ -83,6 +85,12 @@ export type EnvVars = {
   readonly OSN_TOTP_ENCRYPTION_KEY_PREVIOUS?: string;
   readonly OSN_PAIRWISE_SALT?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
+  // Keys the MAC on osn-api's ARC key ids, held for that alone. Optional in
+  // every tier; read by `deletionAppsConfig` (services/deletion-apps.ts).
+  readonly OSN_ARC_KID_SECRET?: string;
+  // The bearer of the operator's change-notice run. Unset, or under 32
+  // characters, the route answers 501: no notice can be sent.
+  readonly OSN_CHANGE_NOTICE_SECRET?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
   // Read by the dev sign-in gate below. Unset ⇒ the routes are never mounted.
   readonly DEV_LOGIN_SECRET?: string;
@@ -101,9 +109,11 @@ export type EnvVars = {
   // organiser-session revoke above is sent.
   readonly CIRE_API_URL?: string;
   // cire's organiser portal origin: the one place Musubi may send a person
-  // back to after confirming a cire step-up request. Read by
-  // `appStepUpReturnConfig` (services/auth/app-step-up.ts), which refuses the
-  // boot on a value that is not https (or loopback http on a local run).
+  // back to after confirming a cire step-up request, and an origin cire's
+  // stored manage-your-data link may sit on (`clientAppOrigins`,
+  // services/auth/client-links.ts). Read by `appStepUpReturnConfig`
+  // (services/auth/app-step-up.ts), which refuses the boot on a value that is
+  // not https (or loopback http on a local run).
   readonly CIRE_ORGANISER_ORIGIN?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
 };
@@ -480,6 +490,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   const totpEncryptionKeys = createTotpKeyRing(totpEncryptionKey, totpPreviousEncryptionKey);
 
   const instanceName = INSTANCE_NAME;
+  const appStepUpReturn = appStepUpReturnConfig(env);
 
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
@@ -501,7 +512,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // local dev and wrong the moment the consent screen lives anywhere else.
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
     emailVerification: emailVerificationConfig(env),
-    appStepUpReturn: appStepUpReturnConfig(env),
+    appStepUpReturn,
+    // A stored manage-your-data link may also sit on cire's portal origin, for
+    // cire's client only (services/auth/client-links.ts).
+    clientAppOrigins: clientAppOrigins(env.CIRE_OIDC_CLIENT_ID, appStepUpReturn),
   };
 
   // Every failed store call, once, after any retry: the store's name, the
@@ -587,6 +601,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     recommendationRateLimiters: minuteLimiters.recommendationRateLimiters,
     accountExportLimiter: stores.accountExportLimiter,
     accountExportIpLimiter: minuteLimiters.accountExportIpLimiter,
+    arcJwksRateLimiters: minuteLimiters.arcJwksRateLimiters,
     accountErasureRateLimiters: minuteLimiters.accountErasureRateLimiters,
     stepUpJtiStore: stores.stepUpJtiStore,
     passkeyChallengeClaims: stores.passkeyChallengeClaims,
@@ -612,6 +627,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // Gates the S2S service-registration endpoints. On workerd this is a
     // wrangler secret, surfaced via the `env` binding; on Bun it's process.env.
     internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
+    // The operator's change-notice run: its own secret, held by this Worker and
+    // the production Environment alone, and the registry of notices it may send.
+    changeNoticeSecret: env.OSN_CHANGE_NOTICE_SECRET,
+    changeNotices,
     // Turnstile bot protection (KEY-OPTIONAL). `TURNSTILE_SECRET_KEY` is a
     // wrangler secret (`env` on workerd, process.env on Bun). Unset ⇒ `null` ⇒
     // the register / passkey-login gates are skipped (flow unchanged). Set ⇒ a

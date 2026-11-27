@@ -10,16 +10,14 @@
  * and whether ticking moved anything.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { Checkbox } from "../src/ui/checkbox";
 
 import "./test-support/tailwind.css";
-
-afterEach(cleanup);
 
 /** Test-palette values (`test-support/tailwind.css`). */
 const FOCUS = "rgb(47, 75, 216)";

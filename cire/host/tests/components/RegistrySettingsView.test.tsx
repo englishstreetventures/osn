@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import RegistrySettingsView from "../../src/components/RegistrySettingsView";
+import { __resetHostsCache, hasCachedHosts } from "../../src/lib/hosts-store";
 import {
   __resetRegistryCache,
   dropRegistry,
@@ -2146,5 +2147,670 @@ describe("a Stripe account the couple already have", () => {
     expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
       /Finish what Stripe asks for in your Stripe Dashboard/,
     );
+  });
+});
+
+/**
+ * Whose account money gifts are paid into: the holder hands it over or
+ * disconnects it, another owner replaces it, and an account no current owner
+ * holds closes money gifts until an owner uses their own. Each retire goes to
+ * `…/registry/stripe/retire`. The end-to-end flow `cire-registry-money` holds
+ * the paths the stack reaches (one other owner, the absent holder's replace);
+ * these hold the rest: an editor told nothing, several owners to choose from,
+ * the replace while the holder is an owner, the refusals, and the order of a
+ * dialog's close and what follows it.
+ */
+describe("whose account money gifts are paid into", () => {
+  const KIT = "usr_kit";
+  /** The account generation the page's settings were read at. */
+  const SHOWN = 3;
+
+  /** An account that can charge, held by `holder`, who is an owner here. */
+  const seated = (holder: string, over: Record<string, unknown> = {}) => ({
+    ...snapshot({
+      items: [item()],
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: true,
+        stripeConnectedByOsnProfileId: holder,
+        payoutHolderAbsent: false,
+        stripeAccountGeneration: SHOWN,
+        cashGiftsEnabled: true,
+        moneyGiftsBlockedBy: null,
+        ...over,
+      } as never,
+    }),
+    connectsExistingStripe: true,
+  });
+
+  /** An account Kit holds and is no owner of now, as an owner reads it. */
+  const absent = (over: Record<string, unknown> = {}) =>
+    snapshot({
+      items: [item()],
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: true,
+        stripeConnectedByOsnProfileId: KIT,
+        payoutHolderAbsent: true,
+        stripeAccountGeneration: SHOWN,
+        moneyGiftsBlockedBy: "payout_holder_absent",
+        ...over,
+      } as never,
+    });
+
+  /** The settings a retire answers with: no account, the switch as it was. */
+  const retired = (cashGiftsEnabled = true) =>
+    snapshot({
+      items: [item()],
+      settings: { cashGiftsEnabled, payoutHolderAbsent: false } as never,
+    }).settings;
+
+  const seats = [
+    { hostId: "h_me", osnProfileId: ME, handle: "me", role: "owner" },
+    { hostId: "h_kit", osnProfileId: KIT, handle: "kit", role: "owner" },
+    { hostId: "h_sam", osnProfileId: "usr_sam", handle: "sam", role: "owner" },
+    { hostId: "h_bea", osnProfileId: "usr_bea", handle: "bea", role: "editor" },
+  ];
+
+  type Answer = (init?: RequestInit) => Response | Promise<Response>;
+
+  /** Answers each call by the end of its path; anything else is a 500. */
+  function serve(routes: Record<string, Answer>): void {
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      const route = Object.keys(routes)
+        .toSorted((a, b) => b.length - a.length)
+        .find((key) => path.endsWith(key));
+      return route ? routes[route]!(init) : json({ error: "unexpected" }, 500);
+    });
+  }
+
+  /** The bodies posted to the retire route. */
+  const retireBodies = () =>
+    authFetch.mock.calls
+      .filter(([url]) => String(url).endsWith("/registry/stripe/retire"))
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as unknown);
+
+  beforeEach(() => {
+    __resetHostsCache();
+  });
+
+  it("tells an editor nothing about whose account it is, and offers no way to change it", async () => {
+    // An absent holder's account as the API sends it to an editor: one Stripe
+    // has not finished with.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: false,
+          stripeConnectedByOsnProfileId: null,
+          payoutHolderAbsent: null,
+          moneyGiftsBlockedBy: "stripe_not_ready",
+        } as never,
+      }),
+    );
+    renderPanel({ canEdit: true, canManage: false });
+    expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
+      /still wants something before it can take payments/,
+    );
+    expect(screen.queryByText(/current owner/)).toBeNull();
+    for (const name of [
+      "Use your own account",
+      "Replace with my own account",
+      "Hand money gifts to another owner",
+      "Disconnect",
+    ]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("lets another owner replace a seated holder's account, behind a dialog, then asks which account", async () => {
+    setCachedRegistry("wed_1", seated(KIT));
+    serve({
+      "/hosts": () => json({ hosts: seats }),
+      "/registry/stripe/retire": () => json({ settings: retired() }),
+      "/registry/stripe/accounts": () => json({ accounts: [] }),
+    });
+    renderPanel({ canManage: true });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Replace with my own account" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Replace the Stripe account with your own?",
+    });
+    await waitFor(() => expect(dialog.textContent).toMatch(/@kit gets an email/));
+    expect(dialog.textContent).toMatch(
+      /Guests can’t give money until your account can take payments/,
+    );
+    expect(retireBodies()).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Replace it" }));
+    await screen.findByTestId("stripe-account-choice");
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN }]);
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
+  });
+
+  it("retires the account the dialog asked about, not one the page caught up to while it was open", async () => {
+    setCachedRegistry("wed_1", seated(KIT));
+    serve({
+      "/hosts": () => json({ hosts: seats }),
+      "/registry/stripe/retire": () => json({ error: "stripe_account_changed" }, 409),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Replace with my own account" }));
+    await screen.findByRole("dialog", { name: "Replace the Stripe account with your own?" });
+    // A live update while the dialog is open: Kit connected another account.
+    setCachedRegistry("wed_1", seated(KIT, { stripeAccountGeneration: SHOWN + 2 }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace it" }));
+    await waitFor(() => expect(retireBodies()).toHaveLength(1));
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN }]);
+  });
+
+  it("uses its own account at the generation the check before it read", async () => {
+    setCachedRegistry("wed_1", { ...absent(), connectsExistingStripe: true });
+    serve({
+      "/registry": () => json(absent({ stripeAccountGeneration: SHOWN + 1 })),
+      "/registry/stripe/retire": () => json({ settings: retired() }),
+      "/registry/stripe/accounts": () => json({ accounts: [] }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own account" }));
+    await screen.findByTestId("stripe-account-choice");
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN + 1 }]);
+  });
+
+  it("never reads a refused onboarding link as an absent holder", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    authFetch.mockResolvedValue(json({ error: "stripe_connector_only" }, 403));
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: /Continue on Stripe/i }));
+    await waitFor(() => expect(screen.getByTestId("stripe-connector-only")).toBeTruthy());
+    expect(peekCachedRegistry("wed_1")?.settings.payoutHolderAbsent).toBe(false);
+    expect(screen.queryByText(/current owner/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use your own account" })).toBeNull();
+  });
+
+  it("lets the holder choose which owner money gifts go to, and nothing is chosen for them", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    let answerSeats: (response: Response) => void = () => {};
+    serve({
+      "/hosts": () =>
+        new Promise<Response>((resolve) => {
+          answerSeats = resolve;
+        }),
+      "/registry/stripe/retire": () => json({ settings: retired() }),
+    });
+    renderPanel({ canManage: true });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Hand money gifts to another owner?",
+    });
+    // While the seats are out, the dialog says it is looking, and offers no commit.
+    expect(within(dialog).getByText("Finding the wedding’s owners…")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Hand over" })).toBeNull();
+    answerSeats(json({ hosts: seats }));
+    const kit = (await screen.findByRole("radio", { name: "@kit" })) as HTMLInputElement;
+    const sam = screen.getByRole("radio", { name: "@sam" }) as HTMLInputElement;
+    // Owners only, and never the holder themself.
+    expect(screen.queryByRole("radio", { name: "@bea" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "@me" })).toBeNull();
+    expect([kit.checked, sam.checked]).toEqual([false, false]);
+
+    // Marked disabled, and described by why.
+    const handOver = screen.getByRole("button", { name: "Hand over" });
+    expect(handOver.getAttribute("aria-disabled")).toBe("true");
+    const hint = within(dialog).getByText("Choose an owner first.");
+    expect(handOver.getAttribute("aria-describedby")).toBe(hint.id);
+    fireEvent.click(handOver);
+    expect(retireBodies()).toEqual([]);
+
+    fireEvent.click(sam);
+    expect(handOver.getAttribute("aria-disabled")).toBeNull();
+    expect(handOver.getAttribute("aria-describedby")).toBeNull();
+    expect(within(dialog).queryByText("Choose an owner first.")).toBeNull();
+    fireEvent.click(handOver);
+    const connect = await screen.findByRole("button", { name: "Connect an account" });
+    expect(retireBodies()).toEqual([{ handTo: "usr_sam", generation: SHOWN }]);
+    // The holder's seat is free now: the co-host lists read again.
+    expect(hasCachedHosts("wed_1")).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(connect));
+  });
+
+  it("keeps a switch saved on usable for an owner while the holder is absent, and a switch off locked", async () => {
+    setCachedRegistry("wed_1", absent({ cashGiftsEnabled: true }));
+    const { unmount } = renderPanel({ canManage: true });
+    const on = (await screen.findByRole("checkbox", {
+      name: "Let guests give money",
+    })) as HTMLInputElement;
+    expect(on.disabled).toBe(false);
+    // On, it says when guests get the option; off, when the switch can be used.
+    expect(
+      screen.getByText("Guests are offered money once an owner connects an account of their own."),
+    ).toBeTruthy();
+    unmount();
+
+    setCachedRegistry("wed_1", absent({ cashGiftsEnabled: false }));
+    renderPanel({ canManage: true });
+    const off = (await screen.findByRole("checkbox", {
+      name: "Let guests give money",
+    })) as HTMLInputElement;
+    expect(off.disabled).toBe(true);
+    expect(
+      screen.getByText("Available once an owner connects an account of their own."),
+    ).toBeTruthy();
+  });
+
+  it("lets an editor turn off a switch saved on while the account cannot charge", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: false,
+          cashGiftsEnabled: true,
+          moneyGiftsBlockedBy: "stripe_not_ready",
+        } as never,
+      }),
+    );
+    renderPanel({ canEdit: true, canManage: false });
+    const toggle = (await screen.findByRole("checkbox", {
+      name: "Let guests give money",
+    })) as HTMLInputElement;
+    expect(toggle.disabled).toBe(false);
+    expect(
+      screen.getByText("Guests are offered money once Stripe can take payments."),
+    ).toBeTruthy();
+  });
+
+  it("never calls an absent holder's account ready after Check again", async () => {
+    setCachedRegistry("wed_1", absent());
+    serve({
+      "/registry/stripe/refresh": () =>
+        json({
+          connected: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          moneyGiftsBlockedBy: "payout_holder_absent",
+          payoutHolderAbsent: true,
+        }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const words = String(toastSuccess.mock.calls.at(-1)?.[0]);
+    expect(words).not.toMatch(/Stripe is ready/);
+    expect(words).toMatch(/current owner/);
+  });
+
+  it("shows the account as it stands when a retire finds it changed", async () => {
+    setCachedRegistry("wed_1", seated(KIT));
+    const now = { ...seated("usr_sam").settings };
+    serve({
+      "/hosts": () => json({ hosts: seats }),
+      "/registry/stripe/retire": () =>
+        json({ error: "stripe_account_changed", settings: now }, 409),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Replace with my own account" }));
+    await screen.findByRole("dialog", { name: "Replace the Stripe account with your own?" });
+    fireEvent.click(screen.getByRole("button", { name: "Replace it" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/changed while you had this open/);
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnectedByOsnProfileId).toBe("usr_sam");
+  });
+
+  it("still asks which account when the replace dialog closed while its retire was out", async () => {
+    setCachedRegistry("wed_1", seated(KIT));
+    let answer: (response: Response) => void = () => {};
+    serve({
+      "/hosts": () => json({ hosts: seats }),
+      "/registry/stripe/retire": () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+      "/registry/stripe/accounts": () => json({ accounts: [] }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Replace with my own account" }));
+    const dialog = (await screen.findByRole("dialog", {
+      name: "Replace the Stripe account with your own?",
+    })) as HTMLDialogElement;
+    fireEvent.click(screen.getByRole("button", { name: "Replace it" }));
+    await waitFor(() => expect(retireBodies()).toHaveLength(1));
+    // Escape closes a modal dialog in the browser itself, whatever the page says.
+    dialog.close();
+    answer(json({ settings: retired() }));
+    await screen.findByTestId("stripe-account-choice");
+  });
+
+  it("does not replace a holder who is an owner again without the replace dialog", async () => {
+    setCachedRegistry("wed_1", absent());
+    serve({
+      "/registry": () => json(seated(KIT)),
+      "/registry/stripe/retire": () => json({ settings: retired() }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own account" }));
+    await screen.findByRole("button", { name: "Replace with my own account" });
+    expect(retireBodies()).toEqual([]);
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/is an owner again/);
+  });
+
+  it("says the account changed when onboarding finds it so, and shows it as it stands", async () => {
+    setCachedRegistry("wed_1", { ...snapshot({ items: [item()] }), connectsExistingStripe: false });
+    serve({
+      "/registry/stripe/accounts": () => json({ accounts: [] }),
+      "/registry/stripe/session": () => json({ error: "stripe_account_changed" }, 409),
+      "/registry": () => json(seated("usr_sam")),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Connect an account" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(
+      /Stripe account changed while you were connecting/,
+    );
+    await waitFor(() =>
+      expect(peekCachedRegistry("wed_1")?.settings.stripeConnectedByOsnProfileId).toBe("usr_sam"),
+    );
+  });
+
+  it("keeps the panel as it was when the read after that refusal fails", async () => {
+    setCachedRegistry("wed_1", { ...snapshot({ items: [item()] }), connectsExistingStripe: false });
+    serve({
+      "/registry/stripe/accounts": () => json({ accounts: [] }),
+      "/registry/stripe/session": () => json({ error: "stripe_account_changed" }, 409),
+      "/registry": () => json({ error: "unavailable" }, 503),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Connect an account" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(authFetch.mock.calls.some(([url]) => String(url).endsWith("/registry"))).toBe(true),
+    );
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
+    expect(screen.getByRole("button", { name: "Connect an account" })).toBeTruthy();
+  });
+
+  it("lets the holder disconnect, behind a dialog, and leaves focus on Connect", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    serve({ "/registry/stripe/retire": () => json({ settings: retired() }) });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("dialog", { name: "Disconnect your Stripe account?" });
+    expect(dialog.textContent).toMatch(/Every owner gets an email/);
+    // The seats are not read: a disconnect names no one.
+    expect(authFetch.mock.calls.some(([url]) => String(url).endsWith("/hosts"))).toBe(false);
+    // The dialog's own commit, after the row's button of the same name.
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" }).at(-1)!);
+    const connect = await screen.findByRole("button", { name: "Connect an account" });
+    expect(retireBodies()).toEqual([{ handTo: null, generation: SHOWN }]);
+    expect(String(toastSuccess.mock.calls.at(-1)?.[0])).toMatch(
+      /Your Stripe account is disconnected/,
+    );
+    await waitFor(() => expect(document.activeElement).toBe(connect));
+  });
+
+  it("names the one other owner, and says so when there is none to hand to", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    serve({ "/hosts": () => json({ hosts: seats.slice(0, 2) }) });
+    const { unmount } = renderPanel({ canManage: true });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Hand money gifts to another owner?",
+    });
+    await waitFor(() => expect(dialog.textContent).toMatch(/They go to @kit/));
+    expect(within(dialog).queryByRole("radio")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Hand over" }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    unmount();
+
+    __resetHostsCache();
+    setCachedRegistry("wed_1", seated(ME));
+    serve({ "/hosts": () => json({ hosts: seats.slice(0, 1) }) });
+    renderPanel({ canManage: true });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
+    );
+    await screen.findByText(/There’s no other owner to hand them to/);
+    expect(screen.queryByRole("button", { name: "Hand over" })).toBeNull();
+  });
+
+  it("says so in the dialog when the wedding's owners cannot be read", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    serve({ "/hosts": () => json({ error: "forbidden" }, 403) });
+    renderPanel({ canManage: true });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
+    );
+    await screen.findByText(/Couldn’t load the wedding’s owners/);
+    expect(screen.queryByRole("button", { name: "Hand over" })).toBeNull();
+  });
+
+  it("keeps the hand-over open and names the owner when they are no owner any more", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    serve({
+      "/hosts": () => json({ hosts: seats }),
+      "/registry/stripe/retire": () => json({ error: "handover_not_owner" }, 409),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Hand money gifts to another owner" }),
+    );
+    fireEvent.click(await screen.findByRole("radio", { name: "@sam" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hand over" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toBe(
+      "@sam isn’t an owner of this wedding any more. Choose someone else.",
+    );
+    expect(screen.getByRole("dialog", { name: "Hand money gifts to another owner?" })).toBeTruthy();
+    expect((screen.getByRole("radio", { name: "@sam" }) as HTMLInputElement).checked).toBe(false);
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(true);
+  });
+
+  it.each([
+    [403, "Only an owner can change the account money gifts are paid into."],
+    [429, "Too many tries for now. Wait a minute, then try again."],
+    [500, "Couldn’t change the Stripe account just now. Try again in a moment."],
+  ] as const)("says why a retire answered %i, and closes the dialog", async (status, words) => {
+    setCachedRegistry("wed_1", seated(ME));
+    serve({ "/registry/stripe/retire": () => json({ error: "no" }, status) });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    await screen.findByRole("dialog", { name: "Disconnect your Stripe account?" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" }).at(-1)!);
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(new RegExp(`^${words}`));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Disconnect your Stripe account?" })).toBeNull(),
+    );
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(true);
+  });
+
+  it("says the API may be down when a retire never reaches it", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    authFetch.mockImplementation(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    await screen.findByRole("dialog", { name: "Disconnect your Stripe account?" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" }).at(-1)!);
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/Is the API running\?$/);
+  });
+
+  it("retires nothing when the settings cannot be read, or the account has gone", async () => {
+    setCachedRegistry("wed_1", absent());
+    serve({ "/registry": () => json({ error: "unavailable" }, 503) });
+    const { unmount } = renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own account" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/Couldn’t check the Stripe account/);
+    unmount();
+
+    setCachedRegistry("wed_1", absent());
+    serve({ "/registry": () => json(snapshot({ items: [item()] })) });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own account" }));
+    await screen.findByRole("button", { name: "Connect an account" });
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/has no Stripe account now/);
+    expect(retireBodies()).toEqual([]);
+  });
+
+  it("sends an owner whose session ended to sign in from the settings read", async () => {
+    setCachedRegistry("wed_1", absent());
+    serve({ "/registry": () => new Response(null, { status: 401 }) });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your own account" }));
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(retireBodies()).toEqual([]);
+  });
+
+  it("offers no retire while a Stripe read is out", async () => {
+    setCachedRegistry("wed_1", seated(ME));
+    let answerRefresh: (response: Response) => void = () => {};
+    serve({
+      "/registry/stripe/refresh": () =>
+        new Promise<Response>((resolve) => {
+          answerRefresh = resolve;
+        }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    const disconnect = screen.getByRole("button", { name: "Disconnect" }) as HTMLButtonElement;
+    await waitFor(() => expect(disconnect.disabled).toBe(true));
+    answerRefresh(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: null,
+        payoutHolderAbsent: false,
+      }),
+    );
+    await waitFor(() => expect(disconnect.disabled).toBe(false));
+  });
+
+  it("drops what a Stripe read says when a retire committed while it was out", async () => {
+    // The retire's dialog closed by Escape while its request was out, then
+    // Check again: the read was sent before the retire committed.
+    setCachedRegistry("wed_1", seated(ME));
+    let answerRetire: (response: Response) => void = () => {};
+    let answerRefresh: (response: Response) => void = () => {};
+    serve({
+      "/registry/stripe/retire": () =>
+        new Promise<Response>((resolve) => {
+          answerRetire = resolve;
+        }),
+      "/registry/stripe/refresh": () =>
+        new Promise<Response>((resolve) => {
+          answerRefresh = resolve;
+        }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    const dialog = (await screen.findByRole("dialog", {
+      name: "Disconnect your Stripe account?",
+    })) as HTMLDialogElement;
+    fireEvent.click(screen.getAllByRole("button", { name: "Disconnect" }).at(-1)!);
+    await waitFor(() => expect(retireBodies()).toHaveLength(1));
+    dialog.close();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() =>
+      expect(authFetch.mock.calls.some(([url]) => String(url).endsWith("/stripe/refresh"))).toBe(
+        true,
+      ),
+    );
+    answerRetire(json({ settings: retired() }));
+    await screen.findByRole("button", { name: "Connect an account" });
+    toastSuccess.mockReset();
+    // What Stripe said of the account before it was retired.
+    answerRefresh(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: null,
+        payoutHolderAbsent: false,
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Checking…" })).toBeNull());
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Connect an account" })).toBeTruthy();
+  });
+
+  it("calls the account not ready when its holder is absent, whatever comes first", async () => {
+    setCachedRegistry("wed_1", absent());
+    serve({
+      "/registry/stripe/refresh": () =>
+        json({
+          connected: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          moneyGiftsBlockedBy: "payments_unavailable",
+          payoutHolderAbsent: true,
+        }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(String(toastSuccess.mock.calls.at(-1)?.[0])).toMatch(/isn’t held by a current owner/);
+  });
+
+  it("shows the holder absent once Check again says so, on a page that read otherwise", async () => {
+    setCachedRegistry("wed_1", seated(KIT));
+    serve({
+      "/registry/stripe/refresh": () =>
+        json({
+          connected: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          moneyGiftsBlockedBy: "payout_holder_absent",
+          payoutHolderAbsent: true,
+        }),
+    });
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    await screen.findByRole("button", { name: "Use your own account" });
+    expect(screen.queryByRole("button", { name: "Replace with my own account" })).toBeNull();
+  });
+
+  it("words an owner's refused save for an absent holder", async () => {
+    setCachedRegistry("wed_1", absent({ cashGiftsEnabled: true }));
+    const { container } = renderPanel({ canManage: true });
+    const toggle = (await screen.findByRole("checkbox", {
+      name: "Let guests give money",
+    })) as HTMLInputElement;
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    authFetch.mockResolvedValueOnce(
+      json({ error: "payout_holder_absent", settings: absent().settings }, 409),
+    );
+    // Something to send: the heading.
+    fireEvent.input(screen.getByLabelText(/Heading/i), { target: { value: "Gifts" } });
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(
+      /isn’t held by a current owner of this wedding, so money gifts stay off/,
+    );
+  });
+
+  it("locks the switch for someone who can read the settings but not change them", async () => {
+    setCachedRegistry("wed_1", seated(KIT, { cashGiftsEnabled: true }));
+    renderPanel({ canEdit: false, canManage: false });
+    const toggle = (await screen.findByRole("checkbox", {
+      name: "Let guests give money",
+    })) as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
   });
 });

@@ -14,6 +14,8 @@
 import { resolve } from "node:path";
 
 import {
+  CHANGE_NOTICE_SECRET,
+  CHANGE_NOTICES_FILE,
   CIRE_INTERNAL_REVOKE_SECRET,
   CIRE_OIDC,
   CIRE_RSVP_DEADLINE,
@@ -23,6 +25,7 @@ import {
   E2E_RESEND_KEY,
   INTERNAL_SERVICE_SECRET,
   ORIGINS,
+  OSN_ARC_KID_SECRET,
   PORTS,
   PULSE_OIDC,
   REPO_ROOT,
@@ -217,10 +220,16 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         OSN_ORIGIN: [ORIGINS.musubi, ORIGINS.pulseWeb].join(","),
         OSN_CORS_ORIGIN: [ORIGINS.musubi, ORIGINS.pulseWeb].join(","),
         INTERNAL_SERVICE_SECRET,
+        // Keys a MAC on its ARC key ids; Pulse and cire check it.
+        OSN_ARC_KID_SECRET,
         PULSE_API_URL: ORIGINS.pulseApi,
         RESEND_API_KEY: E2E_RESEND_KEY,
         RESEND_API_URL: ORIGINS.mail,
         OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
+        // `musubi-change-notice` sends a notice of the suite's own to every
+        // account this osn-api holds.
+        OSN_CHANGE_NOTICE_SECRET: CHANGE_NOTICE_SECRET,
+        OSN_CHANGE_NOTICES_FILE: CHANGE_NOTICES_FILE,
         // The organiser signs in to cire's portal as the dev principal, which
         // owns cire's sample wedding, and is sent back to the portal after.
         DEV_LOGIN_SECRET,
@@ -231,6 +240,9 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         CIRE_API_URL: ORIGINS.cireApi,
         CIRE_INTERNAL_REVOKE_SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
+        // cire's organiser portal: where a confirmed cire step-up request
+        // returns, and the origin cire's manage-your-data link may sit on.
+        CIRE_ORGANISER_ORIGIN: ORIGINS.cireHost,
         // `musubi-account-deletion` moves its deletion job past its window
         // and waits for the sweeps (`osn/api/src/local.ts`): every 2 s here,
         // not 6 h. A pass finds nothing to do unless a job is due, and no
@@ -289,6 +301,7 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         OSN_OIDC_CLIENT_ID: PULSE_OIDC.clientId,
         OSN_OIDC_CLIENT_SECRET: PULSE_OIDC.secret,
         INTERNAL_SERVICE_SECRET,
+        OSN_ARC_KID_SECRET,
       },
     },
     {
@@ -326,6 +339,8 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         ...ownerAddresses,
         // What osn-api presents to end organiser sessions; the same value as its own.
         CIRE_INTERNAL_REVOKE_SECRET,
+        // osn-api's ARC key ids are checked under it before any key fetch.
+        OSN_ARC_KID_SECRET,
       },
     },
     {
@@ -360,6 +375,11 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
       // test sitekey, so the sign-in and registration forms load the widget as
       // the deployed tiers do; osn-api holds no secret and checks nothing, as
       // on dev, and the fixtures stand in for Turnstile at its real URLs.
+      // `--inspector-port 0`: workerd binds the devtools socket on a port the
+      // kernel picks at bind time. Left unset, Wrangler picks the first free
+      // port from 9229 and binds it later, and cire invites' `astro dev` picks
+      // from 9229 the same way, so the two can pick one port and Musubi exits
+      // with `Address already in use (socket "direct:1:default")`.
       name: "musubi",
       dir: "musubi/social",
       build: ["bun", "run", "build"],
@@ -372,6 +392,8 @@ export function appSpecs(cireArc?: CireArcKey, stripeTestMode?: StripeTestModeSe
         String(PORTS.musubi),
         "--ip",
         "localhost",
+        "--inspector-port",
+        "0",
         "--show-interactive-dev-session=false",
       ],
       readyUrl: `${ORIGINS.musubi}/`,

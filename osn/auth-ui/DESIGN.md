@@ -27,9 +27,11 @@ package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
 Two views mount in no app: `SessionsView` (#2055) and `ChangeEmailForm`
 (#2056). Only their tests and lab stories render them. Musubi's profile
-switcher is its own (`ProfileSwitcherDialog`); the package draws none, but
+switcher is its own, the account menu's radio rows; the package draws none.
 Musubi's own dialogs take their header and footer from it (`AuthHeader`,
-`DialogActions`), so every dialog in the product has one shape.
+`DialogActions`), so every dialog in the product has one shape, and
+`/authorize`'s account and picker screens take their heading from
+`AuthHeader`'s page host.
 
 **What a host supplies.**
 
@@ -50,8 +52,8 @@ Musubi's own dialogs take their header and footer from it (`AuthHeader`,
 
 | View | Props a host passes | Context it reads |
 | --- | --- | --- |
-| `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host`: `"dialog"` with `onCancel`, or `"page"` with an optional `onCancel` and `cancelLabel`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
-| `Register` | `client` (`RegistrationClient`), `productName`, `legal` (`termsHref` and `privacyHref`, the host's own terms of service and privacy notice), `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
+| `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host`: `"dialog"` with `onCancel`, or `"page"` with an optional `onCancel` and `cancelLabel`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess`; `onCreateAccount` (the host's create-account view; given, the passkey form ends with "No account yet? Create one") | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
+| `Register` | `client` (`RegistrationClient`), `productName`, `legal` (`termsHref` and `privacyHref`, the host's own terms of service and privacy notice), `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess`; `onSignIn` (the host's sign-in; given, the details step ends with "Already have an account? Sign in", and the two signed-out ends' Sign in goes there rather than to `onCancel`) | `AuthProvider` (`adoptSession`, `refreshHeldSession`), `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `RecoveryLoginForm` | `client` (`RecoveryClient`), `host`: `"dialog"` with `onDismiss` (the dialog's Cancel), or `"page"`; `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`, `productName`; `onSuccess`, `onCancel` (back to sign-in) | `AuthProvider` |
 | `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly`; `read` (a `SettingsRead` of the list, or the view reads `client.list()` itself) | — |
 | `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly`; `read` (of the status) | `Toaster` |
@@ -63,7 +65,7 @@ Musubi's own dialogs take their header and footer from it (`AuthHeader`,
 | `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue`, `showLockoutRule` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `warning`, `purpose` | — |
 | `AuthHeader` | `title`, `host`: `"dialog"`, or `"page"` with optional `onCancel`, `cancelLabel`, `cancelDisabled` | the `Dialog`'s context, with `host="dialog"` |
-| `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
+| `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel`, `onBusyChange` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
 | `TurnstileWidget` | `siteKey`, `onToken`; `onReady`, `alternative`, `theme`, `class` | — |
 
@@ -124,11 +126,11 @@ the title weight 500):
 | --- | --- | --- |
 | Title of a sign-in or create-account view | `AuthHeader`: `DialogTitle` in a dialog, an `h2` in its classes on a page | `SignIn`, `Register` |
 | Heading of a panel | `text-ui-ink text-ui-md font-ui-title`, `DialogTitle`'s and `CardTitle`'s look | `PasskeysView`, `TotpView`, `SessionsView`, `ChangeEmailForm` |
-| Heading of a step inside a view | `text-ui-ink text-ui-base font-medium` | `RecoveryLoginForm`'s `enrol`, `enrolled` and `expired` steps; `TotpView`'s "Scan this with your authenticator app"; `CheckEmailView`, `ConfirmLinkPage` |
-| Body copy | `text-ui-sm leading-ui-snug text-ui-ink-secondary` | the views' own paragraphs and lines, `Register`'s agreement line among them; a done line ("Your email is now …") in `text-ui-ink` |
+| Heading of a step inside a view | `text-ui-ink text-ui-base font-medium` | `RecoveryLoginForm`'s `enrol`, `enrolled` and `expired` steps; `Register`'s ran-out and added ends; `TotpView`'s "Scan this with your authenticator app"; `CheckEmailView`, `ConfirmLinkPage` |
+| Body copy | `text-ui-sm leading-ui-snug text-ui-ink-secondary` | the views' own paragraphs and lines, `Register`'s agreement line and its two ends' lines among them, and `SwitchLine`'s sentence; a done line ("Your email is now …") in `text-ui-ink` |
 | Meta lines (dates, "(synced)") | `text-ui-xs text-ui-ink-secondary` | the list rows, the banner |
 | "(this device)" | `text-ui-xs text-ui-accent-ink` | `SessionsView` |
-| Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
+| Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | the handle in `Register` and `CreateProfileForm` (one `HANDLE_HINT`, `src/handle-copy.ts`), `Register`'s date of birth |
 | Names in a row | `text-ui-ink text-ui-base font-medium`; the banner's headlines `text-ui-sm` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
 | Codes | `font-ui-mono text-ui-sm` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every six-digit code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md`, which Musubi maps to its title step (14px from 768px; its mobile input rule keeps 16px below). `RecoveryLoginForm`'s recovery code, 16 characters in four groups, is an `Input` in a `Field` |
 
@@ -376,6 +378,10 @@ As built:
   centred, then a dialog `ViewStep`: the body and a footer with Cancel
   first, then the commit ("Generate new set", "Create profile").
   `CreateProfileForm`, whose one host is that dialog, draws its own step.
+  While its create request runs, "Create a new profile" refuses Escape, a
+  press outside and a drag down, as its Cancel is disabled then: the form
+  tells `ProfileOnboarding` through `onBusyChange`, and the sheet passes
+  `dismissible={!creating()}`. Success closes it all the same.
   Every dismiss button in a dialog is `secondary`, so it reads as a way out
   beside the commit and not as a second commit ([the owner's
   call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06).
@@ -390,12 +396,12 @@ besides the default:
 
 | View | Parts | Button variants |
 | --- | --- | --- |
-| `SignIn` | Button, Field, Input, Notice; `AuthHeader`, `ViewStep` | `secondary` (a dialog's Cancel; "Use a recovery code instead" on a page), `link` |
-| `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the wait | `secondary` (a dialog's Cancel), `link` at `inline` (the agreement line's two `<a>`s, through `buttonVariants`) |
+| `SignIn` | Button, Field, Input, Notice; `AuthHeader`, `ViewStep` | `secondary` (a dialog's Cancel; "Use a recovery code instead" on a page), `link`, `link` at `inline` (`SwitchLine`) |
+| `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the wait | `secondary` (a dialog's Cancel), `link` at `inline` (the agreement line's two `<a>`s, through `buttonVariants`; `SwitchLine`) |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary` (a dialog's Cancel), `link` |
 | `StepUpDialog` | Button, Dialog, Notice, OtpInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary`, `link` |
 | `AuthHeader` | Button, Dialog (`DialogHeader`, `DialogTitle`) | `ghost` (Cancel on a page, where it switches views and dismisses nothing) |
-| `ViewStep`, `StepLink` (`src/ViewParts.tsx`, internal) | Button; `DialogActions` | `link` |
+| `ViewStep`, `StepLink`, `SwitchLine` (`src/ViewParts.tsx`, internal) | Button; `DialogActions` | `link`; `link` at `inline` (`SwitchLine`) |
 | `DialogActions` (`src/DialogActions.tsx`, exported for the host's own dialogs) | Button, Dialog (`DialogFooter`) | `secondary` (a dialog's Cancel, as every dialog's dismiss button) |
 | `PasskeysView` | Button, Card, Input, Notice, Skeleton | `outline`, `ghost` |
 | `TotpView` | Button, Card, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
@@ -446,6 +452,16 @@ to the address the host passes in `legal`, each opening a tab of its own
 (`target="_blank"`, `rel="noopener noreferrer"`) so the form keeps what was
 typed. Musubi's rules for all three are `musubi/social/DESIGN.md` §Links.
 
+**The way across.** The sentence that leads from one view of the pair to the
+other — `SignIn`'s "No account yet? Create one", `Register`'s "Already have an
+account? Sign in" — is `SwitchLine` (`src/ViewParts.tsx`, internal): body copy
+(§3) centred at the foot of the step's body, below "Lost your passkey?" in
+`SignIn`, its last words Button's `link` at `inline`, underlined at rest as a
+link inside a sentence is, and a `<button>`, since it changes the view rather
+than the page. Each shows only where the host passes the prop that goes there
+(`onCreateAccount`, `onSignIn`); `/authorize` already crosses through its own
+"Create one" line and `Register`'s "Sign in instead", so it passes neither.
+
 ## 6. States per view
 
 Each state is named from the view's own code, with the copy it shows.
@@ -480,7 +496,7 @@ passkey call runs).
 
 | State | What shows |
 | --- | --- |
-| Passkey form | "Email or @handle", the Turnstile challenge when a site key is set, "Lost your passkey?", Continue ("Verifying…" while busy) — in a dialog the link sits in the body and Continue in the footer; on a page the link sits under Continue |
+| Passkey form | "Email or @handle", the Turnstile challenge when a site key is set, "Lost your passkey?", "No account yet? Create one" when the host passes `onCreateAccount`, Continue ("Verifying…" while busy) — in a dialog the links sit in the body and Continue in the footer; on a page the links sit under Continue |
 | No WebAuthn | An info `Notice`, "{productName} sign-in needs a passkey or security key, and this browser doesn't support WebAuthn."; "You can either:" and three ways forward; "Use a recovery code instead" (the footer's commit in a dialog, `secondary` on a page) |
 | Recovery | `RecoveryLoginForm` |
 | Signed in | "You're all set." |
@@ -494,9 +510,11 @@ own.
 | State | What shows |
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
-| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, the agreement line "By creating an account you agree to the Terms of Service and acknowledge the Privacy Notice." (both linked, §5; body copy, §3; the send's description, so a screen reader hears it on the button), the error line, "Send verification link" ("Sending…"). The two links stay live while the send runs: each opens its own tab, so neither leaves the view. When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
+| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, "Use 30 characters or fewer." past 30; with the standing hint "Up to 30 lowercase letters, numbers and underscores. Capitals become lowercase as you type, and anything else is left out.", so the lowercasing and the characters left out are never silent), Date of birth with the hint "You must be 13 or older to create an account." (or, once a date is in, "That date is in the future. Enter your date of birth.", "Check the year. That date is more than 120 years ago." or "{productName} is for users 13 and older"; the field's own `min` and `max` are the same range, today back to 120 years ago, on the person's calendar), Display name (optional), the Turnstile challenge, the agreement line "By creating an account you agree to the Terms of Service and acknowledge the Privacy Notice." (both linked, §5; body copy, §3; the send's description, so a screen reader hears it on the button), the error line, "Send verification link" ("Sending…"), and "Already have an account? Sign in" when the host passes `onSignIn`. After a rate limit Send is disabled for a minute, its label "Try again in {n}s" in tabular figures counting down beside the map's "Too many attempts. Wait a while, then try again." (§7, §9). The two links stay live while the send runs: each opens its own tab, so neither leaves the view. When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus. What was typed is kept in the tab as it is typed (`osn.signup.draft`; the date only once it is accepted), so a closed dialog or a reload comes back to it, the handle checked again |
 | Verify | `CheckEmailView` for sign-up: the address, the request's number, the junk-mail line naming `productName` once Resend unlocks, Resend ("Sending…") and "Start again" (back to Details with the fields kept, from the first moment). After the link's reader declines or picks a wrong number the view keeps waiting, as for an address nobody was mailed, and the link's page sends the person back here to "Start again". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
-| Passkey | "Add a passkey or security key so you can sign back in. This is required to finish creating your account."; the enrolment's error line; "Add a passkey" ("Waiting for your passkey…") |
+| Passkey | "Add a passkey or security key so you can sign back in as @{handle}. This is required to finish creating your account.", the handle the server made the account under, at the ink's 500 (a poll already out when "Start again" was pressed can still make the account under the first handle, and this is where the person learns which); the enrolment's error line; "Add a passkey" ("Waiting for your passkey…"). Once the passkey is in and signing in failed in a way a retry may mend, the line "Your passkey is added, but we couldn't sign you in. Try again." and the action "Try again" ("Signing in…"), which only signs in. The step comes back after a closed dialog, a reload or a closed tab while the account's 15-minute session lasts (`osn.signup.enrolling`) |
+| Ran out | A step heading, "This sign-up ran out of time" (§3), over the line "Your account is saved, but it has no passkey yet. Sign in, choose “Lost your passkey?”, and confirm your email to add one."; "Sign in", the step's one action. The heading takes focus as the end appears. Shown when the session behind the passkey step has ended, or the browser's cookie answers for another account. Never the details again: their address has an account |
+| Added | A step heading, "Your passkey is added", over the line "Sign in with it to finish."; "Sign in with your new passkey", the action `RecoveryLoginForm`'s `enrolled` step uses for the same meaning. The heading takes focus as the end appears. Shown when the passkey is in and the browser holds no session for the account (it lapsed, or another tab renewed it away) |
 | Done | "You're all set. Loading {productName}…" |
 
 **`RecoveryLoginForm`**
@@ -656,7 +674,8 @@ since each flow's differs.
 | Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
 | Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions." after the rule below). Then "A wrong number ends a link too." and the flow's lockout rule (none with `showLockoutRule={false}`), in the card and in what the page says aloud. The same for every refusal, a list the page cannot offer included |
 
-**`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
+**`CreateProfileForm`** — Handle (`UsernameInput`, with `Register`'s standing hint and its
+"Use 30 characters or fewer." past 30, both from `src/handle-copy.ts`), "Display name (optional)",
 "Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
 
 **`ProfileOnboarding`** — shows only with a session, exactly one profile and
@@ -706,7 +725,9 @@ text (which in Chrome carries a URL).
 
 The views add only sentences about their own checks: "Please complete the
 verification challenge below.", "Please enter a valid email address",
-"{productName} is for users 13 and older", "Enter the 6-digit code." in
+"{productName} is for users 13 and older", `Register`'s "That date is in the
+future. Enter your date of birth.", "Check the year. That date is more than
+120 years ago." and "Use 30 characters or fewer.", "Enter the 6-digit code." in
 `StepUpDialog`, and "A passkey can't be used here." when `StepUpDialog` has no
 ceremony runner — which offers no retry, since none can work.
 
@@ -836,9 +857,13 @@ host a short-lived token through `onToken`.
   admits it, the host passes `totpClient`, and the account has one
   (`GET /totp/status`; a failed read hides the factor, and so does one still
   out, read by `state` so the sheet never joins its host's `Suspense`). By `purpose`:
-  `passkey_delete` admits the passkey only; `email_change` the passkey and the
-  emailed link; every other purpose all three; no purpose, the passkey and the
-  authenticator. "Use passkey" is the footer's action, beside Cancel
+  `passkey_delete` and the three purposes that remove an app's data
+  (`pulse_app_delete`, `zap_app_delete`, `cire_app_delete`) admit the passkey
+  only; `email_change` the passkey and the emailed link; every other purpose
+  all three; no purpose, the passkey and the authenticator. The sheet cannot
+  tell a passkey still inside its 72-hour hold from another, so the host's page
+  says what removing an app's data needs (`musubi/social/DESIGN.md` §Layout,
+  An app's step-up request). "Use passkey" is the footer's action, beside Cancel
   (`secondary`, as every dialog's dismiss button), which comes first; the
   other factors sit above the footer as `outline` Buttons.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
@@ -875,25 +900,35 @@ host a short-lived token through `onToken`.
   still in flight is dropped; choosing the link again sends a new one, which
   the server counts. On the code step it clears the code and its error line.
   It is `disabled` while the code is checked.
-- **Closing.** Cancel, Escape and a press outside the sheet are one action.
-  It is refused while a call the sheet started runs — the passkey, the email
-  send, the code check — as Cancel is `disabled` then (§6). On the emailed
-  link's wait every way out stays open while a Resend runs: leaving ends the
-  request on this side, and the late answer is dropped.
+- **Closing.** Cancel, Escape, a press outside the sheet and, below `md`, a
+  drag down it (`@shared/ui`'s sheet drag, `musubi/social/DESIGN.md`
+  §Motion) are one action. It is refused while a call the sheet started runs
+  — the passkey, the email send, the code check — as Cancel is `disabled`
+  then (§6): the sheet passes `dismissible={!busy()}`, so Escape and a press
+  outside do nothing at the panel and a drag gives on a rubber band and comes
+  back, and `cancel()` refuses again when `onOpenChange(false)` reaches it.
+  On the emailed link's wait every way out stays open while a Resend runs:
+  leaving ends the request on this side, and the late answer is dropped.
 - **One outcome, after the exit.** The sheet closes itself and hands the host
   its one outcome, `onToken` or `onCancel`, once its exit has ended, so it
   leaves as every Musubi dialog does before the host removes it: below `md` it
   slides down (under reduced motion it fades, on the same pace), from `md` the
-  card fades. If the exit has not ended 300ms after
-  the close (a tab the browser has hidden runs no animation), the outcome goes
-  then; 300ms stays above both exits only while the host keeps
-  `--ui-dur-base` and `--ui-dur-exit` under it. While it closes, its body is
-  `inert` and every action returns early. A host that removes the sheet
-  itself gets neither callback. The cost is the exit: the host's next request
-  starts `--ui-dur-base` (200ms) after the token below `md`, `--ui-dur-exit`
-  (80ms in Musubi) from it, or up to 300ms in a hidden tab, rather than at
-  once. That is the price of the host's `<Show>` not cutting the exit short
-  and of focus going back only once the sheet has gone.
+  card fades, and dragged down and let go it leaves on the release's spring,
+  about 280 to 360ms on a phone. If the exit has not ended after the longer of 300ms and
+  the exit's own run plus 100ms (the panel's `animation-duration`, read as it
+  closes and taken as 2s at most, the longest a drag's spring runs; a drag's
+  release writes the spring's length there), because a tab the browser has
+  hidden runs no animation, the outcome goes then, so no stylesheet can hold
+  a token back past 2.1s; 300ms
+  stays above the other exits only while the host keeps `--ui-dur-base` and
+  `--ui-dur-exit` under it. While it closes, its body is `inert` and every
+  action returns early. A host that removes the sheet itself gets neither
+  callback. The cost is the exit: the host's next request starts
+  `--ui-dur-base` (200ms) after the token below `md`, `--ui-dur-exit` (80ms
+  in Musubi) from it, or, in a hidden tab, that fallback, rather than at
+  once. That is the price of the host's
+  `<Show>` not cutting the exit short and of focus going back only once the
+  sheet has gone.
 - **The claim secret and the number** live in memory only, and every answer
   about the emailed link is checked against the wait it was for, so nothing
   reaches `onToken` after the person closed the sheet or went back. A status
@@ -955,13 +990,20 @@ when the view appears, and when a send ends with Resend holding focus and the
 wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
 (`focus:outline-none`): it is where focus is put, not a control.
 
+`Register`'s ran-out and added ends take focus the same way: the heading
+(`tabindex="-1"`, no mark) takes it as the end appears, since the passkey
+step's button that held it is gone.
+
 `TurnstileWidget`'s challenge is a group named "Human verification challenge"
 with `tabindex="-1"` and no focus mark; Try again puts focus there as the line
 holding it goes, so focus never falls to the page.
 
 `Register` puts focus on the handle field when a wait ends because the handle
 was taken: the waiting view that held focus is gone, and the handle field is
-where the alert asks the person to act.
+where the alert asks the person to act. When a rate limit disables the Send
+that kept focus through its call, focus goes to the error line above it,
+which says why (a wrapper with `tabindex="-1"` and no mark, never reached by
+Tab), so it never falls to the page.
 
 `ConfirmLinkPage` draws no control by hand either: its numbers, the decline,
 Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
@@ -1002,7 +1044,10 @@ new view takes its words from here, and a new action adds its row here.
 | Leave a dialog or view | "Cancel"; on a page, a host's `cancelLabel` where leaving means something else ("Sign in instead") | `DialogActions`, every dialog's footer; `AuthHeader` on a page (`cancelLabel` there only) |
 | Go back a step | "Back"; to sign-in "Back to sign in"; to the factors "Use another method"; redo "Start again" | `RecoveryLoginForm`, `StepUpDialog`, `CheckEmailView` |
 | Say no to a link | "I didn't ask for this", answered by "Cancelled" | `ConfirmLinkPage` |
-| Try a failed load again | "Try again", never "Retry" | `LoadFailed` in the settings panels, `TurnstileWidget` |
+| Try a failed load again | "Try again", never "Retry" | `LoadFailed` in the settings panels, `TurnstileWidget`; `Register`'s passkey step once the passkey is in |
+| Go across to the other view | "No account yet? Create one"; "Already have an account? Sign in" | `SignIn`'s passkey form, `Register`'s details step (`SwitchLine`); "Sign in" alone as the action of `Register`'s ran-out end |
+| Sign in with the passkey just added | "Sign in with your new passkey" | `RecoveryLoginForm`'s `enrolled` step, `Register`'s added end. `Register`'s ran-out end says "Sign in": no passkey was added there, and the sign-in leads to "Lost your passkey?" |
+| Wait out a rate limit | "Try again in {n}s", the button's own label while it waits | `Register`'s Send |
 
 A row's action names its item for a screen reader (`aria-label`), so two rows
 never offer two buttons of one name and the words seen stay the words heard
@@ -1074,14 +1119,21 @@ As built:
   that placeholder against the row that lands, at 320 and 1440px),
   `ProfileOnboarding.browser.test.tsx` ("Create a new profile" a bottom sheet
   at 390px and a 384px card at 1440px, its Cancel `secondary`),
-  `CheckEmailView.layout.browser.test.tsx` and
-  `AuthorizeLoading.browser.test.tsx`. The suites that run the real views
-  end to end are the flows
+  `CheckEmailView.layout.browser.test.tsx`,
+  `AuthorizeLoading.browser.test.tsx` and `SignUpFlow.browser.test.tsx`
+  (`Register` and `SignIn` walked through `AuthDialogs`: details locked
+  while a link is pending and the welcome naming the server's handle, the
+  draft across a close and a remount, the date of birth's range lines, Send's
+  60-second wait after a rate limit, the passkey step reopened and finished
+  from the cookie, the ran-out and added ends, the cross-links and the focus
+  they leave, and every screen at 320 and 768px in both themes). The suites
+  that run the real views end to end are the flows
   `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
   `tools/e2e/tests/flows/musubi-register-retry.flow.ts`, which take `Register`
   through `CheckEmailView` and open the link on `ConfirmLinkPage` (a wrong
   pick, the decline, a failed read and its Try again, and the expired card for
-  a link cut short and for one with an unknown id), and
+  a link cut short and for one with an unknown id), reload the tab with a
+  draft typed, and reload on the passkey step and finish there, and
   `tools/e2e/tests/flows/musubi-recovery.flow.ts`, which takes
   `RecoveryLoginForm` through its emailed link, its wait across a reload, the
   typed number and enrolment. `musubi-passkey`
@@ -1219,7 +1271,10 @@ As built:
   item. `RecoveryCodesView.test.tsx` fails a status read under a host's
   `Suspense`: the panel's own line with Try again, no fallback, the generate
   button kept, and Try again reading the count. `ProfileOnboarding.test.tsx`
-  finds its create dialog by name.
+  finds its create dialog by name, and holds its closing: Escape and a press
+  outside close it before a request, are refused while "Creating…" runs, and
+  close it again once the request ends: Escape after a failure, a press
+  outside once a created profile's sheet is opened again.
 - **Layout in Musubi's browser tests.**
   `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
   step-up sheet from "Add a passkey" in Settings → Security: at 390px a bottom
@@ -1290,31 +1345,42 @@ As built:
 ## 12. Motion
 
 The package has one motion of its own, `CheckEmailView`'s wait fill, below.
+`Register`'s Send counts its rate-limit minute in its label alone, with no
+fill: Musubi's §Motion lists the fill as `CheckEmailView`'s, and a second
+place for it is the host's `DESIGN.md` to grant first.
 Otherwise a view takes its host's: in Musubi, colour and opacity transitions
 only, beside the two `Button` draws, the orb and the press
 (`musubi/social/DESIGN.md` §Motion). Musubi's §Motion lists the wait fill
 among its exceptions. The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
-control's focus mark lands at once (§9). A view draws six motions from
+control's focus mark lands at once (§9). A view draws seven motions from
 `@shared/ui` parts: the press, which scales a `Button` to 0.97 while it is
 held (not while disabled or busy, nor a link inside a sentence); a busy
 button's `Orb`; `Skeleton`, the loading
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 `RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
 in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; the open and close of a
-popover, `Register`'s `InfoPopover` beside the email field; and the fade
-under a dialog's header as its body scrolls (below). Below `md` the
+popover, `Register`'s `InfoPopover` beside the email field; the fade
+under a dialog's header as its body scrolls (below); and the drag that
+closes a sheet. Below `md` the
 three sheets slide up from the bottom edge and back down, as every
 `@shared/ui` sheet does (`musubi/social/DESIGN.md` §Motion, the owner's
-"B: slide up" on #2045); from `md` they are cards, and the cards and the
+"B: slide up" on #2045), and follow a finger dragged down their title row,
+closing on a spring once let go far or fast enough (`musubi/social/DESIGN.md`
+§Motion, "A sheet drags down to close", the owner's choices on #2288); the
+step-up and "Create a new profile" give on a rubber band and come back while
+a call they started runs (§8, §4). From `md` they are cards, which never drag, and the cards and the
 popover fade with no scale in Musubi, which maps both scale tokens to 1
 (`musubi/social/DESIGN.md` §Motion); the press does not read those tokens and
 scales in Musubi too. Under reduced motion no button scales, the `Orb` and
 `Skeleton` stand still, a sheet fades in and out with its scrim and does not
-slide, and the cards and the popover show and hide at once. `StepUpDialog`
+slide, a dragged sheet still follows the finger and fades rather than slides
+once let go, and the cards and the popover show and hide at once. `StepUpDialog`
 hands its host the outcome once its exit has ended (§8), so the host's
 removal never cuts the slide or the fade short. `AuthHeader` adds no motion: a title it
 is given arrives at once, and it shows and hides with the dialog around it.
+In a sheet below `md` its row is the drag's handle, as every
+`DialogHeader` is, with no grabber bar.
 In a dialog its `DialogHeader` draws `@shared/ui`'s scroll edge: the fade
 under it comes in with the reader's own scroll over the first 16px and
 holds, changing only opacity, and it ramps the same way under reduced motion
@@ -1323,7 +1389,7 @@ holds, changing only opacity, and it ramps the same way under reduced motion
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion), and so do a list
 that lands in place of its placeholder, `CheckEmailView`'s junk-mail line and
-`TurnstileWidget`'s failed-load line. Beyond the shared sheet's slide, a view
+`TurnstileWidget`'s failed-load line. Beyond the shared sheet's slide and drag, a view
 never moves a panel, a field or an error across the screen, and never loads an
 animation library. A motion a view needs that the host does not have goes into
 the host's `DESIGN.md` first.

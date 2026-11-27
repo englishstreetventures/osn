@@ -309,3 +309,6 @@ shared/infra/d1-artifacts/
 
 # Private business research (plans, financial models) kept beside the repo; the repository is public
 /research/
+
+# The probes tools/oxlint/house/tests/law-set-imports.test.ts writes into real workspaces for a moment, kept out of git and of turbo's hashes
+__law-set-import-probe.ts

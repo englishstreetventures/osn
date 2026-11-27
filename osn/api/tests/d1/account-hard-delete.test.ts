@@ -451,12 +451,12 @@ describe("the hard delete waits for every app, on D1", () => {
   });
 
   // The fan-out claims a job before it calls any app, so a job the hard delete
-  // meets with an app still pending has usually been claimed already, and the
-  // claim no longer guards it: only the batch's job delete does, and D1 rolls
+  // meets with an app still pending has usually been claimed already. The
+  // claim cannot guard it then: only the batch's job delete does, and D1 rolls
   // the whole batch back when the account's delete then fails on the job.
   it.each([
     ["an app still pending", "claimednull", 1_700_000_000, null, 1_700_000_002],
-    ["the old not-enrolled mark", "claimedold", 1_700_000_000, -1, 1_700_000_002],
+    ["the not-enrolled mark (-1)", "claimedold", 1_700_000_000, -1, 1_700_000_002],
     ["cire alone still pending", "claimedcire", 1_700_000_000, 1_700_000_001, null],
   ])(
     "erases nothing of a job the fan-out already claimed while it has %s",
@@ -479,7 +479,7 @@ describe("the hard delete waits for every app, on D1", () => {
     },
   );
 
-  it("erases the account once every app is done, a skipped app included", async () => {
+  it("erases the account once every app's mark reads done", async () => {
     const { accountId, job } = await withMarks("bothdone", 1_700_000_000, 1_700_000_001);
     expect((await run(hardDeleteAccount(job, HARD_DELETE_AT))).deleted).toBe(true);
     expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toHaveLength(0);

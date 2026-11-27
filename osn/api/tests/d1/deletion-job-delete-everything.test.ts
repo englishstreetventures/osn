@@ -63,7 +63,7 @@ beforeAll(async () => {
       await d1.prepare(statement).run();
     }
   }
-  for (const id of ["acc_insert", "acc_update"]) {
+  for (const id of ["acc_insert", "acc_update", "acc_update_flag"]) {
     await d1
       .prepare(
         "INSERT INTO accounts (id, email, passkey_user_id, created_at, updated_at) VALUES (?, ?, ?, 1, 1)",
@@ -95,15 +95,16 @@ describe("a deletion job that deletes everything, on D1, after every migration",
           .run(),
       ),
     ).toContain(REFUSAL);
+    await addJob("acc_update_flag", 1, null);
     expect(
       await refusal(
         d1
           .prepare("UPDATE deletion_jobs SET choices = '{}' WHERE account_id = ?")
-          .bind("acc_insert")
+          .bind("acc_update_flag")
           .run(),
       ),
     ).toContain(REFUSAL);
     expect((await jobOf("acc_update"))?.delete_everything).toBe(0);
-    expect((await jobOf("acc_insert"))?.choices).toBeNull();
+    expect((await jobOf("acc_update_flag"))?.choices).toBeNull();
   });
 });

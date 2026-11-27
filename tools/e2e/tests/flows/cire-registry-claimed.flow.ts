@@ -11,8 +11,10 @@
  * which has a Stripe key and no Connect webhook secret: it could open a
  * payment page but never record the gift, so the list offers neither the money
  * form nor the fund. The flow reads the fund's row and the couple's
- * Stripe-ready settings from that server's database first, so the fund's
- * absence is the deployment's doing, not a seed that lacks one. The guest
+ * Stripe-ready settings from that server's database first — an account held by
+ * an owner of the wedding among them, since cire-api offers no money while the
+ * account's holder holds no owner seat — so the fund's absence is the
+ * deployment's doing, not a seed that lacks one. The guest
  * site's server render reads the first cire-api, which seeds the same wedding;
  * nothing it renders depends on whether a server takes money.
  *
@@ -28,12 +30,12 @@
  * locked one pass on nothing.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { Page } from "@playwright/test";
 
-import { CIRE_GIFT_LIST, DB_FILES, LOG_DIR, ORIGINS } from "../../src/config";
+import { CIRE_GIFT_LIST, DB_FILES, LOG_DIR, ORIGINS, REPO_ROOT } from "../../src/config";
 import {
   expect,
   GIFT_LIST_MODULES,
@@ -50,6 +52,8 @@ const API = ORIGINS.cireApiKeyOnly;
 const LIST_URL = `${API}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
 const MINE_URL = `${LIST_URL}/mine`;
 const CLAIM_URL = `${API}/api/claim`;
+/** The money panel's module, which the gift page imports only to draw the panel. */
+const MONEY_PANEL_MODULE = "/src/components/gift-registry/GiftMoneyPanel.tsx";
 
 /** Resolves with the first `method` request to exactly `url`; `…/registry` is a prefix of `…/registry/mine`. */
 function responseTo(page: Page, method: string, url: string) {
@@ -193,7 +197,11 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     DB_FILES.cireKeyOnly,
     `SELECT (s.cash_gifts_enabled = 1 AND s.stripe_charges_enabled = 1
              AND s.stripe_account_id IS NOT NULL
-             AND upper(s.stripe_default_currency) = upper(w.currency)) AS ready
+             AND upper(s.stripe_default_currency) = upper(w.currency)
+             AND EXISTS (SELECT 1 FROM wedding_hosts h
+                          WHERE h.wedding_id = s.wedding_id
+                            AND h.osn_profile_id = s.stripe_connected_by_osn_profile_id
+                            AND h.role = 'owner')) AS ready
        FROM registry_settings s JOIN weddings w ON w.id = s.wedding_id
       WHERE w.slug = ?`,
     CIRE_GIFT_LIST.slug,
@@ -256,4 +264,18 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     CIRE_GIFT_LIST.code,
   );
   flow.check("no session left for the household", 0, left?.n ?? -1);
+
+  // The panel loads apart from the page, so its count above can read 0 while
+  // its module is still on the way. By now the page has had the whole flow to
+  // ask for it. The file is checked too, so a rename cannot pass this.
+  flow.check(
+    "the money panel's module is where this check looks",
+    true,
+    existsSync(resolve(REPO_ROOT, "cire/invites", MONEY_PANEL_MODULE.slice(1))),
+  );
+  flow.check(
+    "the gift page never asked for the money panel",
+    false,
+    paths.includes(MONEY_PANEL_MODULE),
+  );
 });

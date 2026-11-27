@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-26
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -109,8 +109,8 @@ which name a new package, token or identifier takes.
 
 Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
-`rounded-ui-hair` … `pill` plus the three role radii `rounded-ui-control`,
-`rounded-ui-field` and `rounded-ui-sheet`, `font-ui-body` /
+`rounded-ui-hair` … `pill` plus the four role radii `rounded-ui-control`,
+`rounded-ui-field`, `rounded-ui-sheet` and `rounded-ui-menu-row`, `font-ui-body` /
 `-display` / `-mono`, the weight role `font-ui-title`, and the measure scale
 `max-w-ui-xs` … `3xl` — declared as `--container-ui-*`, which is the namespace
 Tailwind reads a `max-w-*` from.
@@ -128,30 +128,48 @@ and `CONTRACT_SCALAR_TOKENS` in `src/index.ts` are the enumerable form of both
 lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
 
-**`control`, `field` and `sheet` are roles, not sizes**, the same way `focus` is
-its own colour rather than an alias of the accent. How round a _button_ is turns
-out to be independent of how round a card is, and so is how round a _text
-field_ is: `Button` reads `control`, while `Input`, `Textarea` and `Select` read
-`field` (`shared/ui/src/ui/control.ts`), so an app can give its buttons pill
-ends without making its fields pills, which read as search boxes. The top edge
-of a _bottom sheet_ is a third: a sheet's grip is measured against the screen
-edge it is pulled from, not against a card.
+**`control`, `field`, `sheet` and `menu-row` are roles, not sizes**, the same
+way `focus` is its own colour rather than an alias of the accent. How round a
+_button_ is turns out to be independent of how round a card is, and so is how
+round a _text field_ is: `Button` reads `control`, while `Input`, `Textarea`
+and `Select` read `field` (`shared/ui/src/ui/control.ts`), so an app can give
+its buttons pill ends without making its fields pills, which read as search
+boxes. The top edge of a _bottom sheet_ is a third: a sheet's grip is measured
+against the screen edge it is pulled from, not against a card. A _row inside a
+menu panel_ is the fourth: `DropdownMenu`'s rows in both looks and `MENU_TOUCH`'s
+rows read `menu-row` (`menu-classes.ts`, `menu-touch-classes.ts`). It is apart
+from `sm` because `sm` is also the corner of small marks: `@shared/ui`'s drawn
+`Checkbox`, a 16px box, reads it, and an app that raised `sm` to round its menu
+rows like its list rows would turn its checkboxes into circles, which read as
+radio buttons.
 
 Each role falls back to a sized step, so an app with no opinion gets its own
-value rather than one from the package: `control` to `md`, `sheet` to `lg`.
-`field` falls back to `control` first and only then to `md`, so an app that maps
-`control` alone keeps its fields and its buttons alike.
+value rather than one from the package: `control` to `md`, `sheet` to `lg`,
+`menu-row` to `sm`. `field` falls back to `control` first and only then to
+`md`, so an app that maps `control` alone keeps its fields and its buttons
+alike.
 
-| Role      | musubi               | pulse                            | cire                                     |
-| --------- | -------------------- | -------------------------------- | ---------------------------------------- |
-| `control` | pill                 | `--radius`, the same as its `md` | pill                                     |
-| `field`   | `--radius-md`, 8px   | not mapped: `--radius`           | 14px                                     |
-| `sheet`   | not mapped: its `lg` | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
+| Role       | musubi                    | pulse                            | cire                                     |
+| ---------- | ------------------------- | -------------------------------- | ---------------------------------------- |
+| `control`  | pill                      | `--radius`, the same as its `md` | pill                                     |
+| `field`    | `--radius-md`, 8px        | not mapped: `--radius`           | 14px                                     |
+| `sheet`    | not mapped: its `lg`      | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
+| `menu-row` | `--radius-md`, 8px        | not mapped: its `sm`, 6px        | not mapped: its `sm`, 6px                |
+
+`shared/ui/tests/dropdown-menu-default.browser.test.tsx` holds a default row at
+`--ui-radius-sm`'s corner while no menu-row corner is mapped, and at the role's
+once one is; `dropdown-menu.browser.test.tsx` holds the accent and touch rows
+the same way. The E2E suite reads a row of each of pulse's avatar menus at 6px
+under pulse's own stylesheet (`tools/e2e/tests/support/pulse-menus.ts`), a row
+of Musubi's theme menu at 8px (`musubi-surfaces.ts`), and Musubi's drawn
+"Delete everything" box at 6px (`musubi-account-deletion`), so Musubi's menu
+rows take its 8px row corner while its checkboxes keep the small one.
 
 cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
 `pill`, and its `--toast-radius` is `md`. All four cire stylesheets carry the
 same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
-if a role or a step differs. What each step paints in cire is
+if a role or a step differs, bar `sheet`, which host and vendor do not map, and
+fails if any of the four maps `menu-row`. What each step paints in cire is
 `cire/host/DESIGN.md` §4.
 
 **`title` is a weight role**, not a step on a weight scale: the weight a shared
@@ -315,9 +333,34 @@ motion, below).
 `Modal`, on the same rule, has the same gap. `overlay-motion.browser.test.tsx` holds the slide, its
 pace and curve, the scrim, the turn-rounds, the `md` crossing and the
 reduced-motion fade ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's
-profile switcher sliding on a real page, and pulse's
+create-profile sheet sliding on a real page, and pulse's
 `share-sheet-motion.browser.test.tsx` holds its share sheet's first frame,
 sliding and fading.
+
+**A `Dialog` sheet dragged and let go settles on a spring, not a token.**
+Below `md` a sheet follows a finger dragged down its title row
+([[component-library#Kobalte components (Dialog, Popover, Tooltip, Tabs)]] has the gesture), and once let go it closes
+or goes back on a critically damped spring with a 0.3s response, started at
+the speed the sheet had: the owner's "Soft spring, 300-360ms" on #2288
+(2026-11-23). Its length and curve differ with every release, so no token
+holds them. At release `settleCurve` (`@shared/ui/lib/spring`, the one cire's
+guest-site event sheet settles its swipe on) samples the spring into a
+`linear()` easing, or a `cubic-bezier()` with the same first slope where the
+engine has none, and the drag writes that easing and its length inline as the
+panel's and the scrim's `transition-duration` and `transition-timing-function`.
+A close ends once 3px of travel is left (`endWithinPx`, the owner's answer
+on #2288), since nobody watches a sheet's last pixels leave the screen; a
+return runs on to rest. A close writes the same length as their
+`animation-duration` too, so
+`ui-sheet-exit` runs as long as the slide and Kobalte keeps both mounted until
+the panel has left. Only the release takes the spring: a sheet closed by
+Cancel, Escape or the scrim still leaves over `--ui-dur-base` on
+`--ui-ease-sheet`. Under reduced motion (the sheet's transitions are
+`opacity` alone) a close fades where the sheet was let go on the sheet's own
+exit, and a return fades out and back in over half of `--ui-dur-base` each,
+on `--ui-ease-sheet`. The drag writes `transform` on the panel itself, never a
+custom property a subtree inherits, and uses no `will-change`, which in
+Chromium shifts a panel scrolled to its top by a pixel as the drag begins.
 
 **A dialog's scroll edge follows the scroll.** Under a `DialogHeader` stuck
 to the top of a scrolling panel, a 16px band of `--ui-surface` fading to

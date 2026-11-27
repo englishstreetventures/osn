@@ -8,7 +8,7 @@ related:
   - "[[contributing]]"
   - "[[wiki-search]]"
   - "[[review-findings]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-24
 ---
 
 # Agent tooling
@@ -137,8 +137,15 @@ The language server searches only the packages it has loaded, and gives no sign 
 
 So a plausible `LSP` list can still be half the answer. Two rules follow:
 
-1. **"Who uses X" across packages comes from `git grep -lw`.** Grep over-counts — `git grep -lw forkBackground -- '*.ts'` lists 13 files, 4 of them naming it only in comments or strings, and without the `*.ts` filter it adds changelogs and wiki pages — so it is the upper bound and a warm `LSP` answer the lower. Read the hits before reporting a count.
+1. **"Who uses X" across packages comes from `git grep -lw`.** Grep over-counts — `git grep -lw forkBackground -- '*.ts'` lists 22 files, 6 of them naming it only in comments or strings, and without the `*.ts` filter it adds changelogs and wiki pages — so it is the upper bound and a warm `LSP` answer the lower. Read the hits before reporting a count.
 2. **Before renaming, deleting or changing the signature of an export, `git grep -w` its name across the whole repository.** `LSP` alone is never enough there.
+
+*Measured 2026-11-24 — `git grep -lw forkBackground -- '*.ts'`, then each hit read for an import, a call or the definition: 16 files have one*
+
+Two traps wait for a script that searches the code:
+
+- **On macOS, `git grep -E` has no `\b`.** It does not read `\b` as a word boundary, so `git grep -E '\bforkBackground\b'` finds nothing. Use `-w`, or `-P` for Perl syntax, which does read `\b`.
+- **`import ts from "typescript"` gives only `{ version }`.** TypeScript 7 has no in-process compiler API. A script that needs a syntax tree uses its client API: `typescript/async` (`await api.createSourceFile(…)`) works under Bun and Node, `typescript/sync` only under Node. [[testing-patterns#Reading TypeScript from a test]] has the runtime table and two working files.
 
 `LSP` needs the worktree's `node_modules`: in a fresh worktree, run `bun install --frozen-lockfile` before trusting any answer. That also means an `LSP` call runs code from the branch: the server is the worktree's installed `typescript`, and a `tsconfig` can name a package under `contentMappers`, which `tsc --runExternalCode` runs and the language server may. On a branch nobody has read yet, read what it would run (`review-pr` Step 2) before any agent calls `LSP` there. Its streamed diagnostics stay untrusted either way (`.claude/skills/orchestrate/references/gotchas.md`).
 

@@ -7,21 +7,24 @@
  * variant and the checkbox, radio and link items, so it runs on the code
  * before that change as well as after it. That is the point of keeping it
  * apart: a literal copied wrong would otherwise never be seen passing against
- * the code it claims to describe. Three things differ from that code. In a
+ * the code it claims to describe. Four things differ from that code. In a
  * contrast theme a focused row and a focused pill trigger draw an outline,
  * because the theme drops the fill and the ring that mark focus everywhere
  * else. The panel's motion moved to the shared tokens, growing from its
  * trigger, so its class string names `zoom-in`, `zoom-out` and Kobalte's
- * origin; `overlay-motion.browser.test.tsx` holds what those do. And the
+ * origin; `overlay-motion.browser.test.tsx` holds what those do. The
  * separator draws no border of its own: it is an `<hr>`, which keeps
  * preflight's 1px top border in the panel's ink, and that border painted over
  * the hairline fill wherever an app's base styles left its colour alone. In a
  * contrast theme, which drops the fill, the border comes back for the theme
- * to paint.
+ * to paint. And a row's corner is the contract's menu-row role
+ * (`rounded-ui-menu-row`), which falls back to `--ui-radius-sm`: an app that
+ * maps no menu-row corner, pulse among them, draws its rows at the corner they
+ * had, and the corner case below holds that on the code before the change too.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
 import {
@@ -42,11 +45,6 @@ const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
       emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
     }
   ).emulateMedia(options);
-
-afterEach(async () => {
-  await emulateMedia({ forcedColors: "none" });
-  cleanup();
-});
 
 /** Long enough for the opening animation to settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
@@ -89,7 +87,7 @@ describe("the default menu", () => {
         "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in w-52",
     );
     expect(screen.getByRole("menuitem", { name: "Switch profile" }).getAttribute("class")).toBe(
-      "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-sm base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
+      "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-menu-row base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
         "base:focus:bg-ui-surface-sunk base:focus:text-ui-ink base:focus:outline-hidden " +
         "base:data-[disabled]:pointer-events-none base:data-[disabled]:opacity-50",
     );
@@ -137,6 +135,34 @@ describe("the default menu", () => {
     // palette, with no border over it.
     expect(rule.borderTopWidth).toBe("0px");
     expect(rule.backgroundColor).toBe("rgb(220, 220, 228)");
+  });
+
+  it("rounds a row at the app's small corner until the app maps a menu-row corner", async () => {
+    // Pulse and cire map `--ui-radius-sm` and no menu-row corner, so their rows
+    // keep their small corner. The lent lengths are ones no fallback in the
+    // contract produces (`sm` falls back to 4px, `md` to 6px), so a role that
+    // fell back to `md`, or to a literal, fails here.
+    render(() => <AccountMenu />);
+    await openByKeyboard();
+    const row = screen.getByRole("menuitem", { name: "Switch profile" });
+    const corner = () => getComputedStyle(row).borderTopLeftRadius;
+    const root = document.documentElement.style;
+    // The test palette maps no radius: `--ui-radius-sm`'s own fallback.
+    expect(corner()).toBe("4px");
+    root.setProperty("--ui-radius-sm", "3px");
+    expect(corner()).toBe("3px");
+  });
+
+  it("rounds a row at the menu-row corner once the app maps one", async () => {
+    // Musubi maps the role: its rows follow it, and its small corner, which
+    // the drawn Checkbox's box reads, stays where it was.
+    render(() => <AccountMenu />);
+    await openByKeyboard();
+    const root = document.documentElement.style;
+    root.setProperty("--ui-radius-sm", "3px");
+    root.setProperty("--ui-radius-menu-row", "9px");
+    const row = screen.getByRole("menuitem", { name: "Switch profile" });
+    expect(getComputedStyle(row).borderTopLeftRadius).toBe("9px");
   });
 
   it("portals to the document's body, and claims no top layer, with no modal open", async () => {

@@ -47,14 +47,10 @@ const STATES = [
 
 const SHOTS = "../../../e2e-artifacts/shared-ui-orb";
 
-afterEach(async () => {
-  cleanup();
+afterEach(() => {
   if (rafDescriptor) Object.defineProperty(window, "requestAnimationFrame", rafDescriptor);
   if (dprDescriptor) Object.defineProperty(window, "devicePixelRatio", dprDescriptor);
   Reflect.deleteProperty(document, "visibilityState");
-  document.documentElement.style.fontSize = "";
-  document.documentElement.style.color = "";
-  await emulateMedia({ reducedMotion: "no-preference" });
 });
 
 /** Resolves after `n` of the browser's frames. */

@@ -171,7 +171,7 @@ shared/           # @shared/* — cross-cutting utilities
   email/             # EmailService Tag — Resend / Cloudflare / Log / Noop transports
   feature-flags/     # Key-optional, fail-safe flag client (GrowthBook)
   observability/     # Redacting logger, Workers trace mirror, metric helpers, Elysia plugin
-  osn-auth-client/   # Downstream access-JWT verification — JWKS cache, Elysia adapter
+  osn-auth-client/   # Downstream access-JWT verification — JWKS cache, extractClaims
   rate-limit/        # Per-IP / per-user limiter primitives, client-IP trust policy
   turnstile/         # Key-optional, fail-closed Turnstile verifier
   typescript-config/ # base / node / solid tsconfigs

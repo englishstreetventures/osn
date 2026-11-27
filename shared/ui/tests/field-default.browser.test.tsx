@@ -16,14 +16,12 @@
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { Field, Fieldset } from "../src/ui/field";
 import { Input } from "../src/ui/input";
 
 import "./test-support/tailwind.css";
-
-afterEach(cleanup);
 
 const LABEL =
   "base:font-ui-body base:text-ui-ink-secondary base:text-ui-xs base:tracking-ui-wider base:uppercase";

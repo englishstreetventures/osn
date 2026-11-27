@@ -8,14 +8,16 @@
  * (`@shared/osn-auth-client/arc`). The issuer origin is the one cire-api
  * already pins for organiser access tokens.
  *
- * cire-api holds no kid secret. The value osn-api keys its kid MACs with,
- * `INTERNAL_SERVICE_SECRET`, is also the bearer of service-key registration on
- * osn-api and zap-api, and cire-api is not trusted with that. Without it the
- * kid's MAC is not checked: a token with a made-up kid costs one fetch of
- * osn-api's public key set before it is refused, and the cache then remembers
- * that kid as unknown for 30 seconds, sharing one fetch between concurrent
- * requests. The key set is public, so that is the load anyone could put on it
- * directly. A token is still authenticated only by its signature.
+ * Before it fetches, cire-api checks the kid's MAC under `OSN_ARC_KID_SECRET`,
+ * the secret osn-api keys one of its kid MACs with for that alone, and refuses
+ * a kid with no MAC that verifies under it (`@shared/crypto/arc-kid`). Without
+ * that secret, or with one shorter than 32 characters, it checks no MAC and
+ * asks osn-api for the kid as it came; osn-api checks the MACs itself, so a
+ * made-up kid costs it no read of the database beyond a budgeted one. It
+ * never holds `INTERNAL_SERVICE_SECRET`, which keys osn-api's other kid MAC
+ * and is the bearer of service-key registration on osn-api and zap-api, so it
+ * never accepts a kid on that MAC alone. A token is authenticated by its
+ * signature.
  */
 import { verifyOsnArcToken } from "@shared/osn-auth-client/arc";
 
@@ -35,15 +37,23 @@ export const OSN_ARC_SCOPES = {
 
 const PERMITTED: ReadonlySet<string> = new Set(Object.values(OSN_ARC_SCOPES));
 
+/** Where cire-api finds osn-api's keys, and the secret that gates fetching them. */
+export interface CireOsnArc {
+  /** osn-api's origin (`OSN_ISSUER_URL`), whose published keys sign its tokens. */
+  readonly osnIssuer: string;
+  /** `OSN_ARC_KID_SECRET`, when cire-api holds it. */
+  readonly kidSecret: string | undefined;
+}
+
 /** Whether `authorization` carries a token osn-api signed for cire-api with `scope`. */
 export async function osnArcAdmits(
   authorization: string | null | undefined,
-  osnIssuer: string,
+  { osnIssuer, kidSecret }: CireOsnArc,
   scope: (typeof OSN_ARC_SCOPES)[keyof typeof OSN_ARC_SCOPES],
 ): Promise<boolean> {
   const verdict = await verifyOsnArcToken(
     authorization ?? undefined,
-    { osnIssuer, kidSecret: undefined },
+    { osnIssuer, kidSecret, serviceSecret: undefined },
     { audience: CIRE_ARC_AUDIENCE, scope, allowedScopes: PERMITTED },
   );
   return verdict.ok;

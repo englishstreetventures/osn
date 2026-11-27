@@ -129,9 +129,9 @@ async function createThroughForm(
   return ((await response.json()) as { event: { id: string } }).event.id;
 }
 
-test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
+test("pulse-event-rsvp", async ({ page, browser, flow }) => {
   await flow.step("host: create an OSN account", () =>
-    registerThroughApi(flow, context.request, PEOPLE.pulseHost),
+    registerThroughApi(flow, page, PEOPLE.pulseHost),
   );
   await signInToPulse(flow, page, "host");
   await pulseMenus(flow, page);
@@ -195,7 +195,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   flow.finalPage = guestPage;
 
   await flow.step("guest: create an OSN account", () =>
-    registerThroughApi(flow, guestContext.request, PEOPLE.pulseGuest),
+    registerThroughApi(flow, guestPage, PEOPLE.pulseGuest),
   );
   await exploreLayout(flow, guestPage, "guest");
   await signInToPulse(flow, guestPage, "guest", "stay");

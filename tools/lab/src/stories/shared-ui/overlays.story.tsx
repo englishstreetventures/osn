@@ -1,4 +1,5 @@
 import { Button } from "@shared/ui/ui/button";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import {
   Dialog,
   DialogClose,
@@ -184,6 +185,61 @@ export const DialogFadeOnly: Story<{ motion: string; presentation: string } & St
 export const DialogSheetSlide = () => <LeaveDialog presentation="sheet" />;
 
 /**
+ * A `Dialog` sheet dragged down to close, below `md` (#2288). Open the lab with
+ * `?bare` in a phone-sized window, or on a phone: press the title row and pull
+ * the sheet down. It follows the finger, its scrim fading with it; let go past
+ * a quarter of its height, or flick it, and it closes on a spring started at
+ * the finger's speed; let go short, or flick back up, and it springs back. Up
+ * past rest it gives on a rubber band. `body` picks the sheet: `short` (one
+ * line), `tall` (a list taller than the sheet: it scrolls, and drags from the
+ * list only when scrolled to its top), `field` (a press in the field stays the
+ * field's). Untick `dismissible` and the sheet gives a little and comes back,
+ * and Escape and the scrim do nothing, as the step-up does while it waits. At
+ * `md` and up it is the card and nothing drags. Under reduced motion it still
+ * follows the finger, and fades rather than slides once let go.
+ */
+export const DialogSheetDrag: Story<{ body: string; dismissible: boolean } & StoryArgs> = {
+  args: { body: "short", dismissible: true },
+  controls: {
+    body: { kind: "select", options: ["short", "tall", "field"] },
+    dismissible: { kind: "boolean" },
+  },
+  render: (args) => (
+    <Dialog>
+      <DialogTrigger as={Button}>Open a sheet</DialogTrigger>
+      <DialogContent presentation="sheet" dismissible={args.dismissible}>
+        <DialogHeader>
+          <DialogTitle>{args.body === "tall" ? "Switch profile" : "Leave this event?"}</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-2 p-4">
+          {args.body === "tall" ? (
+            Array.from({ length: 24 }, (_, i) => (
+              <Button variant="ghost" class="justify-start">
+                Profile {i + 1}
+              </Button>
+            ))
+          ) : args.body === "field" ? (
+            <Field label="Name">{(field) => <Input {...field} />}</Field>
+          ) : (
+            <DialogDescription>
+              Your RSVP is removed and the host is told. You can rejoin while there is room.
+            </DialogDescription>
+          )}
+        </div>
+        <DialogFooter>
+          <DialogClose as={Button} variant="outline">
+            Stay
+          </DialogClose>
+          <DialogClose as={Button} variant="destructive">
+            Leave
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  ),
+};
+
+/**
  * A `Dialog` whose body is taller than the panel's cap, 85% of the window at
  * every width. Scroll it: the title row stays at the top with no line under
  * it, and a 16px fade from the panel's surface comes in under the row over the
@@ -306,7 +362,9 @@ function EveryRow(props: { variant?: "default" | "accent"; theme?: CireTheme }) 
  * Every row kind in the shared default look, the look musubi's and pulse's
  * menus take. The lab maps Musubi's motion, so here the panel fades in and out
  * with no scale, as in Musubi; pulse maps no scale, so its menus grow
- * from 96% as they open and shrink to 98% as they close.
+ * from 96% as they open and shrink to 98% as they close. The lab maps
+ * Musubi's 8px menu-row corner too, where pulse's rows keep its 6px small
+ * corner (`MenuRowCorner` shows both).
  */
 export const MenuItems = () => <EveryRow />;
 
@@ -321,6 +379,67 @@ export const MenuItemsCireDark = () => <EveryRow variant="accent" theme="dark" /
 
 /** The same, on cire's light ramp. */
 export const MenuItemsCireLight = () => <EveryRow variant="accent" theme="light" />;
+
+/**
+ * A menu row's corner beside a checkbox's box. The row reads the contract's
+ * menu-row role, `--ui-radius-menu-row`; the box reads `--ui-radius-sm`, so
+ * the two move apart. `8px` lends Musubi's mapping, its `--radius-md`.
+ * `unmapped` lends `initial`, so the row falls back to the lab's small
+ * corner, Musubi's 6px, which is also the small corner pulse and cire map,
+ * and neither maps the role. The box stays at 6px either way. Both corners
+ * are read back from the page each time the control changes; point at a row
+ * to see its corner in the focus fill.
+ */
+export const MenuRowCorner: Story<{ corner: string } & StoryArgs> = {
+  args: { corner: "8px" },
+  controls: { corner: { kind: "select", options: ["8px", "unmapped"] } },
+  render: (args) => {
+    lend(() => ({
+      "--ui-radius-menu-row": args.corner === "unmapped" ? "initial" : "var(--radius-md)",
+    }));
+    const [ticked, setTicked] = createSignal(true);
+    let boxRow: HTMLDivElement | undefined;
+    const [read, setRead] = createSignal({ corner: "", row: "", box: "" });
+    createEffect(() => {
+      const corner = args.corner;
+      // One frame later: `lend` may set the token after this runs, and the
+      // panel mounts in a portal after the story's own tree.
+      const frame = requestAnimationFrame(() => {
+        const row = document.querySelector("[data-corner-row]");
+        const box = boxRow?.querySelector("input + span");
+        setRead({
+          corner,
+          row: row ? getComputedStyle(row).borderTopLeftRadius : "unmeasured",
+          box: box ? getComputedStyle(box).borderTopLeftRadius : "unmeasured",
+        });
+      });
+      onCleanup(() => cancelAnimationFrame(frame));
+    });
+    // The panel opens below its trigger, so the trigger comes last, with room
+    // under it. Point at a row, or arrow down to it, to see its corner in the
+    // focus fill.
+    return (
+      <div class="flex min-h-80 flex-col items-start gap-4">
+        <div ref={boxRow}>
+          <Checkbox checked={ticked()} onChange={setTicked} label="Delete everything" />
+        </div>
+        <p class="text-ui-sm text-ui-ink-secondary">
+          Role {read().corner}, read back: row {read().row} · box {read().box}
+        </p>
+        <DropdownMenu defaultOpen modal={false} placement="bottom-start">
+          <DropdownMenuTrigger as={Button} variant="outline">
+            Account
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="w-52">
+            <DropdownMenuItem data-corner-row="">Switch profile</DropdownMenuItem>
+            <DropdownMenuItem>Settings</DropdownMenuItem>
+            <DropdownMenuItem>Sign out</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  },
+};
 
 export const PopoverStory = () => (
   <Popover>

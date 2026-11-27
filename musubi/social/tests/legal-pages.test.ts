@@ -24,6 +24,39 @@ function flat(source: string): string {
   return source.replace(/\s+/g, " ");
 }
 
+/**
+ * The page's text under the heading `heading` at `level`, up to the next
+ * heading at that level or above, or the end.
+ */
+function section(source: string, heading: string, level: "h2" | "h3" = "h2"): string {
+  const text = flat(source);
+  const open = `<${level}>${heading}</${level}>`;
+  const start = text.indexOf(open);
+  expect(start).toBeGreaterThan(-1);
+  const ends = [...new Set(["<h2>", `<${level}>`])]
+    .map((tag) => text.indexOf(tag, start + open.length))
+    .filter((at) => at !== -1);
+  return text.slice(start, ends.length === 0 ? undefined : Math.min(...ends));
+}
+
+/**
+ * Nothing in the app can flag a change to a notice (`LegalDocument.tsx` reads
+ * `updated` and nothing else), and nothing can email every account: no email
+ * template, operator action or procedure does it. A page that changes says
+ * only that its date changes.
+ */
+describe.each([
+  ["PrivacyPage.tsx", "Changes", /If this changes, the date at the top changes with it\./],
+  ["TermsPage.tsx", "Changes to these terms", /The date at the top changes when we do/],
+] as const)("%s, on its own changes", (page, heading, promise) => {
+  it("promises only that the date at the top changes", () => {
+    const changes = section(readFileSync(join(dir, page), "utf8"), heading);
+    expect(changes).toMatch(promise);
+    expect(changes).not.toMatch(/flagged|in the app/i);
+    expect(changes).not.toMatch(/email/i);
+  });
+});
+
 describe.each(Object.entries(pages))("%s", (page, mailbox) => {
   const source = readFileSync(join(dir, page), "utf8");
 
@@ -70,6 +103,35 @@ describe("PrivacyPage.tsx", () => {
     expect(text).toMatch(/not the handle itself/);
     expect(text).toMatch(/erased once any payment or gift for it has settled/);
     expect(text).not.toMatch(/tombstone/i);
+  });
+
+  /**
+   * The databases are Cloudflare D1, whose Time Travel restores a database to
+   * any minute of the last 30 days on Workers Paid, the production account's
+   * plan (`wiki/compliance/backup-dr.md`).
+   */
+  it("says how long deleted data stays in the restore copies", () => {
+    expect(flat(source)).toMatch(
+      /Deleted data can stay in our database provider&rsquo;s restore copies for up to 30 days\./,
+    );
+  });
+
+  /**
+   * osn-api keeps no IP hash on a session (`sessions` in
+   * `osn/db/src/schema/index.ts` declares none, and nothing writes one), but
+   * each security event keeps a keyed hash of the request's IP and a coarse
+   * device label for its 12 months (`securityEvents.ipHash`, `uaLabel`;
+   * `wiki/compliance/data-map.md`). The notice puts the hash where it is.
+   */
+  it("puts the IP hash on the security records, not the sessions", () => {
+    expect(section(source, "Your sessions", "h3")).not.toMatch(/hash|IP address/i);
+    const records = section(source, "Security records", "h3");
+    expect(records).toMatch(/<em>hash<\/em> of the IP address/);
+    expect(records).toMatch(/coarse label for the device/);
+    expect(records).toMatch(/cannot be turned back into an address/);
+    expect(section(source, "The legal bases")).toMatch(
+      /The IP hash and device label on each security record/,
+    );
   });
 
   /** Settings mounts no list of sessions or devices (`SettingsPage.tsx`). */

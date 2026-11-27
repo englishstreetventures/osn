@@ -8,7 +8,7 @@ import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
- * T-U1: in production, route factories run handlers against ONE shared
+ * In production, route factories run handlers against ONE shared
  * `ManagedRuntime` (built once in `index.ts`) passed as the trailing factory
  * arg — not the per-request fallback the rest of the route tests exercise.
  * This test drives a real, DB- and EmailService-backed flow (handle check →
@@ -32,12 +32,14 @@ describe("createAuthRoutes — injected shared runtime", () => {
     const layer = Layer.merge(createTestLayer(), rec.layer);
     const runtime = ManagedRuntime.make(layer);
 
-    // Pass the runtime as the trailing factory arg. The dbLayer/loggerLayer
-    // positionals are present only to satisfy the signature — when a runtime is
-    // injected they are ignored, so handlers MUST use `runtime` to reach Db.
+    // Pass the runtime as the trailing factory arg. The fallback layer beside
+    // it is a second database and a second mailbox: a route that ran on the
+    // fallback instead of the runtime would mail its link where `rec` never
+    // sees it, and write the account where the handle check never reads it.
+    const fallback = makeLogEmailLive();
     const app = createAuthRoutes(
       config,
-      layer,
+      Layer.merge(createTestLayer(), fallback.layer),
       undefined,
       undefined,
       undefined,
@@ -68,6 +70,7 @@ describe("createAuthRoutes — injected shared runtime", () => {
     //    proving the same shared runtime served writes and reads consistently.
     const taken = await app.handle(new Request("http://localhost/handle/runtimeuser"));
     expect(((await taken.json()) as { available: boolean }).available).toBe(false);
+    expect(fallback.recorded()).toEqual([]);
 
     await runtime.dispose();
   });

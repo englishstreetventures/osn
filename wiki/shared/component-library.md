@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-26
 ---
 
 # Component Library (Zaidan)
@@ -771,6 +771,7 @@ row, label and separator inside it, so one menu cannot mix two looks:
   `shared/ui/tests/dropdown-menu-default.browser.test.tsx` reads them back as
   literal strings and checks what they paint, and imports only what the menu
   exported before the accent variant, so it runs on either side of a change.
+  Its docblock lists each deliberate change to those strings.
   The panel grows from its trigger and shrinks a little as it closes, on the
   shared motion tokens (§Motion in [[design-tokens]]).
   A focused row is marked by its sunk fill and a `pill` trigger by its ring,
@@ -779,7 +780,7 @@ row, label and separator inside it, so one menu cannot mix two looks:
   at rest would ring every row in that theme.
 - **`accent`** — cire's portal menus: the raised surface at the `md` corner
   with `--elev-2` (an app's own, else `--ui-elev-2`), 6px of padding; rows at
-  the small type step in full ink, `px-3 py-2` at the `sm` corner; a
+  the small type step in full ink, `px-3 py-2` at the menu-row corner; a
   highlighted row a 10% accent wash with the readable accent ink; a 2px focus
   ring inset by 2px for the keyboard, because Kobalte scrolls a row flush to
   the edge of a scrolling panel and the panel would clip a ring drawn outside
@@ -828,6 +829,12 @@ The rows:
 
 The trailing check and the switch take the readable accent ink and the accent.
 
+**A row's corner** in both looks, and in `MENU_TOUCH` below, is the contract's
+menu-row role, `rounded-ui-menu-row`, which falls back to the app's
+`--ui-radius-sm` ([[design-tokens#The tokens]]). It is a role of its own so an
+app can round its menu rows like its list rows without raising `sm`, which the
+drawn `Checkbox`'s 16px box reads too.
+
 **Where cire draws it.** Every portal menu is the accent look: host's account
 menu, wedding switcher, a guest's seat menu (radio rows, each table's count in
 the secondary ink), the narrow household list's one menu (§One popup for a
@@ -850,9 +857,9 @@ clipped by the dialog's own scroll box and by a `frame` modal, as a popover is
 holds `MENU_TOUCH`, the rows of a menu drawn without Kobalte: the guest site's
 link menu, which paints in the top layer inside the guest sheet and cannot
 afford Kobalte's menu. Its panel is `min-w-56`, `p-2` with a 4px gap, on
-`shadow-lg`; its rows are 44px, a guest's touch floor, in the secondary ink,
-filled with the accent under the pointer, for the keyboard (`focus-visible`)
-and while pressed — never on focus alone, since a tap focuses the link it
+`shadow-lg`; its rows are 44px, a guest's touch floor, at the menu-row
+corner, in the secondary ink, filled with the accent under the pointer, for
+the keyboard (`focus-visible`) and while pressed — never on focus alone, since a tap focuses the link it
 lands on and a filled row then reads as chosen. Its outline is hidden, not
 removed, so a contrast theme, which drops the fill, paints the outline
 instead. Neither file imports
@@ -865,7 +872,8 @@ unstyled.
 `shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
 pointer, the link rules, the modal mount, the accent look's focus ring,
 motion and its contrast on cire's two ramps, its separator with and without a
-contrast theme, the touch row and the handle.
+contrast theme, the touch row, the accent and touch rows' corner, and the
+handle.
 
 ### Table and its pinned cells
 
@@ -1216,7 +1224,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@shared/ui/ui/
 
 Key behaviours you get by default:
 
-- **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
+- **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped. Under happy-dom a closed panel stays mounted, in `data-closed`, unless the test file turns animations off, as `osn/auth-ui/tests/helpers/motion.ts`'s `withoutAnimations()` does ([[testing-patterns#Kobalte overlays and the tests after them]])
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
 - **DropdownMenu** — portaled, roving focus by arrow keys, typeahead; §`DropdownMenu` above for its looks and rows
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
@@ -1274,6 +1282,53 @@ reduced-motion fade on `opacity`. How it is built, and why the
 slide is not on `translate`, is in [[design-tokens#Motion]];
 `shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
 it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
+
+**A sheet drags down to close.** Below `md` a finger or a pointer pressed on
+a sheet's `DialogHeader` moves the panel with it, one to one from the first
+pixel, and the scrim fades by the share of the panel's height it has moved.
+Pressed in the body, it moves the panel only when its first move is down and
+the body, with every box between the press and the panel, is scrolled to its
+top, after a slop of 8px for a finger or 4px for a mouse, from where the
+panel is then; a scrolled list scrolls, and a press in a text field, a
+`select` or `contenteditable` is the field's. `DialogHeader` is the handle:
+inside a sheet below `md` it takes no touch scroll or text selection and
+shows the grab cursor, and no grabber bar is drawn. Up past rest the panel
+gives on iOS's rubber band. Let go past a quarter of its height, unless the
+finger's last move was a flick back up, or after a flick down of 0.4px/ms
+over at least 24px of travel, it closes through Kobalte's `close()`, the path
+Cancel takes, so the host's `onOpenChange(false)` decides; otherwise, or when
+the host keeps it open, it goes back. Both ride a spring started at the
+panel's speed ([[design-tokens#Motion]]), a close ending once 3px are left;
+Cancel, Escape and the scrim keep the 200ms exit. A press on a sheet springing back, or rising as it opens,
+stops it under the finger once the finger moves; a tap goes through, and the
+one click a drag past its slop would make is swallowed. A sheet already
+closing is not caught. Under reduced motion the drag still follows the
+finger, a close fades where the sheet was let go, and a return fades out,
+moves to rest unseen and fades back in. From `md` the card never drags. The
+owner chose it on #2288 (2026-11-23: "Soft spring, 300-360ms", "Follows
+finger, fades on release", "Title row, plus body at its top; no grabber",
+"Yes, those numbers"). Kobalte's Dialog has no drag of its own, and a sheet
+library would be a new dependency, so the drag is `DialogContent`'s
+(`sheetDrag` in `dialog.tsx`, its numbers in `sheet-drag.ts`).
+
+`DialogContent` takes `dismissible`: `false` while the host refuses to close,
+as `StepUpDialog` does while a call it started runs, as `ProfileOnboarding`'s
+"Create a new profile" sheet does while its create request runs (the form
+tells it through `CreateProfileForm`'s `onBusyChange`), and as Musubi's
+delete-organisation confirmation does while its own runs. The drag
+then gives on the rubber band both ways and comes back, and Escape and a
+press outside do nothing; a close button inside the dialog is the host's to
+disable, as it disables Cancel. A host that refuses only in `onOpenChange` is
+safe too — the drag reads `isOpen()` after `close()` and, still open, springs
+back — but does not resist. A host closes or refuses in `onOpenChange` at
+once: one that closes later is read as a refusal, and its sheet springs back
+before it leaves. The drag owns only the panel's and the scrim's inline
+`transform`, `transition`, `animation-duration`, `opacity` and `box-shadow`
+(a copy of the panel in its own colour under it while it is above rest), and
+never clears a whole `style`, since Kobalte writes `pointer-events` there and
+`DialogHeader` its height. `shared/ui/tests/dialog-drag.browser.test.tsx`
+holds it, with real touches over the DevTools protocol at 390px, and the
+lab's `DialogSheetDrag` story shows it.
 
 **A long dialog keeps its title in view.** The panel, sheet or card, is at
 most 85% of the window tall at every width and scrolls past that as one box,
@@ -1881,7 +1936,10 @@ component bug:
   gestures in the browser tier ([[browser-tests]]).
 - **A dialog left open outlives its test.** `document.querySelector("dialog")`
   then finds the previous test's sheet rather than this one's, so a browser file
-  rendering dialogs needs `afterEach(cleanup)`.
+  rendering dialogs needs `afterEach(cleanup)`. In `@shared/ui` the browser
+  tier's setup file runs it, and closes any dialog left open, after every test
+  ([[browser-tests#Putting the page back]]); a file there adds no hook of its
+  own.
 - **`getBoundingClientRect()` is post-transform**, and `Modal` animates in from
   `translateY(24px) scale(0.98)`. A rect read before the entry transition
   finishes is the layout box moved and scaled, and every comparison against

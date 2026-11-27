@@ -13,18 +13,14 @@
  * is held apart in `card-default.browser.test.tsx`.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import { Card, CardDescription, CardHeader, CardTitle } from "../src/ui/card";
 import { frames } from "./test-support/motion";
 
 import "./test-support/tailwind.css";
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Gitignored; a rerun of this file draws them again. */
 const shot = (name: string) => `__screenshots__/card.browser.test.tsx/${name}.png`;

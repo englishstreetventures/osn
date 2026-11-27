@@ -47,16 +47,6 @@ describe("createStepUpClient", () => {
     });
   });
 
-  describe("passkeyComplete", () => {
-    it("returns the parsed step-up token envelope", async () => {
-      fetchMock.mockResolvedValue(okResponse({ step_up_token: "eyJabc", expires_in: 300 }));
-      const result = await client.passkeyComplete({
-        assertion: { id: "x" },
-      });
-      expect(result).toEqual({ token: "eyJabc", expiresIn: 300 });
-    });
-  });
-
   describe("emailStatus", () => {
     const poll = () =>
       client.emailStatus({

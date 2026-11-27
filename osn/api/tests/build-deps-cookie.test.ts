@@ -9,12 +9,11 @@ import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
 /**
- * `OSN_COOKIE_DOMAIN` is a one-line pass-through in the composition root,
- * and that is exactly why it was worth pinning: the marker's whole purpose is
- * to be readable from a DIFFERENT host than the issuer that sets it, so if this
- * var stops reaching `cookieConfig` nothing throws — every cold-start browser
- * on the deployed split-host setup just quietly reads as signed out and the
- * bootstrap-grant flood this branch removed comes straight back.
+ * OSN_COOKIE_DOMAIN passes straight through the composition root to
+ * cookieConfig. The marker must be readable from a different host than the
+ * issuer that sets it, so if the value stops arriving nothing throws: every
+ * cold-start browser on a split-host deployment reads as signed out and asks
+ * for a token on every load.
  */
 
 let privB64 = "";

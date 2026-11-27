@@ -108,3 +108,50 @@ describe("ConfirmRequestPage, a request that has ended", () => {
     expect(mocks.returnTo).not.toHaveBeenCalled();
   });
 });
+
+// A passkey added by emailed link, authenticator code or recovery cannot remove
+// an app's data until it is 72 hours old. osn-api answers its confirm 403
+// `passkey_held` with the moment the hold ends, and the card says when, in
+// place of the line for a confirmation it could not use.
+describe("ConfirmRequestPage, a passkey still inside its hold", () => {
+  const HOLD_ENDS_AT = 1_900_000_000;
+  const confirmAnswers = (answer: () => Response) =>
+    mocks.transport.mockImplementation(async (url) =>
+      url.endsWith("/confirm")
+        ? answer()
+        : json({ purpose: "cire_app_delete", return_host: "host.cireweddings.com" }),
+    );
+
+  async function pressConfirm() {
+    renderPage();
+    expect(await screen.findByText("host.cireweddings.com")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm it's you" }));
+    return screen.findByRole("alert");
+  }
+
+  it("says when the passkey can be used, and goes nowhere", async () => {
+    confirmAnswers(() => json({ error: "passkey_held", hold_ends_at: HOLD_ENDS_AT }, 403));
+    const line = await pressConfirm();
+    const when = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(HOLD_ENDS_AT * 1_000);
+    expect(line.textContent).toBe(
+      `Error: That passkey is less than 3 days old. Use an older one, or start again from Cire after ${when}.`,
+    );
+    expect(line.querySelector("time")?.getAttribute("datetime")).toBe(
+      new Date(HOLD_ENDS_AT * 1_000).toISOString(),
+    );
+    expect(screen.getByRole("button", { name: "Confirm it's you" })).toBeTruthy();
+    expect(mocks.returnTo).not.toHaveBeenCalled();
+  });
+
+  it("reads a held answer with no time as a confirmation it could not use", async () => {
+    // A malformed answer names no moment, so the card makes none up.
+    confirmAnswers(() => json({ error: "passkey_held" }, 403));
+    const line = await pressConfirm();
+    expect(line.textContent).toBe(
+      "Error: Musubi couldn't use that confirmation. Confirm it's you again.",
+    );
+  });
+});

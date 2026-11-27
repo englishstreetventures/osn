@@ -26,6 +26,7 @@ import {
   renderAccountDeletionScheduled,
   renderOrganisationOwnershipReceived,
 } from "./account-deletion";
+import { type ChangeNoticeData, renderChangeNotice } from "./change-notice";
 import {
   renderEnquiryNew,
   renderEnquiryReply,
@@ -51,6 +52,12 @@ import {
   type StepUpLinkData,
 } from "./link";
 import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
+import {
+  type RegistryPayoutRetiredAudience,
+  type RegistryPayoutRetiredData,
+  type RegistryPayoutRetiredReason,
+  renderRegistryPayoutRetired,
+} from "./registry-payout-retired";
 import {
   renderRsvpChangeDigest,
   type RsvpChangeDigestData,
@@ -91,6 +98,7 @@ export type EmailTemplate =
   | "account-deleted"
   | "account-deletion-cancelled"
   | "account-deletion-scheduled"
+  | "change-notice"
   | "enquiry-new"
   | "enquiry-reply"
   | "enquiry-quote"
@@ -110,6 +118,7 @@ export type EmailTemplate =
   | "email-changed"
   | "r2-reconcile-alert"
   | "registry-gift-summary"
+  | "registry-payout-retired"
   | "rsvp-change-digest"
   | "upgrade-refund"
   | "vendor-claim-invite"
@@ -126,6 +135,7 @@ export type AccountEmailTemplate =
   | "account-deleted"
   | "account-deletion-cancelled"
   | "account-deletion-scheduled"
+  | "change-notice"
   | "link-email-change"
   | "link-recovery"
   | "link-registration"
@@ -147,6 +157,7 @@ export interface EmailTemplateDataMap {
   "account-deleted": AccountDeletedData;
   "account-deletion-cancelled": AccountDeletionCancelledData;
   "account-deletion-scheduled": AccountDeletionScheduledData;
+  "change-notice": ChangeNoticeData;
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
@@ -166,6 +177,7 @@ export interface EmailTemplateDataMap {
   "email-changed": EmailChangedData;
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
+  "registry-payout-retired": RegistryPayoutRetiredData;
   "rsvp-change-digest": RsvpChangeDigestData;
   "upgrade-refund": UpgradeRefundData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
@@ -211,6 +223,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderAccountDeletionScheduled(
         data as EmailTemplateData<"account-deletion-scheduled">,
       );
+    case "change-notice":
+      return renderChangeNotice(data as EmailTemplateData<"change-notice">);
     case "organisation-ownership-received":
       return renderOrganisationOwnershipReceived(
         data as EmailTemplateData<"organisation-ownership-received">,
@@ -251,6 +265,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
       return renderRegistryGiftSummary(data as EmailTemplateData<"registry-gift-summary">);
+    case "registry-payout-retired":
+      return renderRegistryPayoutRetired(data as EmailTemplateData<"registry-payout-retired">);
     case "rsvp-change-digest":
       return renderRsvpChangeDigest(data as EmailTemplateData<"rsvp-change-digest">);
     case "upgrade-refund":
@@ -276,6 +292,7 @@ export {
   renderAccountDeleted,
   renderAccountDeletionCancelled,
   renderAccountDeletionScheduled,
+  renderChangeNotice,
   renderOrganisationOwnershipReceived,
   renderEnquiryNew,
   renderEnquiryReply,
@@ -295,6 +312,7 @@ export {
   renderEmailChanged,
   renderR2ReconcileAlert,
   renderRegistryGiftSummary,
+  renderRegistryPayoutRetired,
   renderRsvpChangeDigest,
   renderVendorClaimInvite,
   renderVendorClaimReviewPending,
@@ -308,6 +326,7 @@ export type {
   AccountDeletedData,
   AccountDeletionCancelledData,
   AccountDeletionScheduledData,
+  ChangeNoticeData,
   DeletionPlanLine,
   KeptAfterDeletion,
   OrganisationAfterDeletion,
@@ -326,6 +345,9 @@ export type {
   RegistryGiftSummaryData,
   RegistryGiftSummaryGift,
   RegistryGiftSummaryTotal,
+  RegistryPayoutRetiredAudience,
+  RegistryPayoutRetiredData,
+  RegistryPayoutRetiredReason,
   RsvpChangeDigestData,
   RsvpDigestChangeKind,
   UpgradeRefundData,

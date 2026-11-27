@@ -868,5 +868,14 @@ describe("recovery of an account whose deletion is pending", () => {
       bearer(session.accessToken),
     );
     expect(refused.status).toBe(401);
+
+    // Control: a live account's own token begins its first enrolment.
+    const live = await liveAccount(h, "pdenrolok");
+    const allowed = await h.post(
+      "/passkey/register/begin",
+      { profileId: live.profile.id },
+      bearer(live.session.accessToken),
+    );
+    expect(allowed.status).toBe(200);
   });
 });

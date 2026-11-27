@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -172,6 +172,158 @@ describe("RemoveCireData's removal loop", () => {
     expect(boxOf(ROSA).checked).toBe(false);
     expect(boxOf(ROSA).disabled).toBe(false);
     expect(keptAnswers()?.deleteEverything).toBe(false);
+  });
+});
+
+describe("RemoveCireData and a wedding's payout account", () => {
+  /** Mia & Theo, which the person owns with someone else, and whose Stripe account they hold. */
+  const HELD: RemovalWedding = { ...MIA, payoutHolder: true };
+  const heldPlan = (confirmed: boolean): RemovalPlan => ({
+    weddings: [HELD],
+    more: 0,
+    openActions: [],
+    confirmed,
+  });
+  const note = /You connected the Stripe account money gifts are paid into/;
+
+  it("still removes on a confirmed list naming a payout account the person holds when the API agrees", async () => {
+    // The list's mark can be stale: the removal is sent, and the API decides.
+    const onDone = vi.fn();
+    const calls = serve([heldPlan(true)], [json({ status: "done" })]);
+    show({ code: "code_ok", onDone });
+    expect(await screen.findByText(note)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(calls.remove).toBe(1);
+    expect(screen.queryByText("Hand this over before you remove your data.")).toBeNull();
+  });
+
+  it("lets the person go on to Musubi from the first step, whose list holds only one profile", async () => {
+    // Before confirmation the list is the signed-in profile's alone, and
+    // another profile of the same account may be the other owner.
+    serve([heldPlan(false)], []);
+    show();
+    expect(await screen.findByText(note)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm on Musubi" }));
+    await waitFor(() =>
+      expect(
+        authFetch.mock.calls.some(([url]) =>
+          String(url).endsWith("/api/organiser/account/removal/confirmation"),
+        ),
+      ).toBe(true),
+    );
+    expect(screen.queryByText("Hand this over before you remove your data.")).toBeNull();
+  });
+
+  it("shows the refusal's own words when the removal finds a payout account the list did not", async () => {
+    const message =
+      "You connected the Stripe account that money gifts are paid into on the weddings listed. Hand it over, then remove your data again.";
+    serve(
+      [plan([], true), heldPlan(true)],
+      [
+        json(
+          {
+            error: "holds_payout_account",
+            message,
+            weddings: [{ weddingId: MIA.weddingId, name: MIA.name }],
+          },
+          409,
+        ),
+      ],
+    );
+    show({ code: "code_ok" });
+    expect(await screen.findByText(MIA.name)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    expect(await screen.findByText(message)).toBeTruthy();
+    // The list is read again, and the wedding says why, is marked, and its
+    // way to Money gifts takes focus.
+    expect(await screen.findByText(note)).toBeTruthy();
+    expect(await screen.findByText("Hand this over before you remove your data.")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Money gifts"));
+  });
+
+  it("says part is done when the refusal comes after a round", async () => {
+    const message = "Hand money gifts over first, then remove your data again.";
+    serve(
+      [plan(FOUR, true), heldPlan(true)],
+      [
+        json({ status: "not_finished" }, 202),
+        json({ error: "holds_payout_account", message, weddings: [] }, 409),
+      ],
+    );
+    show({ code: "code_ok" });
+    expect(await screen.findByText(ROSA.name)).toBeTruthy();
+    fireEvent.click(everythingBox()!);
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    expect(
+      await screen.findByText(`Part of your data is removed already. ${message}`),
+    ).toBeTruthy();
+  });
+
+  it("links the wedding's Money gifts through the dashboard, where its tier opens them", async () => {
+    serve([heldPlan(true)], []);
+    const onOpen = vi.fn();
+    const { unmount } = render(() => (
+      <RemoveCireData
+        code="code_ok"
+        canOpen={() => true}
+        onOpen={onOpen}
+        onCancel={() => {}}
+        onDone={() => {}}
+      />
+    ));
+    const link = await screen.findByRole("link", { name: "Money gifts" });
+    expect(link.getAttribute("href")).toBe(`#/w/${MIA.weddingId}/registry/settings`);
+    fireEvent.click(link);
+    expect(onOpen).toHaveBeenCalledWith(MIA.weddingId, "money");
+    unmount();
+
+    // Below the tier that opens the registry, the words stand alone.
+    serve([heldPlan(true)], []);
+    render(() => (
+      <RemoveCireData
+        code="code_ok"
+        canOpen={() => true}
+        canOpenMoney={() => false}
+        onOpen={onOpen}
+        onCancel={() => {}}
+        onDone={() => {}}
+      />
+    ));
+    expect(await screen.findByText(note)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Money gifts" })).toBeNull();
+  });
+
+  it("sends the person to the profile that holds a seat this session cannot open", async () => {
+    serve([heldPlan(true)], []);
+    render(() => (
+      <RemoveCireData
+        code="code_ok"
+        canOpen={() => false}
+        onOpen={() => {}}
+        onCancel={() => {}}
+        onDone={() => {}}
+      />
+    ));
+    expect(
+      await screen.findByText(
+        /To hand it over, sign in to Cire with the profile that holds this seat\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Money gifts" })).toBeNull();
+  });
+
+  it("says where to hand the account over when the refusal brings no words of its own", async () => {
+    serve([plan([], true), heldPlan(true)], [json({ error: "holds_payout_account" }, 409)]);
+    show({ code: "code_ok" });
+    expect(await screen.findByText(MIA.name)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    expect(
+      await screen.findByText(
+        /disconnect it in that wedding's Money gifts, then remove your data again\.$/,
+      ),
+    ).toBeTruthy();
   });
 });
 

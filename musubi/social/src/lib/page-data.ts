@@ -1,5 +1,6 @@
 import { graphClient, orgClient, recommendationClient } from "./api";
 import { connectionsClient } from "./authClients";
+import { appRowKind } from "./connected-apps";
 import { pageQuery } from "./page-cache";
 import { PAGE_DATA } from "./page-names";
 
@@ -51,10 +52,13 @@ export const myOrganisations = pageQuery(
   (value) => value.organisations.length,
 );
 
-/** One organisation, by handle. */
+/**
+ * One organisation, by handle, with the reader's own standing in it (`caller`,
+ * null for someone not in it), which decides the actions its page offers.
+ */
 export const organisationDetail = pageQuery(
   PAGE_DATA.organisation,
-  async (handle: string) => (await orgClient.getOrg(handle)).organisation,
+  (handle: string) => orgClient.getOrg(handle),
   () => 1,
 );
 
@@ -65,9 +69,14 @@ export const organisationMembers = pageQuery(
   (value) => value.members.length,
 );
 
-/** Settings → Connected apps. `SettingsPage` names it too, for the chunk's placeholder. */
+/**
+ * Settings → Connected apps. `AppRowsLoading` names it too, for the
+ * placeholder `SettingsPage` draws while the section's code loads. A row with
+ * its app's removal link is taller, so the cache keeps each row's kind.
+ */
 export const connectedApps = pageQuery(
   PAGE_DATA.connectedApps,
   async () => (await connectionsClient.list()).connections,
   (value) => value.length,
+  (value) => value.map(appRowKind),
 );

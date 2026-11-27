@@ -9,6 +9,7 @@ import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import type { RecoveryLockoutStore } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 
@@ -142,9 +143,9 @@ describe("consumeRecoveryCode", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Known vs unknown identifier should present the same error AND
-  // execute the same set of DB + hash work, so the caller can't distinguish
-  // "identifier doesn't exist" from "code is wrong" via timing.
+  // Known and unknown identifiers answer with the same error;
+  // recovery-op-sequence.test.ts checks they also make the same calls and
+  // statements.
   it.effect("unknown identifier and wrong-code return the same generic error", () =>
     Effect.gen(function* () {
       const profile = yield* registered("same-error@example.com", "sameerr");
@@ -226,9 +227,9 @@ describe("completeRecoveryLogin", () => {
 });
 
 // ---------------------------------------------------------------------------
-// O2 — per-account recovery-code lockout
+// Per-account recovery-code lockout
 // ---------------------------------------------------------------------------
-describe("O2 recovery-code lockout", () => {
+describe("recovery-code lockout", () => {
   // Fresh service per test so the in-memory lockout counter starts clean.
   const freshAuth = () => createAuthService(config);
 
@@ -283,9 +284,8 @@ describe("O2 recovery-code lockout", () => {
           svc.consumeRecoveryCode("lock-reset@example.com", "dead-beef-cafe-0000"),
         );
       }
-      yield* svc.consumeRecoveryCode("lock-reset@example.com", codes[0]!);
-      // The reset runs after the answer; let it land.
-      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      // The reset runs after the answer; `settle` waits for it.
+      yield* settle(svc.consumeRecoveryCode("lock-reset@example.com", codes[0]!));
       // After the reset, 4 more fails still don't lock (would need 5 fresh).
       for (let i = 0; i < 4; i++) {
         yield* Effect.flip(
@@ -351,19 +351,21 @@ describe("O2 recovery-code lockout", () => {
       const svc = freshAuth();
       const profile = yield* svc.registerProfile("lock-sev@example.com", "locksev");
       yield* svc.generateRecoveryCodesForAccount(profile.accountId);
+      // The row is written after the refusal answers, in the background;
+      // `settle` waits for it.
       for (let i = 0; i < 5; i++) {
-        yield* Effect.flip(svc.consumeRecoveryCode("lock-sev@example.com", "dead-beef-cafe-0000"));
+        yield* Effect.flip(
+          settle(svc.consumeRecoveryCode("lock-sev@example.com", "dead-beef-cafe-0000")),
+        );
       }
-      // The row is written after the refusal answers, in the background.
-      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)));
       const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(true);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
 
-// F-SV4: a lockout counter that cannot be reached. The shared store answers
-// `"unknown"` when its backend fails; these pin what the ceremony does then.
+// A lockout counter that cannot be reached: the shared store answers
+// `"unknown"` when its backend fails; these fix what the ceremony does then.
 describe("recovery-code lockout store unavailable", () => {
   const unreachable: RecoveryLockoutStore = {
     backend: "memory",
@@ -380,7 +382,10 @@ describe("recovery-code lockout store unavailable", () => {
         profile.accountId,
       );
 
-      const err = yield* Effect.flip(svc.consumeRecoveryCode("lock-down@example.com", codes[0]!));
+      // Every write the refusal forks has finished before the list is read.
+      const err = yield* Effect.flip(
+        settle(svc.consumeRecoveryCode("lock-down@example.com", codes[0]!)),
+      );
       expect(err._tag).toBe("AuthError");
       expect(err.message).toBe("Invalid request");
 
@@ -435,9 +440,10 @@ describe("recovery-code lockout store unavailable", () => {
       });
       const profile = yield* svc.registerProfile("lock-nowrite@example.com", "locknowrite");
       yield* svc.generateRecoveryCodesForAccount(profile.accountId);
+      // Every write each refusal forks has finished before the list is read.
       for (let i = 0; i < 6; i++) {
         const err = yield* Effect.flip(
-          svc.consumeRecoveryCode("lock-nowrite@example.com", "dead-beef-cafe-0000"),
+          settle(svc.consumeRecoveryCode("lock-nowrite@example.com", "dead-beef-cafe-0000")),
         );
         expect(err.message).toBe("Invalid request");
       }

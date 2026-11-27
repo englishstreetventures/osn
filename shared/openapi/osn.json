@@ -19,6 +19,18 @@
     "/.well-known/arc-jwks.json": {
       "get": {
         "operationId": "getArcJwks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kid",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -71,6 +83,27 @@
               }
             },
             "description": "Response for status 200"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
           },
           "500": {
             "content": {
@@ -8145,6 +8178,13 @@
                               "null"
                             ]
                           },
+                          "manageDataUrl": {
+                            "description": "Where the person removes their data from this app, on an origin the app's registration holds; null when it has none",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "profileId": {
                             "type": "string"
                           },
@@ -8158,7 +8198,8 @@
                           "logoUrl",
                           "profileId",
                           "scope",
-                          "grantedAt"
+                          "grantedAt",
+                          "manageDataUrl"
                         ],
                         "type": "object"
                       },
@@ -9172,6 +9213,28 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "caller": {
+                      "properties": {
+                        "owner": {
+                          "type": "boolean"
+                        },
+                        "role": {
+                          "enum": [
+                            "admin",
+                            "member"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "owner"
+                      ],
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
                     "organisation": {
                       "properties": {
                         "avatarUrl": {
@@ -9213,7 +9276,8 @@
                     }
                   },
                   "required": [
-                    "organisation"
+                    "organisation",
+                    "caller"
                   ],
                   "type": "object"
                 }
@@ -15787,18 +15851,38 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "error": {
+                          "const": "passkey_held",
+                          "type": "string"
+                        },
+                        "hold_ends_at": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "error",
+                        "hold_ends_at"
+                      ],
+                      "type": "object"
                     },
-                    "message": {
-                      "type": "string"
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
+                  ]
                 }
               }
             },

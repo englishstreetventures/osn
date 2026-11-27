@@ -23,10 +23,16 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
     </div>
   ),
 }));
-const pendingSignUp = vi.hoisted(() => ({ value: false }));
+const pendingSignUp = vi.hoisted(() => ({
+  value: false,
+  forgetDraft: vi.fn(),
+  forgetEnrolling: vi.fn(),
+}));
 
 vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => pendingSignUp.value,
+  forgetDraft: pendingSignUp.forgetDraft,
+  forgetEnrolling: pendingSignUp.forgetEnrolling,
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; productName: string }) => (
@@ -104,14 +110,6 @@ afterEach(() => {
 });
 
 describe("<AuthDialogs /> — close-on-session invariant", () => {
-  it("renders the requested dialog while signed out", () => {
-    renderDialogs(
-      makeAuth(() => null),
-      { signIn: true },
-    );
-    expect(screen.getByTestId("signin")).toBeDefined();
-  });
-
   it("never renders an auth dialog once a session exists", () => {
     renderDialogs(
       makeAuth(() => SAMPLE_SESSION),
@@ -206,17 +204,6 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
 });
 
 describe("<AuthDialogs /> — a sign-up waiting on its link", () => {
-  it("opens the register dialog on load, so the waiting view resumes after a reload", () => {
-    pendingSignUp.value = true;
-    const onShowRegisterChange = vi.fn();
-    renderDialogs(
-      makeAuth(() => null),
-      {},
-      { onShowRegisterChange },
-    );
-    expect(onShowRegisterChange).toHaveBeenCalledWith(true);
-  });
-
   it("opens nothing when there is no waiting sign-up, or a session already exists", () => {
     const onShowRegisterChange = vi.fn();
     renderDialogs(

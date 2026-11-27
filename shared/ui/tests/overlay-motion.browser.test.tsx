@@ -69,18 +69,6 @@ async function atWidth(width: number, height = 800) {
 }
 
 afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference" });
-  for (const token of [
-    "--ui-scale-enter",
-    "--ui-scale-exit",
-    "--ui-ease-out",
-    "--ui-ease-exit",
-    "--ui-dur-slow",
-    "--ui-dur-base",
-    "--ui-ease-sheet",
-  ])
-    document.documentElement.style.removeProperty(token);
-  cleanup();
   if (innerWidth !== home.width) await atWidth(home.width, home.height);
 });
 

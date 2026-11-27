@@ -60,7 +60,7 @@ Each line of the body comes from a command or a file, not from memory.
 | The base branch | `prep-pr` Step 0's `$BASE`: `main`, or the parent branch of a stacked one |
 | The impact, in numbers | the public issue's **Why** — never a tracker issue's, whose text stays private — and a command that measures the change: a test count, a bundle size, a query count, a timing, a row count, how many users, weddings or files it reaches, counted from the repository, a test or the dev tier — never from a production database or anyone's real data. Before and after where the run already has both: a review report's measurements, `git show "$DIFF_BASE":<file>` for a count in a file, CI on the base. Never build or test the base just for this section |
 | What changed | `git log "$DIFF_BASE"..HEAD --oneline`, `git diff --stat "$DIFF_BASE"...HEAD` |
-| The issues it fixes, wholly or in part | the issue `new-feat` took or opened (`NEW-FEAT.md`), and every tracker issue for a finding the branch fixed (`prep-pr` Step 7) |
+| The issues it fixes, wholly or in part | the issue `new-feat` took or opened (`NEW-FEAT.md`), and every tracker issue for a finding the branch fixed (`prep-pr` Step 7); for one it fixes in part, the issue's **Done when** and its timeline, which choose between `Closes` and `Part of` (Step 4, Issues rule 4) |
 | The issues raised against it | each `write-issue` call this session, and the findings its review filed, **minus every issue the `Closes` lines above already carry** — raised against it means still open after the merge |
 | The gates | each command you ran, the commit it ran on (`git rev-parse --short HEAD` at the time), and what it printed |
 | The owner's decisions | the brief, the issue, and any answer the owner gave during the work |
@@ -164,7 +164,15 @@ Part of #9001
 1. **The branch closes every issue it fixes**: the issue `new-feat` took or opened, any other public issue the work finished, every tracker issue for a finding it fixed. Every branch traces to an issue, so a body with neither a `Closes` nor a `Part of` line has lost one: find it, or open it with `write-issue`. Only when you can do neither — no network, nothing to search — write one line under `## Issues` saying the branch closes no issue and why, and name in your report the issue you would open.
 2. **A public issue is `Closes #N`**, one per line, nothing else on the line. GitHub's Development sidebar shows each title; a table beside the lines says the same thing twice.
 3. **A tracker issue is `Closes englishstreetventures/osn-tracker#N`**, after the public lines, and nothing more. No finding ID, no title, no word about the defect — not here, not in the title or any other section, not in the branch name or a commit message. `englishstreetventures/osn` is public and the tracker is not. The line closes the issue on merge, because the owner can see both repositories; a reader who cannot sees a reference that goes nowhere.
-4. **An issue the branch only partly fixes is `Part of #N`**, never `Closes`.
+4. **An issue the branch only partly fixes is `Part of #N`**, never `Closes` — and the pull request that finishes it is `Closes #N`, however many before it wrote `Part of`. A merge closes only what its `Closes` lines name, so an issue whose last part merges as `Part of` stays open with nothing left to do. Before writing `Part of #N`, read the issue's **Done when** and the pull requests that named it before this one:
+
+   ```bash
+   gh api repos/englishstreetventures/<repo>/issues/<n> --jq .body
+   gh api --paginate 'repos/englishstreetventures/<repo>/issues/<n>/timeline?per_page=100' \
+     --jq '.[] | select(.event=="cross-referenced" and .source.issue.pull_request) | "#\(.source.issue.number) \(.source.issue.pull_request.merged_at // .source.issue.state) \(.source.issue.title)"'
+   ```
+
+   Write `Closes #N` when every item will be met once this branch merges, by this branch or by a pull request the timeline shows merged. An item handed to another issue counts as met: list that issue under **Raised against this branch** (rule 7), whoever opened it — a public one with a few words after its title naming the item it takes, a tracker one as its bare reference and nothing more (rule 3); when `#N` is itself a tracker issue, no words name the item at all — and never `#N` again (rule 6). Any other item still open keeps it `Part of #N`. So does a read that cannot run, and the report then says the check did not run.
 5. **A closing keyword closes wherever it sits.** `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves` or `resolved` directly before an issue reference closes that issue on merge, in prose as much as in the closing block: "this fixes #9001 in part" closes #9001. Reword it, or write `Part of`.
 6. **Each issue appears once in the body.** It is a `Closes` line, a `Part of` line, an entry under **Raised against this branch**, or a line under **Out of scope** — never two of them. A finding `prep-pr` Step 7 filed and the branch then fixed was raised and closed in the same branch: it is a `Closes` line and nothing else. Listing it under **Raised** as well tells the reader the work is still outstanding when the merge has finished it.
 7. **Raised against this branch** lists every issue raised by its own review or split out of its work that **stays open after the merge**, whoever filed it and whenever: a deferral, a finding left open as out of scope, unrelated or larger work, a finding left unfixed in scope. A public one by number and title; a tracker one by its bare reference. An issue found while auditing another package goes in one line under **Out of scope**, not here. Most of what a review finds is fixed rather than raised (`prep-pr` Step 6), so this list is short; `None` is the usual answer. **Follow-up pull requests**, after it, lists the pull request this session opened to fix what the branch's review found outside it, by number and title, with the issues it will close on the same line; those issues appear nowhere else in the body. A follow-up that fixes a tracker finding has a title naming only the area (Step 3), so it says nothing more here. Leave the lead-in out when there are none.
@@ -225,6 +233,7 @@ Each of these has shipped in this repository's pull requests.
 |---|---|---|
 | Says it closes nothing | `This branch closes no issue.` above two closing lines appended after the metrics block | Every closing line in `## Issues`, and the section agreeing with them |
 | No issue at all | A body with no `Closes` and no `Part of` on a branch that started from an issue | Step 4, Issues rule 1 |
+| Last part left as `Part of` | Every pull request for an issue writes `Part of #N`, the last one included, with the rest of its Done when handed to another issue, so no merge closes it and its card sits In Progress for weeks | Step 4, Issues rule 4: read its Done when and its timeline; the part that finishes it is `Closes` |
 | Said three times | A table, a comma-joined `Closes #1, closes #2` line and four single lines for the same four issues | One `Closes` line per issue |
 | Closed and raised | Four tracker issues as `Closes` lines and the same four again under **Raised against this branch**, so the merge looks as if it leaves work behind | A fixed issue is its `Closes` line only; **Raised** holds what stays open (Issues rule 6) |
 | Tracker finding in public | A tracker reference beside its finding ID; a decision headed by a finding ID; prose saying how the fixed defect was reached | The bare reference; the rest in the tracker issue |
@@ -258,7 +267,7 @@ Check before sending:
   grep -niE 'do not merge until.*osn-tracker' PR-BODY.md
   ```
 
-- [ ] One plain `Closes` line per fixed issue, in `## Issues`, tracker lines last and bare; `Part of` for a partial fix; no closing keyword in prose before an issue the branch does not close.
+- [ ] One plain `Closes` line per fixed issue, in `## Issues`, tracker lines last and bare; `Part of` only while an item of the issue's **Done when** stays open after the merge (Issues rule 4); no closing keyword in prose before an issue the branch does not close.
 - [ ] No issue is listed twice — a `Closes` issue is not also under **Raised against this branch** or under **Out of scope** at the end of `## Decisions`. This prints nothing:
 
   ```bash

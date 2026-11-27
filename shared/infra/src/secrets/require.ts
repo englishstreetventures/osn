@@ -28,21 +28,34 @@ interface ValueRule {
  * takes only a test-mode key, so no dev deploy can move real money; and the
  * dev sign-in secret and the organiser-session revoke secret, each of which
  * alone stands between a public route and someone else's session, are long
- * enough that guessing them is hopeless. The service secret takes the same
- * floor: it bears the key-registration routes, and a key derived from it
- * MACs every kid osn-api publishes, so anyone can test a guess at it offline.
- * The floor refuses a value too short to be random; it cannot tell a
- * generated value from a chosen one, so the value must be generated
- * (`openssl rand -base64 32`). Production reads no
- * value (its secrets stay on the Workers), so it sets no rule; osn-api and
- * cire-api each treat a revoke secret under 32 characters as unset, and
- * osn-api, Pulse and Zap never derive the kid MAC key from a shorter
- * service secret.
+ * enough that guessing them is hopeless. The service secret and the kid
+ * secret take the same floor: a key derived from each MACs every kid osn-api
+ * publishes, so anyone can test a guess at either offline, and the service
+ * secret also bears the key-registration routes. The floor refuses a value
+ * too short to be random; it cannot tell a generated value from a chosen
+ * one, so the value must be generated (`openssl rand -base64 32`).
+ * Production reads no value (its secrets stay on the Workers), so it sets no
+ * rule; osn-api and cire-api each treat a revoke secret under 32 characters
+ * as unset, and no Worker derives a kid MAC key from a shorter service or
+ * kid secret.
  */
 const AT_LEAST_32: ValueRule = {
   rule: "at least 32 characters",
   fits: (value) => value.length >= 32,
 };
+
+/**
+ * Pairs of secrets a Worker holding both must hold with different values, by
+ * tier: `OSN_ARC_KID_SECRET` goes to cire-api, which must never hold
+ * `INTERNAL_SERVICE_SECRET`, the bearer of service-key registration, so it
+ * must be generated on its own. Production reads no value, so it checks none;
+ * every Worker ignores a kid secret equal to the service secret
+ * (`@shared/crypto/arc-kid`).
+ */
+const TIER_DISTINCT_PAIRS = {
+  dev: [["OSN_ARC_KID_SECRET", "INTERNAL_SERVICE_SECRET"]],
+  production: [],
+} as const satisfies Record<Tier, readonly (readonly [string, string])[]>;
 
 const TIER_VALUE_RULES = {
   dev: new Map<string, ValueRule>([
@@ -56,6 +69,7 @@ const TIER_VALUE_RULES = {
     ["DEV_LOGIN_SECRET", AT_LEAST_32],
     ["CIRE_INTERNAL_REVOKE_SECRET", AT_LEAST_32],
     ["INTERNAL_SERVICE_SECRET", AT_LEAST_32],
+    ["OSN_ARC_KID_SECRET", AT_LEAST_32],
   ]),
   production: new Map<string, ValueRule>(),
 } satisfies Record<Tier, ReadonlyMap<string, ValueRule>>;
@@ -103,8 +117,20 @@ export function requireSecrets(input: {
   };
   for (const name of row.secrets) read(name, true);
   for (const name of row.optional) read(name, false);
+  const mustDiffer = new Map<string, string>();
+  for (const [name, other] of TIER_DISTINCT_PAIRS[tier]) {
+    const value = input.env[name];
+    if (value !== undefined && value !== "" && value === input.env[other]) {
+      if (present.some(([held]) => held === name) && present.some(([held]) => held === other)) {
+        breaksRule.push(name);
+        mustDiffer.set(name, `different from ${other}`);
+      }
+    }
+  }
   if (missing.length > 0 || malformed.length > 0 || breaksRule.length > 0) {
-    const broken = breaksRule.map((name) => `${name} (must be ${rules.get(name)?.rule})`);
+    const broken = breaksRule.map(
+      (name) => `${name} (must be ${mustDiffer.get(name) ?? rules.get(name)?.rule})`,
+    );
     const parts = [
       missing.length > 0 ? `unset or blank: ${missing.join(", ")}` : "",
       malformed.length > 0 ? `leading or trailing whitespace: ${malformed.join(", ")}` : "",

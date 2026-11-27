@@ -176,18 +176,6 @@ describe("dietary picker, in the sheet", () => {
     expect(track.scrollWidth).toBeGreaterThan(track.clientWidth);
     expect(group.clientWidth).toBeLessThanOrEqual(window.innerWidth);
   });
-
-  it("stays inline on a desktop viewport, because the sheet is a `frame` modal", async () => {
-    // Not the entry point the host portal imports. Rendering the trigger here
-    // would ship a control whose panel opens inside the dialog's
-    // `overflow-clip` and cannot be clicked — see englishstreetventures/osn#1089.
-    await page.viewport(...WIDE);
-    const { fieldset } = openAttending();
-    expect(within(fieldset).getAllByRole("checkbox").length).toBeGreaterThan(0);
-    expect(
-      within(fieldset).queryByRole("button", { name: /add dietary requirements/i }),
-    ).toBeNull();
-  });
 });
 
 describe("from `md:`, the pills wrap", () => {

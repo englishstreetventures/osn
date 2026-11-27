@@ -16,12 +16,14 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { serviceAccountKeys, serviceAccounts } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import type { CoordinationNamespace } from "@shared/coordination";
 import {
   clearPublicKeyCache,
   createArcToken,
   exportKeyToJwk,
   generateArcKeyPair,
 } from "@shared/crypto";
+import type { StepUpFactor } from "@shared/observability/metrics";
 import { Effect } from "effect";
 import { exportJWK } from "jose";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -33,6 +35,7 @@ import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { osnLoggerLayer } from "../../src/observability";
 import { createAuthService } from "../../src/services/auth";
 import { appStepUpReturnConfig, returnToAdmitted } from "../../src/services/auth/app-step-up";
+import type { AssertingCredential } from "../../src/services/auth/types";
 import { createFakeNamespace, type FakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 
@@ -108,14 +111,53 @@ async function arcCaller(
 }
 
 /**
+ * `ns`, with a gate on the `app_step_up` objects' reads. Once armed with `n`,
+ * each read runs and none answers until `n` have arrived, so `n` confirms
+ * have all read the pending request before any of them can write.
+ */
+function gatedReads(ns: CoordinationNamespace) {
+  let armed: { n: number; arrived: (() => void)[] } | null = null;
+  const gated: CoordinationNamespace = {
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      if (!name.startsWith("app_step_up:")) return stub;
+      return {
+        ...stub,
+        read: async () => {
+          const value = await stub.read();
+          const gate = armed;
+          if (gate) {
+            await new Promise<void>((resolve) => {
+              gate.arrived.push(resolve);
+              if (gate.arrived.length === gate.n) {
+                armed = null;
+                for (const release of gate.arrived) release();
+              }
+            });
+          }
+          return value;
+        },
+      };
+    },
+  };
+  return {
+    ns: gated,
+    holdReads(n: number) {
+      armed = { n, arrived: [] };
+    },
+  };
+}
+
+/**
  * Two accounts, each signed in once; the first with a second profile. Every
  * route through one `createApp` over the Durable Object stand-in.
  */
 async function harness() {
   const fake = createFakeNamespace();
+  const reads = gatedReads(fake.ns);
   const { layer, sqlite } = createTestLayerWithSqlite();
   const built = await buildAppDeps(env, {
-    coordination: (onError) => createDurableCoordination(fake.ns, onError),
+    coordination: (onError) => createDurableCoordination(reads.ns, onError),
     dbAndEmailLayer: layer,
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,
@@ -163,6 +205,7 @@ async function harness() {
 
   const cireArc = await arcCaller(run, "cire-api");
   const pulseArc = await arcCaller(run, "pulse-api");
+  const zapArc = await arcCaller(run, "zap-api");
 
   type Arc = () => Promise<string>;
   const internal = async (path: string, arc: Arc, body: unknown) =>
@@ -205,8 +248,34 @@ async function harness() {
         body: JSON.stringify({ step_up_token: stepUpToken }),
       }),
     );
-  const stepUpToken = (who: typeof a, purpose: "cire_app_delete" | "pulse_app_delete") =>
-    run(auth.issueStepUpToken(who.minting, "otp", purpose));
+  /**
+   * A step-up token of `who` for `purpose`. By default a passkey's, asserted by
+   * a credential the account has held for a month, which every app-data gate
+   * admits; `asserting: null` mints one that names no credential.
+   */
+  const stepUpToken = (
+    who: typeof a,
+    purpose: AppDataPurpose,
+    factor: StepUpFactor = "passkey",
+    asserting?: AssertingCredential | null,
+  ) =>
+    run(
+      auth.issueStepUpToken(
+        who.minting,
+        factor,
+        purpose,
+        asserting === null
+          ? undefined
+          : (asserting ?? (factor === "passkey" ? heldForAMonth() : undefined)),
+      ),
+    );
+  /** Pulse's or Zap's purpose, spent as a token by that app for `a`'s profile. */
+  const spend = (purpose: "pulse_app_delete" | "zap_app_delete", token: string) =>
+    internal("/step-up/verify", purpose === "pulse_app_delete" ? pulseArc : zapArc, {
+      purpose,
+      profile_id: a.id,
+      token,
+    });
 
   /** Begins a request for `who` and answers its id and the browser's secret. */
   const begun = async (who: { id: string } = a) => {
@@ -233,6 +302,7 @@ async function harness() {
     app,
     auth,
     fake,
+    holdReads: reads.holdReads,
     sqlite,
     run,
     a,
@@ -245,10 +315,29 @@ async function harness() {
     read,
     confirm,
     stepUpToken,
+    spend,
     begun,
     confirmed,
   };
 }
+
+type AppDataPurpose = "cire_app_delete" | "pulse_app_delete" | "zap_app_delete";
+
+/** How long a passkey added by emailed link, authenticator code or recovery is held. */
+const HOLD_S = 72 * 60 * 60;
+
+/** The two factors an app-data gate refuses outright, as a test names them. */
+const STEP_UP_BY = {
+  otp: "an emailed-link step-up",
+  totp: "an authenticator-code step-up",
+} as const;
+
+/** A credential the account has held for a month, with full standing. */
+const heldForAMonth = (): AssertingCredential => ({
+  id: "pk_aaaaaaaaaaaa",
+  provenance: "webauthn",
+  createdAt: nowSec() - 30 * 24 * 60 * 60,
+});
 
 const callsOn = (fake: FakeNamespace, store: string) =>
   fake.calls.filter((call) => call.store === store).map((call) => call.op);
@@ -326,23 +415,31 @@ describe("POST /internal/step-up/requests", () => {
 
   it("refuses a call with no ARC token, and a binding that is not a SHA-256, storing nothing", async () => {
     const h = await harness();
-    const noToken = await h.app.handle(
-      new Request("http://localhost/internal/step-up/requests", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          purpose: "cire_app_delete",
-          profile_id: h.a.id,
-          binding: sha256(secret()),
-          return_to: RETURN_TO,
+    const withoutArc = (headers: Record<string, string>) =>
+      h.app.handle(
+        new Request("http://localhost/internal/step-up/requests", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({
+            purpose: "cire_app_delete",
+            profile_id: h.a.id,
+            binding: sha256(secret()),
+            return_to: RETURN_TO,
+          }),
         }),
-      }),
-    );
-    // Refused before the route runs: no ARC token, no request.
+      );
+    // Refused before the route runs: no ARC token, no request. Sent from the
+    // allowed origin, so the ARC check is what refuses it; sent from no origin
+    // at all, the origin guard refuses it first.
+    const noToken = await withoutArc({ origin: ORIGIN });
     expect(noToken.ok).toBe(false);
+    expect(noToken.status).toBe(401);
+    expect((await withoutArc({})).status).toBe(403);
+    // Refused by the body schema's SHA-256 pattern.
     for (const binding of ["", "z".repeat(64), sha256(secret()).toUpperCase(), "a".repeat(63)]) {
       const res = await h.begin({ profile_id: h.a.id, binding });
       expect({ binding, ok: res.ok }).toEqual({ binding, ok: false });
+      expect({ binding, status: res.status }).toEqual({ binding, status: 422 });
     }
     expect(callsOn(h.fake, "app_step_up")).toEqual([]);
   });
@@ -425,11 +522,18 @@ describe("GET /step-up/requests/:id and POST …/confirm", () => {
   it("of two confirms at once, one wins and the other finds no pending request", async () => {
     // Red on writing the confirmed state without comparing it to what was
     // read: both would answer a code, and the second would replace the first.
+    // Both confirms read the pending request before either writes: the reads
+    // are held until both have arrived.
     const h = await harness();
     const { id } = await h.begun();
+    const [t1, t2] = await Promise.all([
+      h.stepUpToken(h.a, "cire_app_delete"),
+      h.stepUpToken(h.a, "cire_app_delete"),
+    ]);
+    h.holdReads(2);
     const [first, second] = await Promise.all([
-      h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete")),
-      h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete")),
+      h.confirm(id, h.a.accessToken, t1),
+      h.confirm(id, h.a.accessToken, t2),
     ]);
     expect([first.status, second.status].toSorted()).toEqual([200, 404]);
   });
@@ -446,12 +550,15 @@ describe("GET /step-up/requests/:id and POST …/confirm", () => {
 
   it("send the person back to the request's own address with a code on its fragment", async () => {
     const h = await harness();
-    const { returnTo, code } = await h.confirmed();
+    const { id, returnTo, code } = await h.confirmed();
     const url = new URL(returnTo);
     expect(url.origin).toBe(PORTAL);
     expect(url.hash).toBe(`#/remove-data?code=${code}`);
-    // A confirmed request is no longer pending: Musubi cannot confirm it twice.
     expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // A confirmed request is no longer pending: Musubi cannot confirm it twice.
+    const again = await h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete"));
+    expect(again.status).toBe(404);
+    expect((await h.read(id, h.a.accessToken)).status).toBe(404);
   });
 });
 
@@ -583,4 +690,132 @@ describe("POST /internal/step-up/verify, for an app's request", () => {
     );
     expect(await asRequest.json()).toEqual({ ok: false, reason: "invalid" });
   });
+});
+
+// Removing an app's data takes a passkey that is past its hold. An emailed link
+// or an authenticator code is refused for every app-data purpose, and so is a
+// passkey added under one of them or by recovery, until it is 72 hours old:
+// otherwise whoever holds the mailbox or the authenticator seed could add a
+// passkey of their own and remove the data at once. Pulse's and Zap's purposes
+// are spent as a token at `/internal/step-up/verify`, cire's through a request
+// confirmed on Musubi. A refusal spends nothing.
+describe("removing an app's data takes a passkey past its hold", () => {
+  for (const purpose of ["pulse_app_delete", "zap_app_delete"] as const) {
+    for (const factor of ["otp", "totp"] as const) {
+      it(`refuses ${purpose} to ${STEP_UP_BY[factor]}, and claims nothing`, async () => {
+        const h = await harness();
+        const res = await h.spend(purpose, await h.stepUpToken(h.a, purpose, factor));
+        expect(await res.json()).toEqual({ ok: false, reason: "invalid" });
+        expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+      });
+    }
+  }
+
+  it("admits zap_app_delete for a passkey the account has held", async () => {
+    // Red on the gate refusing every factor: Zap could never remove anyone's data.
+    const h = await harness();
+    const res = await h.spend("zap_app_delete", await h.stepUpToken(h.a, "zap_app_delete"));
+    expect(await res.json()).toEqual({ ok: true, account_id: h.a.accountId });
+  });
+
+  for (const factor of ["otp", "totp"] as const) {
+    it(`refuses cire's confirm to ${STEP_UP_BY[factor]}, and leaves the request pending`, async () => {
+      const h = await harness();
+      const { id } = await h.begun();
+      const res = await h.confirm(
+        id,
+        h.a.accessToken,
+        await h.stepUpToken(h.a, "cire_app_delete", factor),
+      );
+      expect({ status: res.status, body: await res.json() }).toEqual({
+        status: 403,
+        body: { error: "step_up_required" },
+      });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+      const passkey = await h.stepUpToken(h.a, "cire_app_delete");
+      expect((await h.confirm(id, h.a.accessToken, passkey)).status).toBe(200);
+    });
+  }
+
+  for (const provenance of ["otp", "totp", "recovery"] as const) {
+    it(`holds cire's confirm from a passkey added by ${provenance} until it is 72 hours old`, async () => {
+      const h = await harness();
+      const { id } = await h.begun();
+      const made = nowSec();
+      const fresh = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+        id: "pk_bbbbbbbbbbbb",
+        provenance,
+        createdAt: made,
+      });
+      const res = await h.confirm(id, h.a.accessToken, fresh);
+      expect({ status: res.status, body: await res.json() }).toEqual({
+        status: 403,
+        body: { error: "passkey_held", hold_ends_at: made + HOLD_S },
+      });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+      // Still pending: a passkey the account has held confirms it.
+      const held = await h.stepUpToken(h.a, "cire_app_delete");
+      expect((await h.confirm(id, h.a.accessToken, held)).status).toBe(200);
+    });
+  }
+
+  it("still holds cire's confirm a minute before a passkey's 72 hours are over", async () => {
+    // Red on a hold shorter than the 72 hours `hold_ends_at` reports.
+    const h = await harness();
+    const { id } = await h.begun();
+    const made = nowSec() - HOLD_S + 60;
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+      id: "pk_bbbbbbbbbbbb",
+      provenance: "otp",
+      createdAt: made,
+    });
+    const res = await h.confirm(id, h.a.accessToken, token);
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 403,
+      body: { error: "passkey_held", hold_ends_at: made + HOLD_S },
+    });
+  });
+
+  it("admits cire's confirm from a passkey added by emailed link once its 72 hours are over", async () => {
+    // Red on a hold that counts from anything but the passkey's own creation.
+    const h = await harness();
+    const { id } = await h.begun();
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", {
+      id: "pk_bbbbbbbbbbbb",
+      provenance: "otp",
+      createdAt: nowSec() - HOLD_S - 1,
+    });
+    expect((await h.confirm(id, h.a.accessToken, token)).status).toBe(200);
+  });
+
+  it("refuses cire's confirm to a passkey step-up that names no credential, as no hold", async () => {
+    // A rule that read a missing claim as "no hold" would be no rule at all.
+    const h = await harness();
+    const { id } = await h.begun();
+    const token = await h.stepUpToken(h.a, "cire_app_delete", "passkey", null);
+    const res = await h.confirm(id, h.a.accessToken, token);
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 403,
+      body: { error: "step_up_required" },
+    });
+  });
+
+  for (const [purpose, provenance] of [
+    ["pulse_app_delete", "otp"],
+    ["zap_app_delete", "recovery"],
+  ] as const) {
+    it(`refuses ${purpose} to a passkey added by ${provenance} inside its hold, and claims nothing`, async () => {
+      const h = await harness();
+      const token = await h.stepUpToken(h.a, purpose, "passkey", {
+        id: "pk_bbbbbbbbbbbb",
+        provenance,
+        createdAt: nowSec(),
+      });
+      expect(await (await h.spend(purpose, token)).json()).toEqual({
+        ok: false,
+        reason: "invalid",
+      });
+      expect(callsOn(h.fake, "step_up_jti")).toEqual([]);
+    });
+  }
 });

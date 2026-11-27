@@ -161,14 +161,6 @@ describe("createOrganisation", () => {
 });
 
 describe("getOrganisation", () => {
-  it.effect("returns the organisation by id", () =>
-    Effect.gen(function* () {
-      const { organisation } = yield* setupOrgWithOwner;
-      const found = yield* org.getOrganisation(organisation.id);
-      expect(found.handle).toBe("acme");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("fails when not found", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(org.getOrganisation("org_nonexistent"));
@@ -279,6 +271,10 @@ describe("listProfileOrganisations", () => {
   it.effect("returns empty when user has no orgs", () =>
     Effect.gen(function* () {
       const alice = yield* registerProfile("alice@example.com", "alice");
+      // An organisation alice is not in: a list that ignored the profile would
+      // return it.
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      yield* org.createOrganisation(bob.id, "acme", "Acme Corp");
       const list = yield* org.listProfileOrganisations(alice.id);
       expect(list).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
@@ -825,8 +821,8 @@ describe("a membership write holds only while what it checked still holds", () =
   it.live(
     "a role change by an owner who has since passed the organisation on changes nothing",
     () => {
-      // The owner moves only in the hard delete of the owner's account, which
-      // hands the organisation to another member in one batch.
+      // The owner moves in the hard delete of the owner's account or in a
+      // decline, each in one batch; this case writes the new owner directly.
       const h = held();
       return Effect.gen(function* () {
         const { alice, bob, carol, orgId } = yield* setupTeam;

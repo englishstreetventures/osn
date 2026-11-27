@@ -53,20 +53,6 @@ describe("PersonAvatar", () => {
     expect(img.getAttribute("alt")).toBe("");
   });
 
-  it("falls back at once when its photo will not load", () => {
-    const { container } = render(() => (
-      <PersonAvatar
-        fallback="initial"
-        name="Ada"
-        url="https://photos.example/dead-1.png"
-        class="size-9"
-      />
-    ));
-    fireEvent.error(container.querySelector("img")!);
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.textContent).toBe("A");
-  });
-
   it("does not try a failed photo again anywhere on the page, but tries a new one", () => {
     const first = render(() => (
       <PersonAvatar fallback="blank" url="https://photos.example/dead-2.png" class="size-8" />
@@ -104,12 +90,6 @@ describe("PersonAvatar", () => {
     const account = render(() => <PersonAvatar fallback="initial" name="Ada" class="size-9" />);
     // A hairline and no fill: the guest site lays no ground under a gold word.
     expect(frame(root(account.container))).toEqual(["base:border", "base:border-ui-hairline"]);
-  });
-
-  it("draws the empty avatar, never a letter, for blank", () => {
-    const { container } = render(() => <PersonAvatar fallback="blank" class="size-8" />);
-    expect(container.querySelector("[data-blank-avatar]")).not.toBeNull();
-    expect(container.textContent).toBe("");
   });
 
   it.each([

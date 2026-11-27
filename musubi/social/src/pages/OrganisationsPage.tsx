@@ -2,7 +2,6 @@ import { AuthHeader } from "@osn/auth-ui/AuthHeader";
 import { DialogActions } from "@osn/auth-ui/DialogActions";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Dialog } from "@shared/ui/ui/dialog";
@@ -13,6 +12,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 
+import { OrgAvatar } from "../components/Avatars";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SignedOutNote } from "../components/SignedOutNote";
@@ -21,7 +21,6 @@ import { orgClient } from "../lib/api";
 import { scopeMark } from "../lib/page-cache";
 import { myOrganisations, suggestions } from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
-import { safeAvatarUrl } from "../lib/utils";
 
 /** The route's preload. */
 export function preloadOrganisations(): void {
@@ -122,19 +121,7 @@ export function OrganisationsPage() {
                         takes no wash: its chevron turns to full ink on hover
                         and press instead. */}
                       <Card padding="sm" class="flex items-center gap-3">
-                        <Avatar class="h-10 w-10">
-                          <Show when={safeAvatarUrl(org.avatarUrl)}>
-                            {(url) => (
-                              <AvatarImage
-                                src={url()}
-                                alt={org.name}
-                                referrerpolicy="no-referrer"
-                                loading="lazy"
-                              />
-                            )}
-                          </Show>
-                          <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                        </Avatar>
+                        <OrgAvatar org={org} class="size-10" decorative />
                         <div class="min-w-0 flex-1">
                           <p class="text-foreground text-title truncate font-medium">{org.name}</p>
                           <p class="text-muted-foreground text-meta truncate">@{org.handle}</p>

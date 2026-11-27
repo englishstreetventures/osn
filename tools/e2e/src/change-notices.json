@@ -1,0 +1,11 @@
+{
+  "e2e-privacy": {
+    "document": "privacy notice",
+    "path": "/privacy",
+    "takesEffect": "2027-01-01",
+    "changes": [
+      "We now keep sign-in records for 12 months, not 6.",
+      "Our email provider is named in the list of who we share data with."
+    ]
+  }
+}

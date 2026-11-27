@@ -13,19 +13,13 @@
  * is held apart in `dialog-default.browser.test.tsx`.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../src/ui/dialog";
 
 import "./test-support/tailwind.css";
-
-afterEach(() => {
-  cleanup();
-  document.documentElement.style.removeProperty("--ui-elev-2");
-  document.documentElement.style.removeProperty("--ui-scrim");
-});
 
 /** Gitignored; a rerun of this file draws them again. */
 const shot = (name: string) => `__screenshots__/dialog.browser.test.tsx/${name}.png`;

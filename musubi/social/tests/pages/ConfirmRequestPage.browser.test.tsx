@@ -256,6 +256,18 @@ describe("an app's step-up request, in the shell", () => {
         await shot("6-refused", viewport, theme);
       });
 
+      it(`a passkey still inside its hold — ${at}`, async () => {
+        // The longest line the card draws: a day and a clock time, which must
+        // wrap inside the card on a phone.
+        dark();
+        mocks.confirm.mockResolvedValue({ status: "held", holdEndsAt: 1_900_000_000 });
+        await open(viewport);
+        expect(await screen.findByText("host.cireweddings.com")).toBeTruthy();
+        fireEvent.click(confirmButton());
+        expect(await screen.findByText(/That passkey is less than 3 days old\./)).toBeTruthy();
+        await shot("6b-held", viewport, theme);
+      });
+
       it(`the request gone, or another account's — ${at}`, async () => {
         dark();
         mocks.read.mockResolvedValue(null);

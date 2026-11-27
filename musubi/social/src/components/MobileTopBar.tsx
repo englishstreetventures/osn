@@ -1,10 +1,11 @@
 import { useAuth } from "@osn/client/solid";
-import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
+import { clsx } from "@shared/ui/lib/utils";
 import { Button } from "@shared/ui/ui/button";
 import { createMemo, Show } from "solid-js";
 
-import { profileInitials, safeAvatarUrl } from "../lib/utils";
+import { getTokenClaims } from "../lib/utils";
 import { AccountMenu } from "./AccountMenu";
+import { ProfileAvatar } from "./Avatars";
 import { useShellDialogs } from "./ShellDialogs";
 import { TopBarHeader } from "./ShellFrame";
 import { ThemeToggle } from "./ThemeToggle";
@@ -23,6 +24,8 @@ export function MobileTopBar() {
   const activeProfile = createMemo(
     () => profiles()?.find((p) => p.id === activeProfileId()) ?? null,
   );
+  // Read for display only, as the menu's own label reads it.
+  const handle = createMemo(() => getTokenClaims(session()?.accessToken ?? null).handle);
 
   return (
     <TopBarHeader
@@ -32,7 +35,9 @@ export function MobileTopBar() {
           <Show
             when={session()}
             fallback={
-              <div class="flex items-center gap-1.5">
+              // Invisible until the dialogs they open have loaded: they hold
+              // their place, and never offer a dialog that cannot open.
+              <div class={clsx("flex items-center gap-1.5", !dialogs.ready() && "invisible")}>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -53,23 +58,13 @@ export function MobileTopBar() {
               </div>
             }
           >
+            {/* The avatar says nothing a screen reader can use, so the
+                trigger carries its own name: what it opens, and whose. */}
             <AccountMenu
               triggerClass="cursor-pointer rounded-pill"
-              onSwitchProfile={() => dialogs.open("switcher")}
+              triggerLabel={handle() ? `Account menu, @${handle()}` : "Account menu"}
             >
-              <Avatar class="h-10 w-10">
-                <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
-                  {(url) => (
-                    <AvatarImage
-                      src={url()}
-                      alt={activeProfile()!.handle}
-                      referrerpolicy="no-referrer"
-                      loading="lazy"
-                    />
-                  )}
-                </Show>
-                <AvatarFallback>{profileInitials(activeProfile())}</AvatarFallback>
-              </Avatar>
+              <ProfileAvatar profile={activeProfile()} class="size-10" decorative />
             </AccountMenu>
           </Show>
         </div>

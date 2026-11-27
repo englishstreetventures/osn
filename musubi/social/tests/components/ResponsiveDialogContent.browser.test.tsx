@@ -10,9 +10,9 @@ import "../../src/App.css";
 
 /**
  * The app's dialog is a sheet as wide as the phone below `md`, and a centred
- * card with a width cap at `md` and up. The cap is a prop because a class cap
- * at a call site also caps the sheet: `DialogContent`'s sheet rules are
- * zero-specificity, so any plain `max-w-*` beats them.
+ * card capped at 384px at `md` and up. The cap is the component's own because
+ * a class cap at a call site also caps the sheet: `DialogContent`'s sheet
+ * rules are zero-specificity, so any plain `max-w-*` beats them.
  *
  * No app dialog has a `Dialog.Trigger`, so focus going back to the control
  * that opened one is this component's job, and Kobalte's focus scope runs only
@@ -23,10 +23,10 @@ afterEach(() => {
   cleanup();
 });
 
-function renderDialog(width?: "sm" | "xs") {
+function renderDialog() {
   render(() => (
     <Dialog open onOpenChange={() => {}}>
-      <ResponsiveDialogContent width={width}>
+      <ResponsiveDialogContent>
         <p>sheet body</p>
       </ResponsiveDialogContent>
     </Dialog>
@@ -37,16 +37,13 @@ function renderDialog(width?: "sm" | "xs") {
 }
 
 describe("<ResponsiveDialogContent /> width", () => {
-  it.each([
-    ["the default", undefined, 384],
-    ['width="xs"', "xs" as const, 320],
-  ])("%s fills a phone, and caps the desktop card", async (_label, width, cap) => {
+  it("fills a phone, and caps the desktop card at 384px", async () => {
     await page.viewport(390, 844);
-    expect(renderDialog(width)).toBe(390);
+    expect(renderDialog()).toBe(390);
     cleanup();
 
     await page.viewport(1440, 900);
-    expect(renderDialog(width)).toBe(cap);
+    expect(renderDialog()).toBe(384);
   });
 });
 

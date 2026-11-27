@@ -1,5 +1,86 @@
 # @osn/api
 
+## 0.30.3
+
+### Patch Changes
+
+- @shared/crypto@0.17.2
+  - @shared/osn-auth-client@0.8.2
+
+## 0.30.2
+
+### Patch Changes
+
+- @shared/crypto@0.17.1
+  - @shared/osn-auth-client@0.8.1
+
+## 0.30.1
+
+### Patch Changes
+
+- 8235ebd: Apps ask osn-api for the one ARC key a token names instead of the whole key list. `verifyOsnArcToken` (`@shared/osn-auth-client/arc`) fetches `<issuer>/.well-known/arc-jwks.json?kid=<ask>` and keeps an osn-api key four minutes from when its fetch started; it reads a whole-list answer the same way, so an osn-api on the earlier code still verifies. `resolvePublicKeyForKid`'s third argument is now a `KeyLookup` (`names`, the `from` URL, `ttlMs`), whose fetches share one flight per cache key apart from access-token fetches; two-argument calls are unchanged. `@shared/crypto/arc-kid` adds `ask` to `checkArcKid`'s lookup (the `<uuid>.<expiry>` and the parts shaped as MACs), `readArcKeyAsk`, which osn-api reads an ask with, and `holdsArcKidKey`.
+
+  osn-api answers `?kid=`: an ask no osn-api could have minted a kid for gets no key and no read; a kid one of whose MACs verifies under a secret it holds is answered from the isolate's memory (a key found held a minute from its read's start, one not found 30 seconds; at most 1,024 keys and, apart, 128 absences; asks share a read for five seconds), with one primary-key read when not held; a kid it cannot verify is answered from memory when its key is held, and otherwise read under 30 a minute per app zone or address (per Cloudflare location), holding a key found and never an absence. An app's ask spends no other budget and calls no coordination store. The whole list keeps its minute budgets and per-zone hour budget; every address now shares one hour budget of 60. A failed key read answers 500. New counter `osn.arc.jwks.key_lookups`; `osn.arc.jwks.refused` gains reason `probe`. Zap's and Pulse's test stand-ins answer by kid.
+
+- Updated dependencies [8235ebd]
+  - @shared/crypto@0.17.0
+  - @shared/osn-auth-client@0.8.0
+
+## 0.30.0
+
+### Minor Changes
+
+- 1bf7502: osn-api's outbound ARC key ids can carry a MAC under `OSN_ARC_KID_SECRET`, a secret held for that alone, beside the one under `INTERNAL_SERVICE_SECRET`. `@shared/crypto/arc-kid` takes both secrets (`ArcKidSecrets`): `mintArcKid` puts one MAC in the kid for each secret of at least 32 characters, and `checkArcKid` admits a kid one of whose MACs verifies under a secret the app holds, answering what to look the key up by (`ArcKidLookup`), or `null`. A checked kid is looked up and cached by the `<uuid>.<expiry>` its verified MAC covers, through the new `names` argument of `resolvePublicKeyForKid` (`@shared/osn-auth-client/jwks-cache`), never by a part the app did not verify. `OsnArcVerification` takes `kidSecret` and `serviceSecret`. osn-api, Zap and Pulse read `OSN_ARC_KID_SECRET`; unset, each behaves as before. osn-api warns once per key, naming the secret, when either is too short to key a MAC. Every Worker ignores a kid secret equal to the service secret, and osn-api warns of it. The inventory lists the secret as optional for osn-api, zap-api and cire-api on dev and production, one value per tier; dev refuses one under 32 characters, or equal to `INTERNAL_SERVICE_SECRET` on a Worker holding both.
+
+### Patch Changes
+
+- Updated dependencies [1bf7502]
+  - @shared/crypto@0.16.0
+  - @shared/osn-auth-client@0.7.0
+
+## 0.29.16
+
+### Patch Changes
+
+- Updated dependencies [c266b7f]
+  - @shared/observability@0.26.6
+  - @shared/crypto@0.15.14
+  - @shared/osn-auth-client@0.6.1
+
+## 0.29.15
+
+### Patch Changes
+
+- Updated dependencies [89d6af2]
+  - @shared/db-utils@0.10.0
+  - @shared/osn-auth-client@0.6.0
+  - @pulse/db@0.20.22
+  - @zap/db@0.7.4
+  - @shared/crypto@0.15.13
+
+## 0.29.14
+
+### Patch Changes
+
+- @shared/crypto@0.15.12
+  - @shared/osn-auth-client@0.5.12
+
+## 0.29.13
+
+### Patch Changes
+
+- @shared/crypto@0.15.11
+  - @shared/osn-auth-client@0.5.11
+
+## 0.29.12
+
+### Patch Changes
+
+- Updated dependencies [9b7ecdc]
+  - @shared/observability@0.26.5
+  - @shared/crypto@0.15.10
+  - @shared/osn-auth-client@0.5.10
+
 ## 0.29.11
 
 ### Patch Changes

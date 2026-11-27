@@ -1,5 +1,172 @@
 # @osn/osn
 
+## 3.53.0
+
+### Minor Changes
+
+- c05552d: osn-api can mail a change notice — a privacy notice or the terms are changing, what changes, the day it takes effect, a link to the page — to every account that can still sign in or restore, when the operator runs `send-change-notice` in the production operator workflow.
+
+  `@shared/email` adds the `change-notice` template, a legal notice with no unsubscribe link or header, and `sendKeyedBatch`: one batch of at most 100 in one Resend call, under an idempotency key and in permissive validation, answering how many addresses Resend accepted and refused. `EmailError` carries Resend's HTTP status and error name when Resend answered.
+
+  `@osn/db` adds `change_notice_runs`: per notice, a cursor and the batch in hand, so a run that stops half way resumes without skipping or repeating anyone. It stores no address.
+
+  `@osn/api` adds `POST /internal/change-notices/:noticeId/send`, behind its own optional secret, `OSN_CHANGE_NOTICE_SECRET` (off while unset or under 32 characters). It sends only notices in the reviewed registry `services/change-notices.json`, which ships empty, refuses unless the notice's words match the digest the approver saw, and answers counts only. Metrics `osn.change_notice.batches` and `osn.change_notice.emails`.
+
+  `@shared/infra` lists `OSN_CHANGE_NOTICE_SECRET` as an optional osn-api production secret; `@musubi/infra`'s parity and read checks name it, and `OSN_CHANGE_NOTICES_FILE`, as unset on dev.
+
+### Patch Changes
+
+- Updated dependencies [c05552d]
+  - @shared/email@0.23.0
+  - @osn/db@0.31.0
+  - @shared/crypto@0.17.2
+
+## 3.52.1
+
+### Patch Changes
+
+- c322ae6: osn-api's account-deletion laws and the model they are proved about move into `laws/account-deletion/`, beside the code; the agreement tests in `tests/laws/` import the model from there and run in the ordinary `test`, as a vitest project of their own. No production code changes.
+
+## 3.52.0
+
+### Minor Changes
+
+- e393eb0: A sign-up's session is restricted until the new account has its first passkey. The completing status poll now issues a session whose access tokens carry `osn-recovery`, so only `/passkey/register/*` accepts them; its cookie is no signed-in session to `/authorize` or to a `/token` grant for anything but its own rotation, and it lives 15 minutes. Its row records `signup`, which takes nobody past the step-up gate and stamps the first passkey `webauthn`. Enrolling lifts the restriction in the batch that inserts the passkey, so the two commit together, and the sign-up funnel counts the first passkey as its `passkey_enroll` step. `/passkey/register/begin` and `/complete` answer 401 to a restricted token whose session a passkey has already lifted, so a tab that missed the answer renews into the ordinary session. Migration `20261126014432_end_passkeyless_sessions` ends the ordinary sessions of accounts made before this that never added a passkey, sparing restricted sessions and any account with a deletion job; those people come back through the emailed recovery link. Migration `20261126022912_sessions_restriction_known` adds two triggers that refuse a session row whose `restricted_amr` is not `webauthn`, `otp`, `totp` or `signup`, or is set while `restricted_until` is NULL. `@osn/client` exports `isRestrictedToken`, and its cold start publishes no session for a restricted cookie.
+
+### Patch Changes
+
+- Updated dependencies [e393eb0]
+  - @osn/db@0.30.4
+  - @shared/crypto@0.17.1
+
+## 3.51.1
+
+### Patch Changes
+
+- 1f6f344: The account-deletion rules gain agreement tests: `tests/laws/` runs the same events through the Bend model in `tools/deletion-laws` (compiled to `model.mjs`) and through `requestErasure`, `cancelErasure`, the fan-out and hard-delete sweeps, the handle check and `DELETE /account`, and fails when they disagree. They run as the package's `test:repo` task, which turbo reruns when the model changes. No production code changes.
+
+## 3.51.0
+
+### Minor Changes
+
+- b8fc725: Musubi chooses profiles, draws avatars and offers organisation actions in one way each.
+
+  - `/authorize` is one layout. Every screen that decides leads with the app's client card, the picker included. Its heading is an `AuthHeader` `h2`. One notice slot sits directly above the actions. The actions are one full-width column, with Cancel `secondary` and last. The account screen and the picker choose a profile with the new `ProfileChoice`: radios in bordered rows, the chosen one edged in ink. The picker leaves only on Continue. Allow is offered only while the profile it would post is on screen, and a choice made for one account never stands for another.
+  - The account menu is the profile switcher. Each profile is a `menuitemradio` row, the active one checked. Choosing another switches to it, and every row is held while the switch runs. The "Switch profile" dialog is gone, and so is `ResponsiveDialogContent`'s `width` prop.
+  - `ProfileAvatar` and `OrgAvatar` draw every avatar. A person's is a circle and an organisation's a square with 8px corners. Each shows the picture or the initials, never both, and one rule makes the initials. The account menu's 20px circle shows the first initial alone, since two at 12px overflow it.
+  - `GET /organisations/:handle` answers the caller's own standing, `caller: { role, owner } | null`, and `@osn/client`'s `getOrg` types it. An organisation's page offers Edit to an admin and Delete to the owner. It offers Remove on a member's row to an admin, and on an admin's row too to the owner, never on the reader's own row. A reader whose standing is unknown is offered nothing. A read of the standing that fails, a defect included, is logged and answers `null`.
+  - `@osn/auth-ui`: comments and `DESIGN.md` name the account menu as Musubi's switcher, and `AuthHeader`'s comment gives what `/authorize` loads for its dialog module, measured from `vite build`.
+
+## 3.50.0
+
+### Minor Changes
+
+- 8235ebd: Apps ask osn-api for the one ARC key a token names instead of the whole key list. `verifyOsnArcToken` (`@shared/osn-auth-client/arc`) fetches `<issuer>/.well-known/arc-jwks.json?kid=<ask>` and keeps an osn-api key four minutes from when its fetch started; it reads a whole-list answer the same way, so an osn-api on the earlier code still verifies. `resolvePublicKeyForKid`'s third argument is now a `KeyLookup` (`names`, the `from` URL, `ttlMs`), whose fetches share one flight per cache key apart from access-token fetches; two-argument calls are unchanged. `@shared/crypto/arc-kid` adds `ask` to `checkArcKid`'s lookup (the `<uuid>.<expiry>` and the parts shaped as MACs), `readArcKeyAsk`, which osn-api reads an ask with, and `holdsArcKidKey`.
+
+  osn-api answers `?kid=`: an ask no osn-api could have minted a kid for gets no key and no read; a kid one of whose MACs verifies under a secret it holds is answered from the isolate's memory (a key found held a minute from its read's start, one not found 30 seconds; at most 1,024 keys and, apart, 128 absences; asks share a read for five seconds), with one primary-key read when not held; a kid it cannot verify is answered from memory when its key is held, and otherwise read under 30 a minute per app zone or address (per Cloudflare location), holding a key found and never an absence. An app's ask spends no other budget and calls no coordination store. The whole list keeps its minute budgets and per-zone hour budget; every address now shares one hour budget of 60. A failed key read answers 500. New counter `osn.arc.jwks.key_lookups`; `osn.arc.jwks.refused` gains reason `probe`. Zap's and Pulse's test stand-ins answer by kid.
+
+### Patch Changes
+
+- Updated dependencies [8235ebd]
+  - @shared/crypto@0.17.0
+
+## 3.49.0
+
+### Minor Changes
+
+- 1bf7502: osn-api's outbound ARC key ids can carry a MAC under `OSN_ARC_KID_SECRET`, a secret held for that alone, beside the one under `INTERNAL_SERVICE_SECRET`. `@shared/crypto/arc-kid` takes both secrets (`ArcKidSecrets`): `mintArcKid` puts one MAC in the kid for each secret of at least 32 characters, and `checkArcKid` admits a kid one of whose MACs verifies under a secret the app holds, answering what to look the key up by (`ArcKidLookup`), or `null`. A checked kid is looked up and cached by the `<uuid>.<expiry>` its verified MAC covers, through the new `names` argument of `resolvePublicKeyForKid` (`@shared/osn-auth-client/jwks-cache`), never by a part the app did not verify. `OsnArcVerification` takes `kidSecret` and `serviceSecret`. osn-api, Zap and Pulse read `OSN_ARC_KID_SECRET`; unset, each behaves as before. osn-api warns once per key, naming the secret, when either is too short to key a MAC. Every Worker ignores a kid secret equal to the service secret, and osn-api warns of it. The inventory lists the secret as optional for osn-api, zap-api and cire-api on dev and production, one value per tier; dev refuses one under 32 characters, or equal to `INTERNAL_SERVICE_SECRET` on a Worker holding both.
+
+### Patch Changes
+
+- Updated dependencies [1bf7502]
+  - @shared/crypto@0.16.0
+  - @osn/db@0.30.3
+
+## 3.48.1
+
+### Patch Changes
+
+- 86d8c6f: `GET /.well-known/arc-jwks.json` admits each caller's address (an IPv6 one by its /64) 30 times a minute and 60 an hour, and each configured app's fetch, which reaches osn-api from the address every Worker's cross-zone subrequest shares, under the app's zone instead. Past either budget, for an address that cannot be resolved, or while the coordination store fails, it answers 429 before reading any key. Each refusal is counted (`osn.arc.jwks.refused`, by lane and reason) and the first in each minute per lane is logged.
+
+## 3.48.0
+
+### Minor Changes
+
+- c266b7f: Removing an app's data takes a passkey. `pulse_app_delete` and `zap_app_delete` at `/internal/step-up/verify`, and `cire_app_delete` at `POST /step-up/requests/:id/confirm`, now admit a passkey step-up alone (`appDeleteAllowedAmr`, fixed in `context.ts`), and a passkey added by an emailed link, an authenticator code or recovery only once it is 72 hours old. The confirm route answers a passkey inside that hold `403 { error: "passkey_held", hold_ends_at }`; `createAppStepUpClient().confirm` resolves it as `{ status: "held", holdEndsAt }`.
+
+  `StepUpDialog` offers the passkey alone for the three purposes. Musubi's confirm page always tells a person with no such passkey to add one in Settings and start again from the app in 3 days, and names the day and time a held passkey's hold ends.
+
+  Every passkey enrolled from a restricted recovery session is stamped `recovery`, and so is an account's first passkey enrolled within 72 hours of any recovery, so it waits out the same hold; a first passkey from sign-up stays `webauthn`.
+
+  `osn.auth.step_up.verified` gains a bounded `purpose` attribute, and `osn.auth.recovery.cooldown` an `app_delete_refused` outcome.
+
+  The lab's `osn/auth-ui/StepUpDialog/AppDataRemoval` story shows the sheet for removing an app's data, and the playground offers `cire_app_delete`.
+
+### Patch Changes
+
+- Updated dependencies [c266b7f]
+  - @shared/observability@0.26.6
+  - @shared/crypto@0.15.14
+  - @shared/email@0.22.1
+
+## 3.47.2
+
+### Patch Changes
+
+- Updated dependencies [89d6af2]
+  - @shared/db-utils@0.10.0
+  - @osn/db@0.30.2
+  - @shared/crypto@0.15.13
+
+## 3.47.1
+
+### Patch Changes
+
+- 78d8f1f: In `@osn/api`, each Worker isolate writes its outbound ARC key after its first request, whatever the route, through `ctx.waitUntil`, and its replacement after the first request once that is due; every cron run whose deletion app settings parse does the same. A failed background write never reaches the answer and pauses background writes for a minute; a call to an app still writes the key before it signs when no write of it has started. A key lives four hours and is replaced after two. `GET /.well-known/arc-jwks.json` serves at most the newest 1,000 keys and warns from 500, and a call whose key has fallen outside them, or whose row was deleted, mints, writes and signs with a new one, or fails without signing; a key whose first write failed is dropped, so a key's expiry dates its first write. In `@osn/db`, the `arcOutboundKeys` comment says when the key is written.
+- Updated dependencies [78d8f1f]
+  - @osn/db@0.30.1
+  - @shared/crypto@0.15.12
+
+## 3.47.0
+
+### Minor Changes
+
+- 91b32ae: Musubi's Settings › Connected apps links an app's own screen for removing a person's data from it, as "Remove my data from <app>". `oauth_clients` gains a nullable `manage_data_url` that only an operator sets (migration `20261119150713_oauth_clients_manage_data_url`). `GET /oidc/connections` answers it as `manageDataUrl` only while it passes a read rule in `osn/api/src/services/auth/client-links.ts`: at most 512 characters, canonical, no user name or password, `https:` (or `http:` to localhost), on the origin of a registered redirect URI or of the app origin osn-api's deployment pins to the client (`CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID`), and never for a disabled client; a refused value counts on the new `osn.oidc.manage_data_link.refused`, and a client whose stored `redirect_uris` is no JSON list refuses only its own link. `@osn/client`'s `OidcConnection` carries `manageDataUrl`. Musubi draws the link on its own line in the app's row, through `followableLink`, in a new tab; the page cache records each Connected apps row's kind so the placeholder keeps each row's height. The musubi stack's dev seed sets cire's link to the organiser portal's `/#/remove-data`. Account erasure keeps the time an owner disabled their client, where it had one.
+
+### Patch Changes
+
+- Updated dependencies [91b32ae]
+  - @osn/db@0.30.0
+  - @shared/crypto@0.15.11
+
+## 3.46.4
+
+### Patch Changes
+
+- Updated dependencies [6223317]
+  - @shared/email@0.22.0
+
+## 3.46.3
+
+### Patch Changes
+
+- Updated dependencies [9b7ecdc]
+  - @shared/observability@0.26.5
+  - @shared/crypto@0.15.10
+  - @shared/email@0.21.4
+
+## 3.46.2
+
+### Patch Changes
+
+- 0bdcb05: Production osn-api sends account email as `Musubi <hello@musubi.social>` instead of `hello@cireweddings.com`, so sign-up, recovery and step-up links and security notices come from Musubi's own verified domain and no longer share cire's sending reputation. `OSN_EMAIL_FROM` in `osn/api/wrangler.toml` matches it.
+
+## 3.46.1
+
+### Patch Changes
+
+- e242196: Tests only: cut 15 cases another test in the package repeats, each against a cover seen failing under a hand break, and repaired the checks that could not fail, the real-clock waits and the names and comments that carried finding tags or history. Four untested refusals of the internal graph and organisation routes now have tests.
+
 ## 3.46.0
 
 ### Minor Changes

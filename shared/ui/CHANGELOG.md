@@ -1,5 +1,23 @@
 # @shared/ui
 
+## 0.20.2
+
+### Patch Changes
+
+- b378067: A fourth radius role, `--ui-radius-menu-row` (`rounded-ui-menu-row`): the corner of a row inside a menu panel. `DropdownMenu`'s rows in both looks and `MENU_TOUCH`'s rows read it. It falls back to `--ui-radius-sm`, so an app that maps none draws its rows where they were: pulse's and cire's stay at 6px. An app can now round its menu rows like its list rows without raising `--ui-radius-sm`, which the drawn `Checkbox`'s 16px box reads too and would turn round. The default menu's frozen test reads the new class name and holds a row's corner at `--ui-radius-sm` while no menu-row corner is mapped, a case that also passes on the code before the change.
+
+## 0.20.1
+
+### Patch Changes
+
+- 9aab460: Every browser test now starts on a clean page. One setup file, named in the browser project's `setupFiles`, runs after each test: it unmounts every render, closes any dialog or popover left open, waits until the `aria-hidden` writes Kobalte queues as a menu unmounts have landed, puts back the attributes `<html>` and `<body>` had when the file loaded, scrolls to the top and turns media emulation off. A test that followed one which left a menu open could start while `<body>` was still hidden, so a `getByRole` straight after `render` found nothing. Each file's own copies of these steps are gone, and `button.browser.test.tsx` turns forced colours on before each test rather than once per file. No component changes.
+
+## 0.20.0
+
+### Minor Changes
+
+- ca94e62: A `Dialog` sheet below `md` can be dragged down by its title row, or by its body once scrolled to the top, to close it. It follows the finger, its scrim fading with it; let go past a quarter of its height or after a flick it closes through `onOpenChange(false)` on a no-bounce spring started at the finger's speed, and otherwise springs back. Under reduced motion it still follows the finger and fades once let go. `DialogContent` takes `dismissible`, which refuses the drag, Escape and a press outside while false; the step-up sheet, the profile switcher and the delete-organisation confirmation pass it while their call runs. The rubber band and the spring move to `@shared/ui/lib/spring`. The lab gains a `DialogSheetDrag` story.
+
 ## 0.19.1
 
 ### Patch Changes

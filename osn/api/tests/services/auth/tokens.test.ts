@@ -88,7 +88,7 @@ const payloadOf = (jwt: string): Record<string, unknown> =>
   >;
 
 describe("refreshTokens: the profile a grant names", () => {
-  it.effect("F20: mints for a profile the account owns, bound to the rotated session", () =>
+  it.effect("mints for a profile the account owns, bound to the rotated session", () =>
     Effect.gen(function* () {
       const { profile, refreshToken } = yield* signIn("named@example.com", "named");
       const second = yield* addProfile(profile.accountId, "named2");
@@ -106,7 +106,7 @@ describe("refreshTokens: the profile a grant names", () => {
     }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
   );
 
-  it.effect("F21: a grant naming no profile mints for the default profile", () =>
+  it.effect("a grant naming no profile mints for the default profile", () =>
     Effect.gen(function* () {
       const { profile, refreshToken } = yield* signIn("own@example.com", "own");
       yield* addProfile(profile.accountId, "own2");
@@ -271,7 +271,7 @@ describe("refreshTokens: the profile a grant names", () => {
     });
   }
 
-  it.effect("F22: a restricted recovery session ignores the profile it names", () =>
+  it.effect("a restricted recovery session ignores the profile it names", () =>
     Effect.gen(function* () {
       const user = yield* auth.registerProfile("named-rs@example.com", "namedrs");
       const second = yield* addProfile(user.accountId, "namedrs2");
@@ -692,17 +692,19 @@ describe("runRotatedSessionSweep", () => {
     }
   };
 
-  /** Waits on the real clock until `done` holds, for at most two seconds. */
+  /**
+   * Gives the sweep turns until `done` holds, at most 100. A bun:sqlite chunk
+   * delete settles in a few microtasks, and each turn runs every one queued.
+   */
   const until = (done: () => boolean) =>
-    Effect.promise(async () => {
-      for (let i = 0; i < 200 && !done(); i++) {
-        // eslint-disable-next-line no-await-in-loop -- polling, one wait at a time
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+    Effect.gen(function* () {
+      for (let i = 0; i < 100 && !done(); i++) yield* Effect.yieldNow;
     });
 
-  /** Long enough on the real clock for the sweep to reach its next pause. */
-  const settle = Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 30)));
+  /** Enough turns for the sweep to reach its next pause. */
+  const settle = Effect.gen(function* () {
+    for (let i = 0; i < 20; i++) yield* Effect.yieldNow;
+  });
 
   /**
    * Runs one sweep on the test clock. Each time the sweep stops deleting and

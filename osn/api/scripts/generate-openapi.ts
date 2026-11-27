@@ -44,10 +44,11 @@ const app = createApp(built.deps);
 await generateOpenApiDocument({
   handle: (request) => app.handle(request),
   outputPath: OUTPUT_PATH,
-  // ARC-gated service-to-service surface. Only other OSN services call these,
-  // and they authenticate with signed ES256 tokens rather than a user session,
-  // so a generated client has no use for them. Excluded here rather than in the
-  // plugin's `exclude.paths` because that option ignores RegExp entries.
+  // The service-to-service and operator surface. Only other OSN services and
+  // the production operator workflow call these, with a signed ES256 token or
+  // a shared secret rather than a user session, so a generated client has no
+  // use for them. Excluded here rather than in the plugin's `exclude.paths`
+  // because that option ignores RegExp entries.
   excludePaths: [/^\/graph\/internal\//, /^\/organisations\/internal\//, /^\/internal\//],
 });
 

@@ -193,9 +193,13 @@ describe("design-token contract", () => {
   it("maps the contract through aliases, so `.dark` carries it automatically", () => {
     // A literal here would pin the light value into both themes, and the
     // failure would look like "dark mode ignores the theme" three steps later.
-    const mapping = CSS.slice(CSS.indexOf("--ui-ground:"), CSS.indexOf("--ui-radius-hair:"));
-    const literals = [...mapping.matchAll(/(--ui-[\w-]+):\s*(#[0-9a-f]{3,8})/gi)];
-    expect(literals.map((m) => m[1])).toEqual([]);
+    const start = CSS.indexOf("--ui-ground:");
+    const end = CSS.indexOf("--ui-radius-hair:");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const entries = [...CSS.slice(start, end).matchAll(/(--ui-[\w-]+):\s*([^;]+);/g)];
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.filter((m) => !m[2]!.includes("var(")).map((m) => m[1])).toEqual([]);
   });
 
   it("maps all seven type steps rather than leaving gaps for the fallback", () => {

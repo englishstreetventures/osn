@@ -5,10 +5,9 @@
 // CDN already sees.
 //
 // Served from the site's own origin, so the static site's tight CSP
-// (`connect-src 'self'`) still holds. Two entries call it: the Pages Function
-// (`functions/api/geo.ts`) and the Worker that serves the site beside its
-// static assets (`worker/index.ts`). If neither is deployed the hero falls back
-// to a generic "near you" CTA (see PulseHero).
+// (`connect-src 'self'`) still holds. The Worker that serves the site beside
+// its static assets (`worker/index.ts`) calls it. Where that Worker is not
+// deployed the hero falls back to a generic "near you" CTA (see PulseHero).
 
 interface EdgeGeo {
   city?: string;

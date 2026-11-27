@@ -14,6 +14,7 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { CurrentBackgroundSink } from "../../src/lib/background";
 import { createIssuerNetwork } from "../../src/services/auth/email-verification-network";
 import { settle } from "../helpers/background";
 import { createFakeIssuer } from "../helpers/email-verification";
@@ -104,7 +105,16 @@ function harness() {
     registrationFirstLinkCap: bundle.registrationFirstLinkCap,
   });
   const email = makeLogEmailLive();
-  const layer = Layer.merge(createTestLayer(), email.layer);
+  // The work each call forks after its answer, collected so a count waits for
+  // it rather than for the clock. Never closed: a send held at the send-limit
+  // stores cannot finish before `release()`.
+  const pending: Promise<unknown>[] = [];
+  const sink = Layer.succeed(CurrentBackgroundSink, {
+    add: (work: Promise<unknown>) => {
+      pending.push(work);
+    },
+  });
+  const layer = Layer.mergeAll(createTestLayer(), email.layer, sink);
   /** The calls `run` makes, and how it ended. */
   const record = <A, E extends { readonly _tag: string }, R>(run: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
@@ -115,15 +125,18 @@ function harness() {
         outcome: result._tag === "Success" ? "ok" : result.failure._tag,
       };
     });
-  /** Lets the held send-limit calls go, and waits for `count` of them to land. */
-  const sendLimitCalls = (count: number) =>
+  /**
+   * Lets the held send-limit calls go, waits for every forked send to finish,
+   * and answers how many send-limit calls were made.
+   */
+  const sendLimitCalls = () =>
     Effect.gen(function* () {
       limits.release();
-      const landed = () =>
-        fake.calls.filter((call) => SEND_LIMIT_STORES.includes(call.store)).length;
-      for (let i = 0; i < 200 && landed() < count; i++) yield* Effect.sleep("5 millis");
-      yield* Effect.sleep("20 millis");
-      return landed();
+      for (let seen = -1; seen !== pending.length;) {
+        seen = pending.length;
+        yield* Effect.promise(() => Promise.all(pending));
+      }
+      return fake.calls.filter((call) => SEND_LIMIT_STORES.includes(call.store)).length;
     });
   /** The request's entry as the store holds it. */
   const entry = (requestId: string) =>
@@ -276,7 +289,7 @@ describe("POST /register/begin", () => {
         // Only the free address's send reads its limits: the lockout, and the
         // mailbox's first-link window. A begin's first link does not count
         // against the Resend cap.
-        expect(yield* h.sendLimitCalls(2)).toBe(2);
+        expect(yield* h.sendLimitCalls()).toBe(2);
       }).pipe(Effect.provide(h.layer));
     },
   );
@@ -431,7 +444,7 @@ describe("a send-limit store that cannot answer", () => {
       h.fake.failWhen((call) => call.store === "registration_link_lockout");
       yield* h.auth.beginRegistration("seq-lockdown@example.com", "seqlockdown", "1990-01-01");
 
-      expect(yield* h.sendLimitCalls(1)).toBe(1);
+      expect(yield* h.sendLimitCalls()).toBe(1);
       expect(linksTo(h.recorded(), "seq-lockdown@example.com")).toHaveLength(0);
     }).pipe(Effect.provide(h.layer));
   });
@@ -444,13 +457,13 @@ describe("a send-limit store that cannot answer", () => {
         "seqcapdown",
         "1990-01-01",
       );
-      yield* h.sendLimitCalls(2);
+      yield* h.sendLimitCalls();
       expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
 
       h.fake.failWhen((call) => call.store === "auth.registration_send_cap");
       yield* h.auth.resendRegistration(begun.requestId, begun.claimSecret);
       // The Resend reads the lockout, then the cap, which fails.
-      expect(yield* h.sendLimitCalls(4)).toBe(4);
+      expect(yield* h.sendLimitCalls()).toBe(4);
       expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
     }).pipe(Effect.provide(h.layer));
   });
@@ -500,7 +513,7 @@ describe("POST /register/:requestId/resend", () => {
           "seqrdeclined",
           "1990-01-01",
         );
-        yield* h.sendLimitCalls(2);
+        yield* h.sendLimitCalls();
         const declinedLink = linksTo(h.recorded(), "seq-rdeclined@example.com")[0]!;
         yield* h.auth.confirmEmailLink(declined.requestId, {
           linkSecret: declinedLink.linkSecret,
@@ -560,7 +573,7 @@ describe("an ending whose writes the store fails", () => {
     Effect.gen(function* () {
       const begun = yield* h.auth.beginRegistration(address, handle, "1990-01-01");
       // The send waits on the held send-limit store; let it go and land.
-      yield* h.sendLimitCalls(2);
+      yield* h.sendLimitCalls();
       const link = linksTo(h.recorded(), address)[0]!;
       const wrong = String(Number(begun.pairingCode) === 99 ? 10 : Number(begun.pairingCode) + 1);
       return { begun, link, wrong };
@@ -687,31 +700,52 @@ describe("an ending whose writes the store fails", () => {
 
 /**
  * Two begins for one address at once: the first parks its sign-up, the second
- * finds it live and sends nothing, however the two calls interleave. Every
- * `read` answers a few milliseconds late here, as a round trip does, so a
- * begin that read and then wrote would let both through.
+ * finds it live and sends nothing. The two begins are held at the
+ * pending-registration store until both arrive, so they reach it together on
+ * every run, and a begin that read and then wrote would let both through.
  */
 describe("POST /register/begin, twice at once for one address", () => {
-  const READ_DELAY_MS = 10;
-
-  /** `ns` with every `read` answering `READ_DELAY_MS` late. */
-  const slowReads = (ns: CoordinationNamespace): CoordinationNamespace => ({
-    getByName(name, options) {
-      const stub = ns.getByName(name, options);
-      return {
-        ...stub,
-        read: async () => {
-          const value = await stub.read();
-          await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
-          return value;
-        },
-      };
-    },
-  });
+  /**
+   * `ns` with the first `n` calls to the pending-registration objects held
+   * until all `n` have arrived, then run together in the order they came.
+   */
+  const meetingAtPendingRegistrations = (
+    ns: CoordinationNamespace,
+    n: number,
+  ): CoordinationNamespace => {
+    const waiting: (() => void)[] = [];
+    const meet = () =>
+      new Promise<void>((resolve) => {
+        if (waiting.length >= n) return resolve();
+        waiting.push(resolve);
+        if (waiting.length === n) for (const release of waiting) release();
+      });
+    return {
+      getByName(name, options) {
+        const stub = ns.getByName(name, options);
+        if (!name.startsWith("pending_registration:")) return stub;
+        const held =
+          <A extends unknown[], R>(run: (...args: A) => Promise<R>) =>
+          (...args: A) =>
+            meet().then(() => run(...args));
+        return {
+          increment: held(stub.increment.bind(stub)),
+          count: held(stub.count.bind(stub)),
+          read: held(stub.read.bind(stub)),
+          write: held(stub.write.bind(stub)),
+          remove: held(stub.remove.bind(stub)),
+          claim: held(stub.claim.bind(stub)),
+          guess: held(stub.guess.bind(stub)),
+          take: held(stub.take.bind(stub)),
+          swap: held(stub.swap.bind(stub)),
+        };
+      },
+    };
+  };
 
   it.live("sends one link", () => {
     const fake = createFakeNamespace();
-    const bundle = createDurableCoordination(slowReads(fake.ns), () => {});
+    const bundle = createDurableCoordination(meetingAtPendingRegistrations(fake.ns, 2), () => {});
     const auth = createAuthService({ ...base, ceremonyStores: bundle.ceremonyStores });
     const email = makeLogEmailLive();
     return Effect.gen(function* () {
@@ -768,7 +802,11 @@ describe("POST /register/begin with a browser token that verifies", () => {
         Effect.gen(function* () {
           const input = yield* tokenFor(address);
           const from = fake.calls.length;
-          yield* auth.beginRegistration(address, handle, "1990-01-01", undefined, undefined, input);
+          // Waits for every send the begin forks, so the mail check below
+          // reads them all.
+          yield* settle(
+            auth.beginRegistration(address, handle, "1990-01-01", undefined, undefined, input),
+          );
           return fake.calls.slice(from).map((call) => `${call.store}.${call.op}`);
         });
 
@@ -788,7 +826,6 @@ describe("POST /register/begin with a browser token that verifies", () => {
       ]);
       expect(pending).toEqual(free);
       expect(taken).toEqual(free);
-      yield* Effect.sleep("20 millis");
       expect(email.recorded()).toHaveLength(0);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
   });
@@ -810,7 +847,7 @@ describe("POST /email-link/:requestId/confirm with wrong secrets", () => {
         "seqwdeclined",
         "1990-01-01",
       );
-      yield* h.sendLimitCalls(2);
+      yield* h.sendLimitCalls();
       const link = linksTo(h.recorded(), "seq-wdeclined@example.com")[0]!;
       yield* h.auth.confirmEmailLink(declined.requestId, {
         linkSecret: link.linkSecret,

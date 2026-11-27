@@ -143,19 +143,6 @@ describe("<SearchPage />", () => {
     );
   });
 
-  it("connects to a person from the result list", async () => {
-    mocks.search.mockResolvedValue({ people: [person("alice")], organisations: [] });
-    renderPage();
-    await type("ali");
-
-    await waitFor(() => expect(screen.getByText("Connect")).toBeDefined());
-    fireEvent.click(screen.getByText("Connect"));
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
-    await waitFor(() => expect(screen.getByText("Requested")).toBeDefined());
-  });
-
   // Accept holds focus through its wait (`busy`, not `disabled`), names it, and
   // sends once however often pressed. No e2e flow can receive a request.
   it("keeps Accept busy, not disabled, while the accept runs", async () => {

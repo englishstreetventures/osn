@@ -6,6 +6,7 @@ import {
   registryClaims,
   registryItems,
   registrySettings,
+  weddingHosts,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { and, eq, sql } from "drizzle-orm";
@@ -13,7 +14,8 @@ import { Effect, Exit } from "effect";
 
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
+import { accountErasureService } from "../../src/services/account-erasure";
 import { hostCodeService } from "../../src/services/host-code";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import type {
@@ -159,6 +161,11 @@ function buildApp(
     stripeChargesEnabled?: boolean;
     /** The currency Stripe settles the account in; the wedding prices in AUD. */
     stripeDefaultCurrency?: string | null;
+    /**
+     * Who connected the account: the wedding's owner unless said. Money gifts
+     * close while the holder holds no owner seat, or none is recorded.
+     */
+    holder?: string | null;
     images?: ImagesBindingLike;
     /**
      * The deployment's Stripe client. `null` is a deployment with no Stripe
@@ -181,6 +188,7 @@ function buildApp(
     cashGiftsEnabled = false,
     stripeChargesEnabled = false,
     stripeDefaultCurrency = "AUD",
+    holder = DEV_OWNER_PROFILE_ID,
     images,
     stripe = configuredStripe,
     webhookSecret = "whsec_test_connect",
@@ -227,6 +235,7 @@ function buildApp(
         // Present so a leak test has something to catch: no guest payload may
         // carry the couple's Stripe account, published or not.
         stripeAccountId: "acct_secret_123",
+        stripeConnectedByOsnProfileId: holder,
         createdAt: now,
         updatedAt: now,
       })
@@ -624,23 +633,74 @@ describe("cash funds, as a guest sees them", () => {
       "the deployment has a Stripe key and no webhook secret",
       { ...TAKING_MONEY, webhookSecret: null },
     ],
+    // The account carries the identity and bank of whoever connected it; with
+    // them gone from the wedding, or nobody recorded, a gift would be paid to
+    // someone who no longer runs it.
+    ["nobody is recorded as the account's holder", { ...TAKING_MONEY, holder: null }],
+    ["the account's holder holds no seat here", { ...TAKING_MONEY, holder: "usr_long_gone" }],
   ] as const;
+
+  /** The guest list as the claimed household reads it, money off: no fund, gifts kept. */
+  async function offersNoMoney(app: ReturnType<typeof buildApp>["app"]) {
+    const res = await appRequest(app, guestBase(), {
+      headers: { Cookie: await guestCookie(app) },
+    });
+    const raw = await res.text();
+    const body = JSON.parse(raw) as PublicRegistryDto;
+    expect(body.cashGiftsEnabled).toBe(false);
+    expect(body.funds).toEqual([]);
+    expect(raw).not.toContain(FUND_TITLE);
+    // The gifts are still there: only money is off.
+    expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+  }
 
   for (const [label, opts] of notTakingMoney) {
     it(`offers no fund when ${label}`, async () => {
-      const { app } = buildApp(opts);
-      const res = await appRequest(app, guestBase(), {
-        headers: { Cookie: await guestCookie(app) },
-      });
-      const raw = await res.text();
-      const body = JSON.parse(raw) as PublicRegistryDto;
-      expect(body.cashGiftsEnabled).toBe(false);
-      expect(body.funds).toEqual([]);
-      expect(raw).not.toContain(FUND_TITLE);
-      // The gifts are still there: only money is off.
-      expect(body.items.map((i) => i.id)).toEqual([BOWL, PAN]);
+      await offersNoMoney(buildApp(opts).app);
     });
   }
+
+  describe("while the account's holder holds no owner seat", () => {
+    const HOLDER = "usr_gift_holder";
+
+    function seatHolder(db: ReturnType<typeof buildApp>["db"], role: "owner" | "editor") {
+      db.insert(weddingHosts)
+        .values({
+          id: "whost_gift_holder",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: HOLDER,
+          addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+          role,
+          createdAt: new Date(),
+        })
+        .run();
+    }
+
+    it("offers money and the fund while the holder is an owner", async () => {
+      const { app, db } = buildApp({ ...TAKING_MONEY, holder: HOLDER });
+      seatHolder(db, "owner");
+      const body = await listView(app, await guestCookie(app));
+      expect(body.cashGiftsEnabled).toBe(true);
+      expect(body.funds.map((f) => f.id)).toEqual([FUND]);
+    });
+
+    it("offers no fund once the holder sits below owner", async () => {
+      const { app, db } = buildApp({ ...TAKING_MONEY, holder: HOLDER });
+      seatHolder(db, "editor");
+      await offersNoMoney(app);
+    });
+
+    it("offers no fund once the holder's account is erased", async () => {
+      const { app, db } = buildApp({ ...TAKING_MONEY, holder: HOLDER });
+      seatHolder(db, "owner");
+      await Effect.runPromise(
+        accountErasureService
+          .erase({ accountId: "acc_gift_holder", profileIds: [HOLDER] })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      await offersNoMoney(app);
+    });
+  });
 
   it("cannot be reserved: a fund answers as no gift at all, and nothing is written", async () => {
     const { app, db } = buildApp(TAKING_MONEY);

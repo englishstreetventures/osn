@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { DbLive } from "@osn/db/service";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -72,6 +74,14 @@ export async function buildAppDeps_Bun(): Promise<
     // RED metrics). The Workers entry passes `false` — see AppDeps.
     includeObservabilityPlugin: true,
   });
+  // A local stack may send its own change notices: the E2E stack names a
+  // registry file of its own, since the one osn-api ships holds only notices
+  // the owner approved. Read only here, the Bun entry, and only off the
+  // deployed tiers; the Worker entry never reads it.
+  const noticesFile = env.OSN_CHANGE_NOTICES_FILE;
+  if (noticesFile && !built.envNonLocal) {
+    built.deps.changeNotices = JSON.parse(readFileSync(noticesFile, "utf8"));
+  }
   // Surface the concrete observability layer for the startup banner (the
   // AppDeps field is typed loosely as `Layer | undefined`).
   return { ...built, observabilityLayer };

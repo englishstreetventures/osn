@@ -2,12 +2,13 @@ import type { Organisation, Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { forkBackground } from "../lib/background";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
+import { safeErrorSummary } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { frontendOrigin } from "../services/auth/helpers";
 import { createOrganisationService } from "../services/organisation";
@@ -15,6 +16,7 @@ import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   errorResponse,
   okResponse,
+  organisationCaller,
   organisationMemberSummary,
   organisationSummary,
 } from "./response-schemas";
@@ -256,14 +258,38 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
-          return { organisation: orgProjection(organisation) };
+          // The caller's own standing, so a client offers only what the write
+          // routes would allow. A failed read of it, a defect included, costs
+          // the caller those actions, never the organisation: it answers
+          // `null`, as for a non-member, and is logged. The effect cannot
+          // fail, and the runtime is already built, since `resolveOrg` ran
+          // through it.
+          const role = await run(
+            org
+              .getMemberRole(organisation.id, caller.profileId)
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError(
+                    "organisation caller standing not read",
+                    safeErrorSummary(Cause.squash(cause)),
+                  ).pipe(Effect.as(null)),
+                ),
+              ),
+          );
+          return {
+            organisation: orgProjection(organisation),
+            caller: role ? { role, owner: organisation.ownerId === caller.profileId } : null,
+          };
         },
         {
           params: HandleParam,
           response: {
             // Readable by any authenticated caller, member or not. Only the
-            // roster below is member-only.
-            200: t.Object({ organisation: organisationSummary }),
+            // roster below is member-only. `caller` is null for a non-member.
+            200: t.Object({
+              organisation: organisationSummary,
+              caller: t.Union([organisationCaller, t.Null()]),
+            }),
             401: errorResponse,
             // `resolveOrg` owns both: 404 on a miss, 500 when the lookup
             // itself throws. It returns null either way, so the body is the

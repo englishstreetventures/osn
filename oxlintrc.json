@@ -58,7 +58,13 @@
       "error",
       {
         "additionalTestBlockFunctions": ["it.effect", "effectIt.effect", "it.live"],
-        "assertFunctionNames": ["expect", "expectFailsWith", "assertNoAccountId", "expectPass"]
+        "assertFunctionNames": [
+          "expect",
+          "expectFailsWith",
+          "assertNoAccountId",
+          "expectPass",
+          "expectModelAgrees"
+        ]
       }
     ],
 
@@ -329,6 +335,28 @@
   },
   "overrides": [
     {
+      // A workspace's Bend law sets (`<workspace>/laws/<topic>/`) ship in no
+      // build: scripts/deploy-surfaces.ts redeploys nothing for them and they
+      // need no changeset. So no shipped code may import one, or a proof-only
+      // change would alter a Worker or a site without a deploy or a changelog.
+      // scripts/tests/law-set-references.test.ts covers what oxlint does not
+      // read: `.astro` files, globs and config outside `src/`.
+      "files": ["*/*/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/laws/**"],
+                "message": "A Bend law set ships in nothing; import its model only from tests (wiki/osn/account-deletion-laws.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       // The two token-contract browser tests assert that a component's `base:`
       // default is zero-specificity and a call-site class beats it. That call
       // site IS the violation `no-restyle` exists to report, so any class
@@ -519,6 +547,9 @@
     "tools/oxlint/anti-slop",
     "shared/ui/vendor",
     "cire/waves/vendor",
+    // What `bend model.bend -o model.mjs` writes in each law set: generated,
+    // and CI's `bend-proofs` job fails unless it is byte for byte that build.
+    "*/*/laws/*/model.mjs",
     // Shallow checkouts of an upstream repo, cloned as reference material and
     // gitignored (the Effect v4 migration's two lived here). Not our source,
     // and linting them buries real findings in someone else's warnings.

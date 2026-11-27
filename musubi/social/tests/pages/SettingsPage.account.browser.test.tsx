@@ -8,9 +8,8 @@ import "../../src/App.css";
 /**
  * Settings → Account in the shell, in a real Chromium: "Your data" and the
  * danger zone. Holds that the data buttons and "Delete account…" are 40px
- * tall below `md` and `sm`'s 32px from it, that nothing scrolls sideways on
- * a 320px phone, where the data buttons wrap, and writes the tab's
- * screenshots, light and dark, at 390px and 1280px, to `__screenshots__/`.
+ * tall below `md` and `sm`'s 32px from it, and that nothing scrolls sideways
+ * on a 320px phone, where the data buttons wrap.
  */
 
 vi.mock("@osn/client/solid", async () => {

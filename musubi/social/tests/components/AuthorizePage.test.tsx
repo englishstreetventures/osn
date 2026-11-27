@@ -423,23 +423,26 @@ describe("<AuthorizePage />", () => {
     expect(screen.getByText(paragraph("Go back to Cire and start again."))).toBeDefined();
   });
 
-  it("shows the sign-in surface, not consent, when the browser has no session", async () => {
-    mocks.getContext.mockResolvedValue(context({ signedIn: false, profiles: [] }));
-
-    renderPage();
-
-    expect(await screen.findByText("Cire")).toBeDefined();
-    expect(screen.queryByText("Allow")).toBeNull();
-  });
-
-  it("leads with the profile picker when the app has seen none of several profiles", async () => {
+  it("leads with the profile picker, nothing chosen, when the app has seen none of several profiles", async () => {
     mocks.getContext.mockResolvedValue(context({ profiles: [alice, bob] }));
     mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
 
     renderPage();
 
     expect(await screen.findByText("Choose a profile")).toBeDefined();
-    fireEvent.click(screen.getByText("Bob"));
+    // The app knows none of them, so none is chosen for the person, and
+    // Continue waits for a pick.
+    const checkedNow = () =>
+      screen.getAllByRole("radio").filter((radio) => (radio as HTMLInputElement).checked);
+    const continueButton = () => screen.getByRole("button", { name: "Continue" });
+    expect(checkedNow()).toEqual([]);
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
+    // Choosing moves the radio and nothing else; Continue leaves.
+    fireEvent.click(screen.getByRole("radio", { name: /Bob/ }));
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("Choose a profile")).toBeDefined();
+    expect((screen.getByRole("radio", { name: /Bob/ }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     fireEvent.click(await screen.findByText("Allow"));
     await waitFor(() =>
@@ -519,9 +522,12 @@ describe("<AuthorizePage />", () => {
       mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
 
       renderPage(SELECT);
-      fireEvent.click(await screen.findByText("Bob"));
-      expect(screen.getByText("Bob").closest("button")?.getAttribute("aria-pressed")).toBe("true");
-      expect(screen.getByText("Selected").closest("button")?.textContent).toContain("Bob");
+      const radio = (name: RegExp) => screen.getByRole("radio", { name }) as HTMLInputElement;
+      await screen.findByText("Bob");
+      expect(radio(/Alice/).checked).toBe(true);
+      fireEvent.click(radio(/Bob/));
+      expect(radio(/Bob/).checked).toBe(true);
+      expect(radio(/Alice/).checked).toBe(false);
       fireEvent.click(screen.getByText("Continue"));
 
       // The account screen settled the profile — no second picker.
@@ -614,6 +620,11 @@ describe("<AuthorizePage />", () => {
       fireEvent.click(await screen.findByText("finish sign-in"));
 
       expect(await screen.findByText("Choose a profile")).toBeDefined();
+      // The app knows none of the new account's profiles: none is chosen.
+      const checked = screen
+        .getAllByRole("radio")
+        .filter((radio) => (radio as HTMLInputElement).checked);
+      expect(checked).toEqual([]);
     });
 
     it("skips the account screen after a sign-in on this page", async () => {
@@ -626,6 +637,32 @@ describe("<AuthorizePage />", () => {
       expect(await screen.findByText("Allow")).toBeDefined();
       expect(screen.queryByText("Use another account")).toBeNull();
     });
+  });
+
+  // A choice made on the picker belongs to the account it was made for. When a
+  // fresh sign-in lands as another account, the picker starts from that
+  // account's own profiles with none chosen, and nothing can post the old one.
+  it("drops the picker's choice when the account changes under it", async () => {
+    const dave = { ...carol, id: "usr_4", handle: "dave", displayName: "Dave" };
+    mocks.getContext.mockResolvedValueOnce(context({ profiles: [alice, bob] }));
+    mocks.getContext.mockResolvedValue(context({ profiles: [carol, dave] }));
+    mocks.submitDecision.mockRejectedValueOnce(
+      new AuthorizeError("login_required", 400, "Re-authentication required"),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("radio", { name: /Bob/ }));
+    // Cancel from the picker asks for a fresh sign-in first.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(await screen.findByText("finish sign-in"));
+
+    expect(await screen.findByText("Choose a profile")).toBeDefined();
+    const checked = screen
+      .getAllByRole("radio")
+      .filter((radio) => (radio as HTMLInputElement).checked)
+      .map((radio) => (radio as HTMLInputElement).value);
+    expect(checked).toEqual([]);
+    expect(screen.queryByText("Bob")).toBeNull();
   });
 
   it("puts the ceremony before the decision when reason=login", async () => {

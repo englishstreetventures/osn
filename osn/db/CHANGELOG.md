@@ -1,5 +1,50 @@
 # @osn/db
 
+## 0.31.0
+
+### Minor Changes
+
+- c05552d: osn-api can mail a change notice — a privacy notice or the terms are changing, what changes, the day it takes effect, a link to the page — to every account that can still sign in or restore, when the operator runs `send-change-notice` in the production operator workflow.
+
+  `@shared/email` adds the `change-notice` template, a legal notice with no unsubscribe link or header, and `sendKeyedBatch`: one batch of at most 100 in one Resend call, under an idempotency key and in permissive validation, answering how many addresses Resend accepted and refused. `EmailError` carries Resend's HTTP status and error name when Resend answered.
+
+  `@osn/db` adds `change_notice_runs`: per notice, a cursor and the batch in hand, so a run that stops half way resumes without skipping or repeating anyone. It stores no address.
+
+  `@osn/api` adds `POST /internal/change-notices/:noticeId/send`, behind its own optional secret, `OSN_CHANGE_NOTICE_SECRET` (off while unset or under 32 characters). It sends only notices in the reviewed registry `services/change-notices.json`, which ships empty, refuses unless the notice's words match the digest the approver saw, and answers counts only. Metrics `osn.change_notice.batches` and `osn.change_notice.emails`.
+
+  `@shared/infra` lists `OSN_CHANGE_NOTICE_SECRET` as an optional osn-api production secret; `@musubi/infra`'s parity and read checks name it, and `OSN_CHANGE_NOTICES_FILE`, as unset on dev.
+
+## 0.30.4
+
+### Patch Changes
+
+- e393eb0: A sign-up's session is restricted until the new account has its first passkey. The completing status poll now issues a session whose access tokens carry `osn-recovery`, so only `/passkey/register/*` accepts them; its cookie is no signed-in session to `/authorize` or to a `/token` grant for anything but its own rotation, and it lives 15 minutes. Its row records `signup`, which takes nobody past the step-up gate and stamps the first passkey `webauthn`. Enrolling lifts the restriction in the batch that inserts the passkey, so the two commit together, and the sign-up funnel counts the first passkey as its `passkey_enroll` step. `/passkey/register/begin` and `/complete` answer 401 to a restricted token whose session a passkey has already lifted, so a tab that missed the answer renews into the ordinary session. Migration `20261126014432_end_passkeyless_sessions` ends the ordinary sessions of accounts made before this that never added a passkey, sparing restricted sessions and any account with a deletion job; those people come back through the emailed recovery link. Migration `20261126022912_sessions_restriction_known` adds two triggers that refuse a session row whose `restricted_amr` is not `webauthn`, `otp`, `totp` or `signup`, or is set while `restricted_until` is NULL. `@osn/client` exports `isRestrictedToken`, and its cold start publishes no session for a restricted cookie.
+
+## 0.30.3
+
+### Patch Changes
+
+- 1bf7502: osn-api's outbound ARC key ids can carry a MAC under `OSN_ARC_KID_SECRET`, a secret held for that alone, beside the one under `INTERNAL_SERVICE_SECRET`. `@shared/crypto/arc-kid` takes both secrets (`ArcKidSecrets`): `mintArcKid` puts one MAC in the kid for each secret of at least 32 characters, and `checkArcKid` admits a kid one of whose MACs verifies under a secret the app holds, answering what to look the key up by (`ArcKidLookup`), or `null`. A checked kid is looked up and cached by the `<uuid>.<expiry>` its verified MAC covers, through the new `names` argument of `resolvePublicKeyForKid` (`@shared/osn-auth-client/jwks-cache`), never by a part the app did not verify. `OsnArcVerification` takes `kidSecret` and `serviceSecret`. osn-api, Zap and Pulse read `OSN_ARC_KID_SECRET`; unset, each behaves as before. osn-api warns once per key, naming the secret, when either is too short to key a MAC. Every Worker ignores a kid secret equal to the service secret, and osn-api warns of it. The inventory lists the secret as optional for osn-api, zap-api and cire-api on dev and production, one value per tier; dev refuses one under 32 characters, or equal to `INTERNAL_SERVICE_SECRET` on a Worker holding both.
+
+## 0.30.2
+
+### Patch Changes
+
+- Updated dependencies [89d6af2]
+  - @shared/db-utils@0.10.0
+
+## 0.30.1
+
+### Patch Changes
+
+- 78d8f1f: In `@osn/api`, each Worker isolate writes its outbound ARC key after its first request, whatever the route, through `ctx.waitUntil`, and its replacement after the first request once that is due; every cron run whose deletion app settings parse does the same. A failed background write never reaches the answer and pauses background writes for a minute; a call to an app still writes the key before it signs when no write of it has started. A key lives four hours and is replaced after two. `GET /.well-known/arc-jwks.json` serves at most the newest 1,000 keys and warns from 500, and a call whose key has fallen outside them, or whose row was deleted, mints, writes and signs with a new one, or fails without signing; a key whose first write failed is dropped, so a key's expiry dates its first write. In `@osn/db`, the `arcOutboundKeys` comment says when the key is written.
+
+## 0.30.0
+
+### Minor Changes
+
+- 91b32ae: Musubi's Settings › Connected apps links an app's own screen for removing a person's data from it, as "Remove my data from <app>". `oauth_clients` gains a nullable `manage_data_url` that only an operator sets (migration `20261119150713_oauth_clients_manage_data_url`). `GET /oidc/connections` answers it as `manageDataUrl` only while it passes a read rule in `osn/api/src/services/auth/client-links.ts`: at most 512 characters, canonical, no user name or password, `https:` (or `http:` to localhost), on the origin of a registered redirect URI or of the app origin osn-api's deployment pins to the client (`CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID`), and never for a disabled client; a refused value counts on the new `osn.oidc.manage_data_link.refused`, and a client whose stored `redirect_uris` is no JSON list refuses only its own link. `@osn/client`'s `OidcConnection` carries `manageDataUrl`. Musubi draws the link on its own line in the app's row, through `followableLink`, in a new tab; the page cache records each Connected apps row's kind so the placeholder keeps each row's height. The musubi stack's dev seed sets cire's link to the organiser portal's `/#/remove-data`. Account erasure keeps the time an owner disabled their client, where it had one.
+
 ## 0.29.1
 
 ### Patch Changes

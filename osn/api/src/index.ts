@@ -12,6 +12,7 @@ import { withBackgroundSink } from "./lib/background";
 import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
+import { publishOutboundKeyInBackground } from "./lib/outbound-arc";
 import { osnLoggerLayer, runOsn } from "./observability";
 import * as accountErasure from "./services/account-erasure";
 import { frontendOrigin, setRuntimeTier } from "./services/auth/helpers";
@@ -149,6 +150,11 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_EMAIL_API_TOKEN?: string;
   INTERNAL_SERVICE_SECRET?: string;
+  // Keys the MAC on osn-api's ARC key ids, held for that alone (KEY-OPTIONAL;
+  // apps check it once they hold it too). `deletionAppsConfig` reads it.
+  OSN_ARC_KID_SECRET?: string;
+  // The operator's change-notice run (routes/change-notices.ts). Optional.
+  OSN_CHANGE_NOTICE_SECRET?: string;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, `/register/begin`
   // and `/login/passkey/begin` require a valid Turnstile token (fail-closed).
   // Unset ⇒ those gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
@@ -173,8 +179,19 @@ const isNonLocal = (env: Env): boolean => !!env.OSN_ENV && env.OSN_ENV !== "loca
 // ever changes. Nothing in the request path (`cached.app.fetch`) reconstructs
 // any of them.
 let cached:
-  | { app: App; dbBinding: D1Database; coordinationBinding: CoordinationNamespace }
+  | (BuiltWorker & { dbBinding: D1Database; coordinationBinding: CoordinationNamespace })
   | undefined;
+
+/** What {@link buildAll} builds once per isolate. */
+export interface BuiltWorker {
+  readonly app: App;
+  /**
+   * Starts the write of the isolate's outbound ARC key when one is due, on
+   * the app's runtime, and answers it for `ctx.waitUntil`; null when none is
+   * due (`publishOutboundKeyInBackground`).
+   */
+  readonly publishOutboundKey: () => Promise<void> | null;
+}
 
 const misconfigured = (detail: string): Response =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
@@ -190,7 +207,7 @@ const misconfigured = (detail: string): Response =>
  * observability plugin OFF (see AppDeps). `fetch` asserts both bindings are
  * present before this runs.
  */
-export async function buildAll(env: Env): Promise<App> {
+export async function buildAll(env: Env): Promise<BuiltWorker> {
   const coordinationBinding = env.COORDINATION as CoordinationNamespace;
 
   // Email transport — same selection as the Bun path, from `env`. Fail-closed by
@@ -227,7 +244,13 @@ export async function buildAll(env: Env): Promise<App> {
     rateLimitBindings: readOsnRateLimitBindings(env),
   });
 
-  return createApp(built.deps);
+  const { appRuntime, deletionApps } = built.deps;
+  if (!appRuntime) throw new Error("the app runtime was not built");
+  return {
+    app: createApp(built.deps),
+    publishOutboundKey: () =>
+      publishOutboundKeyInBackground(deletionApps.arc, (effect) => appRuntime.runPromise(effect)),
+  };
 }
 
 /**
@@ -308,8 +331,8 @@ export const handler: OsnWorkerHandler = {
 
     if (!cached || cached.dbBinding !== env.DB || cached.coordinationBinding !== env.COORDINATION) {
       try {
-        const app = await buildAll(env);
-        cached = { app, dbBinding: env.DB, coordinationBinding: env.COORDINATION };
+        const worker = await buildAll(env);
+        cached = { ...worker, dbBinding: env.DB, coordinationBinding: env.COORDINATION };
       } catch (error) {
         // A misconfigured deploy (missing secret / bad key) fails LOUD as a
         // 503 rather than serving a downgraded app.
@@ -327,11 +350,21 @@ export const handler: OsnWorkerHandler = {
     // Everything the request forks through `forkBackground` is collected here
     // and handed to `waitUntil` below, so an outbound send that outlives the
     // response still runs on workerd. With no `ctx` this is a pass-through.
-    const app = cached.app;
+    const { app, publishOutboundKey } = cached;
     const response = await withBackgroundSink(ctx, async () => app.fetch(forwarded));
     // Response from Elysia may have immutable headers; clone to set ours.
     const out = new Response(response.body, response);
     out.headers.set("x-request-id", requestId);
+
+    // The isolate's outbound ARC key is written after its first request,
+    // whatever the route, and its replacement after the first request once
+    // due; the answer above never waits for it, and a failed write never
+    // reaches it. Only a caller with no `ctx` (a test) skips this: workerd
+    // drops a promise `waitUntil` does not hold.
+    if (ctx) {
+      const publishing = publishOutboundKey();
+      if (publishing) ctx.waitUntil(publishing);
+    }
 
     return out;
   },
@@ -347,7 +380,9 @@ export const handler: OsnWorkerHandler = {
   //
   // The fan-out signs its calls with this isolate's outbound ARC key, which it
   // publishes first (`lib/outbound-arc.ts`); apps verify against the published
-  // set, so no registration with each app is needed.
+  // set, so no registration with each app is needed. Every run whose deletion
+  // app settings parse also writes the key when one is due, whatever the
+  // sweeps find, as every request does.
   async scheduled(_event, env, ctx) {
     installWorkersTracing(ctx.tracing);
     setRuntimeTier(env.OSN_ENV);
@@ -371,6 +406,11 @@ export const handler: OsnWorkerHandler = {
 
     if (deletionApps !== null) {
       const config = deletionApps;
+      // Beside the fan-out, which shares this write when it has a call to make.
+      const publishing = publishOutboundKeyInBackground(config.arc, (effect) =>
+        runOsn(effect.pipe(Effect.provide(dbLayer))),
+      );
+      if (publishing) ctx.waitUntil(publishing);
       ctx.waitUntil(
         runOsn(
           Effect.gen(function* () {

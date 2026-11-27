@@ -271,8 +271,8 @@ export function createVendorEnquiriesRoutes(
                       .all(),
                   ),
                   // The quote is formatted in the wedding's own currency (NOT NULL,
-                  // default 'AUD'); only the display string is affected — stored
-                  // `quoted_minor` is currency-agnostic integer cents.
+                  // default 'AUD'); stored `quoted_minor` is an integer in that
+                  // currency's minor unit, which is not always a hundredth.
                   dbQuery(() =>
                     db
                       .select({ currency: weddings.currency })

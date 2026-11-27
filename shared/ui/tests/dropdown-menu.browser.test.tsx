@@ -6,11 +6,11 @@
  * modal dialog paints in the top layer; neither exists below this tier, so
  * every behaviour here runs in Chromium. The default variant, which musubi's
  * account menu and pulse's two menus draw, is held in its own file
- * (`dropdown-menu-default.browser.test.tsx`), which runs on the code before
- * this one's exports existed.
+ * (`dropdown-menu-default.browser.test.tsx`), which imports only what the menu
+ * exported before this one's exports existed.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
@@ -43,11 +43,7 @@ const emulateMedia = (options: MediaPreference) =>
     options,
   );
 
-afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference", forcedColors: "none" });
-  for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
-  for (const p of document.querySelectorAll("[data-kb-top-layer]")) p.remove();
-  cleanup();
+afterEach(() => {
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 });
 
@@ -692,6 +688,53 @@ describe("the touch row the guest site's link menu draws", () => {
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
     expect(document.activeElement).toBe(link);
     expect(getComputedStyle(link).outlineStyle).not.toBe("none");
+  });
+});
+
+describe("the corner of cire's rows", () => {
+  // cire maps `--ui-radius-sm` and no menu-row corner, so the accent row and
+  // the touch row keep its small corner; an app that maps the role moves both.
+  // The lent lengths are ones no fallback in the contract produces (`sm` falls
+  // back to 4px, `md` to 6px).
+  function Rows() {
+    return (
+      <>
+        {/* Not modal, so the touch row beside it stays in the accessibility tree. */}
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+          <DropdownMenuContent variant="accent">
+            <DropdownMenuItem>Security &amp; passkeys</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div class={MENU_TOUCH.panel}>
+          <a href="#one" class={MENU_TOUCH.row}>
+            Google Calendar
+          </a>
+        </div>
+      </>
+    );
+  }
+
+  const corners = () =>
+    [
+      screen.getByRole("menuitem", { name: "Security & passkeys" }),
+      screen.getByRole("link", { name: "Google Calendar" }),
+    ].map((row) => getComputedStyle(row).borderTopLeftRadius);
+
+  it("rounds both at the app's small corner while it maps no menu-row corner", async () => {
+    document.documentElement.style.setProperty("--ui-radius-sm", "3px");
+    render(() => <Rows />);
+    await openByKeyboard();
+    expect(corners()).toEqual(["3px", "3px"]);
+  });
+
+  it("rounds both at the menu-row corner once the app maps one", async () => {
+    const root = document.documentElement.style;
+    root.setProperty("--ui-radius-sm", "3px");
+    root.setProperty("--ui-radius-menu-row", "9px");
+    render(() => <Rows />);
+    await openByKeyboard();
+    expect(corners()).toEqual(["9px", "9px"]);
   });
 });
 

@@ -5,13 +5,14 @@ import {
   families,
   registryContributions,
   registryItems,
+  registryRetiredAccounts,
   registrySettings,
   weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
-import { createDb, seedDb } from "../../src/db/setup";
+import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { WEBHOOK_TOLERANCE_SECONDS } from "../../src/services/stripe";
 import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
@@ -81,6 +82,8 @@ function buildApp({ secret = SECRET as string | null } = {}) {
       published: true,
       cashGiftsEnabled: false,
       stripeAccountId: ACCOUNT,
+      // Connected by the wedding's owner, who holds their owner seat.
+      stripeConnectedByOsnProfileId: DEV_OWNER_PROFILE_ID,
       stripeChargesEnabled: false,
       stripePayoutsEnabled: false,
       createdAt: now,
@@ -1829,5 +1832,111 @@ describe("a gift keeps the account it was paid into", () => {
     const [gift] = await gifts(db);
     expect(gift?.status).toBe("succeeded");
     expect(gift?.stripeCheckoutSessionId).toBe("cs_1");
+  });
+});
+
+/**
+ * An account a wedding retired stays connected to cire, so its events keep
+ * arriving. Its own shop's refunds are not missing gifts, and Stripe's
+ * deauthorization of it is cire's word that it no longer holds it.
+ */
+describe("an account a wedding retired", () => {
+  const RETIRED = "acct_retired";
+
+  function retiredRow(
+    db: ReturnType<typeof buildApp>["db"],
+    id: string,
+    over: { type?: "express" | "standard" | null; connectedAt?: Date | null } = {},
+  ) {
+    db.insert(registryRetiredAccounts)
+      .values({
+        id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: RETIRED,
+        stripeAccountType: over.type === undefined ? "standard" : over.type,
+        stripeConnectedAt: over.connectedAt === undefined ? null : over.connectedAt,
+        retiredAt: new Date(),
+        reason: "replaced",
+      })
+      .run();
+  }
+
+  const releasedAt = (db: ReturnType<typeof buildApp>["db"]) =>
+    Object.fromEntries(
+      db
+        .select({ id: registryRetiredAccounts.id, releasedAt: registryRetiredAccounts.releasedAt })
+        .from(registryRetiredAccounts)
+        .all()
+        .map((r) => [r.id, r.releasedAt?.getTime() ?? null]),
+    );
+
+  const deauthorizedAt = (created: number) =>
+    JSON.stringify({
+      id: `evt_deauth_${created}`,
+      type: "account.application.deauthorized",
+      created,
+      account: RETIRED,
+      data: { object: { id: "ca_platform", object: "application", name: "cire" } },
+    });
+
+  it("counts a Standard account's own refund without raising it", async () => {
+    const { app, db } = buildApp();
+    retiredRow(db, "rra_one");
+    const attrs = { event: "refund", account: "standard" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(app, chargeRefunded({ account: RETIRED }));
+    });
+    expect(await jsonBody(res!)).toEqual({ received: true, outcome: "unknown" });
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
+    expect(logs).toContain("money event on a Standard account's own charge");
+    expect(logs).not.toContain("stripe webhook: money event for a gift cire has no row for");
+  });
+
+  it("counts an account nothing names or retired as unknown", async () => {
+    const { app } = buildApp();
+    const attrs = { event: "refund", account: "unknown" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
+    await deliver(app, chargeRefunded({ account: "acct_nobody_knows" }));
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
+  });
+
+  it("still raises a missing gift on a retired Express account", async () => {
+    const { app, db } = buildApp();
+    retiredRow(db, "rra_one", { type: null });
+    const attrs = { event: "dispute", account: "express" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
+    const logs = await captureLogs(async () => {
+      await deliver(app, dispute("charge.dispute.created", { account: RETIRED }));
+    });
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
+    expect(logs).toContain("stripe webhook: money event for a gift cire has no row for");
+  });
+
+  it("releases the rows connected before Stripe's deauthorization, and not one connected after", async () => {
+    const { app, db } = buildApp();
+    const created = nowSeconds();
+    retiredRow(db, "rra_before", { connectedAt: new Date((created - 86_400) * 1000) });
+    retiredRow(db, "rra_unknown", { connectedAt: null });
+    retiredRow(db, "rra_after", { connectedAt: new Date((created + 3_600) * 1000) });
+
+    const res = await deliver(app, deauthorizedAt(created));
+    // No settings row names the retired account.
+    expect(await jsonBody(res)).toEqual({ received: true, matched: false });
+    expect(releasedAt(db)).toEqual({
+      rra_before: created * 1000,
+      rra_unknown: created * 1000,
+      rra_after: null,
+    });
+
+    // A later deauthorization releases the newer row and moves no released one.
+    const later = created + 7_200;
+    await deliver(app, deauthorizedAt(later));
+    expect(releasedAt(db)).toEqual({
+      rra_before: created * 1000,
+      rra_unknown: created * 1000,
+      rra_after: later * 1000,
+    });
   });
 });

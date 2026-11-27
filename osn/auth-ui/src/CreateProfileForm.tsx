@@ -9,6 +9,7 @@ import { UsernameInput } from "@shared/ui/ui/username-input";
 import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
 import { describedBy, fieldError, type FieldError } from "./error-lines";
+import { HANDLE_HINT, HANDLE_TOO_LONG } from "./handle-copy";
 import { stepAction, ViewStep } from "./ViewParts";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
@@ -24,6 +25,12 @@ export interface CreateProfileFormProps {
   checkHandle?: (handle: string, signal?: AbortSignal) => Promise<{ available: boolean }>;
   onSuccess?: (profile: { id: string; handle: string }) => void;
   onCancel?: () => void;
+  /**
+   * Called with `true` when the create request starts and `false` once it
+   * ends, after `onSuccess` on success, so a host that draws the form in a
+   * dialog can refuse to close it meanwhile, as Cancel is disabled then.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 export function CreateProfileForm(props: CreateProfileFormProps) {
@@ -88,6 +95,9 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
     e.preventDefault();
     if (busy() || !canSubmit()) return;
     setBusy(true);
+    // Told here rather than from an effect, so the `false` below still
+    // reaches the host when the form has unmounted before the request ends.
+    props.onBusyChange?.(true);
     setError(null);
     try {
       const profile = await createProfile(handle(), displayName().trim() || undefined);
@@ -97,6 +107,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
       setError(fieldError(describeAuthError(err, "details"), err));
     } finally {
       setBusy(false);
+      props.onBusyChange?.(false);
     }
   }
 
@@ -120,7 +131,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
           </Button>
         }
       >
-        <Field labelTreatment="plain" label="Handle">
+        <Field labelTreatment="plain" label="Handle" hint={HANDLE_HINT}>
           {(field) => (
             <UsernameInput
               id={field.id}
@@ -129,8 +140,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
               value={handle()}
               onInput={onHandleInput}
               status={handleStatus()}
-              placeholder="lowercase, numbers, _"
-              invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+              invalidMessage={HANDLE_TOO_LONG}
               aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
               aria-invalid={error()?.invalid || undefined}
             />

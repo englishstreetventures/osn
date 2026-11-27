@@ -1,18 +1,7 @@
 import { DialogContent } from "@shared/ui/ui/dialog";
 import { splitProps, type ComponentProps, type ParentComponent } from "solid-js";
 
-/**
- * The desktop card's width cap. It applies at `md` and up only: below `md`
- * the dialog is a sheet as wide as the screen.
- */
-const WIDTH = {
-  sm: "md:max-w-sm",
-  xs: "md:max-w-xs",
-} satisfies Readonly<Record<"sm" | "xs", string>>;
-
 type ResponsiveDialogContentProps = Omit<ComponentProps<"div">, "class" | "classList" | "style"> & {
-  /** The card's cap at `md` and up: `sm` 384px (the default), `xs` 320px. */
-  width?: keyof typeof WIDTH;
   /** Runs as the dialog opens, before Kobalte moves focus into it. */
   onOpenAutoFocus?: (event: Event) => void;
   /**
@@ -20,6 +9,12 @@ type ResponsiveDialogContentProps = Omit<ComponentProps<"div">, "class" | "class
    * `preventDefault()` after focusing an element yourself.
    */
   onCloseAutoFocus?: (event: Event) => void;
+  /**
+   * False while the dialog refuses to close, as a busy one does: a drag down
+   * the sheet then gives and goes back, and Escape and a press outside do
+   * nothing. Disable Cancel too.
+   */
+  dismissible?: boolean;
 };
 
 /**
@@ -32,11 +27,11 @@ type ResponsiveDialogContentProps = Omit<ComponentProps<"div">, "class" | "class
  * safe-area inset only mean anything together, which is why they are one name
  * rather than a class string a call site can get two-thirds right.
  *
- * The card's width is a prop, and the props take no `class`, `classList` or
- * `style`. The sheet's rules sit behind `base:`, which has no specificity, so
- * a plain `max-w-*` at a call site would cap the sheet as well and leave a
- * phone with a narrow sheet pinned to its left edge. Padding and layout go on
- * the children.
+ * The card is capped at 384px from `md` (`md:max-w-sm`), and the props take
+ * no `class`, `classList` or `style`. The sheet's rules sit behind `base:`,
+ * which has no specificity, so a plain `max-w-*` at a call site would cap the
+ * sheet as well and leave a phone with a narrow sheet pinned to its left
+ * edge. Padding and layout go on the children.
  *
  * Focus goes back to the element that had it when the dialog opened, if that
  * element is still in the page. No app dialog has a `Dialog.Trigger`, so
@@ -44,7 +39,7 @@ type ResponsiveDialogContentProps = Omit<ComponentProps<"div">, "class" | "class
  * runs first, and one that calls `preventDefault()` decides instead.
  */
 export const ResponsiveDialogContent: ParentComponent<ResponsiveDialogContentProps> = (props) => {
-  const [local, others] = splitProps(props, ["width", "onOpenAutoFocus", "onCloseAutoFocus"]);
+  const [local, others] = splitProps(props, ["onOpenAutoFocus", "onCloseAutoFocus"]);
   let opener: HTMLElement | null = null;
 
   function onOpenAutoFocus(event: Event) {
@@ -65,12 +60,5 @@ export const ResponsiveDialogContent: ParentComponent<ResponsiveDialogContentPro
   // `DialogContent` passes every prop on to Kobalte's `Dialog.Content`, whose
   // focus hooks these are; its own type names only a `div`'s props.
   const focusHooks = { onOpenAutoFocus, onCloseAutoFocus };
-  return (
-    <DialogContent
-      presentation="sheet"
-      class={WIDTH[local.width ?? "sm"]}
-      {...focusHooks}
-      {...others}
-    />
-  );
+  return <DialogContent presentation="sheet" class="md:max-w-sm" {...focusHooks} {...others} />;
 };

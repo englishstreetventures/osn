@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-26
 ---
 # ARC Tokens (S2S Auth)
 
@@ -235,61 +235,204 @@ osn-api calls apps as an ARC **issuer**: the account deletion's preview
 Apps do not take a registration from osn-api. osn-api **publishes** its keys
 and each app fetches the one a token names:
 
-1. Each osn-api isolate mints an ES256 key pair the first time it calls an app,
-   good for 24 hours and replaced two hours before its end
-   (`osn/api/src/lib/outbound-arc.ts`).
-2. Before it signs anything with it, it writes the public half to
-   `arc_outbound_keys` (`publishOutboundKey`, which also deletes rows expired
-   more than a day ago), once per key: calls that arrive while the write runs
-   wait on that one write. `publishOutboundKey` answers the key it wrote, and
-   the call signs with that key (`arcAuthHeader`), never with whichever key the
-   isolate holds by then, so a key replaced in between still verifies.
-   `arcAuthHeader` refuses any key `publishOutboundKey` did not answer. A failed
-   write, or a key that failed to mint, is dropped, and the next call tries
-   again.
-3. `GET /.well-known/arc-jwks.json` serves the unexpired rows as a JWK Set, read
-   fresh on every request (`cache-control: no-store`): a key written a moment
-   ago must be in the next answer, or the app asking would refuse that `kid` for
-   30 seconds. osn-db reads its primary (`readReplication: "disabled"`), so it is.
-4. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
+1. Each osn-api isolate mints an ES256 key pair, good for four hours and
+   replaced two hours before its end (`osn/api/src/lib/outbound-arc.ts`).
+2. It writes the public half to `arc_outbound_keys` after its first request,
+   whatever the route, through `ctx.waitUntil`, so the answer never waits for
+   it (`publishOutboundKeyInBackground`, called from the Worker's `fetch` in
+   `osn/api/src/index.ts`). The first request once the key is due for
+   replacement writes the new one the same way, and every cron run whose
+   deletion app settings parse writes the key when one is due, whatever its
+   sweeps find. Which route a request asks
+   for never decides when a key is written. A background write that fails is
+   logged (`osn.arc outbound key publish failed`) and pauses background writes
+   for a minute; the Bun dev server (`local.ts`) has no `waitUntil` and makes
+   no background write.
+3. Every call to an app still publishes the key before it signs
+   (`publishOutboundKey`, which also deletes rows expired more than a day ago),
+   which writes nothing once the key is written: calls that arrive while a write
+   runs wait on that one write. It then checks the key is still among the keys
+   step 4 serves (a count of the live keys that expire with it or after it,
+   reading at most 1,001 index rows, at most once every thirty seconds, shared by
+   concurrent calls), and that its own row is still there. A key that has
+   fallen out, or whose row was deleted, is replaced: one call mints a key,
+   logs `osn.arc outbound key is not in the published set; minting a new one`,
+   and every caller that found it so writes and signs with the new one. If even the new key would not be
+   served, or the check cannot read the set, the call fails and signs nothing.
+   `publishOutboundKey` answers the key it wrote,
+   and the call signs with that key (`arcAuthHeader`), never with whichever key
+   the isolate holds by then, so a key replaced in between still verifies.
+   `arcAuthHeader` refuses any key `publishOutboundKey` did not answer. A key
+   whose first write failed, or that failed to mint, is dropped, and the next
+   call mints and writes another, so a key's expiry always dates its first
+   write. A caller that signs within two hours of taking its key never signs
+   with an expired one; the account export takes its key once and signs each
+   app's section as the reader pulls it, so a reader slower than two hours can
+   get the later sections refused.
+4. `GET /.well-known/arc-jwks.json?kid=<kid>` answers the one key an app asks
+   for, as a JWK Set of one key or none; without `kid` the same path serves the
+   whole list. Neither may be cached (`cache-control: no-store`;
+   `osn/api/src/routes/arc-jwks.ts`).
+   - **By kid.** osn-api first reads the ask (`readArcKeyAsk`,
+     `@shared/crypto/arc-kid`): a uuid as `crypto.randomUUID` writes it, an
+     expiry ahead of now by at most a key's life and five minutes, and at most
+     two MAC parts of 22 base64url characters. Anything else is answered with
+     no key and no read. A kid one of whose MACs verifies under a secret
+     osn-api holds is answered from the isolate's memory
+     (`osn/api/src/lib/outbound-key-memory.ts`): a key found is held a minute
+     from when its read started, a key not found 30 seconds; at most 1,024
+     keys, about 1.4 KB each on V8, past which a key is answered from a read
+     and not held, and at most 128 absences in a map of their own, so ids a
+     holder of a kid secret MACs can never push a key out. Asks that arrive
+     while a read runs share it for five seconds, then start their own, so a
+     read whose request was cancelled holds nothing up. A key written a
+     moment ago is read on its first ask, so it is found at once: no token
+     names a kid before its row is written. The read is one seek down the
+     primary key's index for the row whose kid starts with the ask's
+     `<uuid>.<expiry>`, so it never depends on a MAC part. A kid osn-api
+     cannot verify (a made-up one, or one minted under a secret value this
+     isolate does not hold, during a rotation) is answered from memory when
+     its key is held; otherwise it is read under a budget of its own, 30 a
+     minute per app zone or address, which the native binding counts in each
+     Cloudflare location, and a key that read finds is held, an absence never.
+     A kid osn-api verifies has no budget in the app lane, and no ask calls
+     the coordination store, so while osn-api's isolates hold the secret value
+     a key was minted under, nothing a sender makes an app ask for can refuse
+     its asks for osn-api's real keys. During a rotation, a key minted under
+     the old value takes that budget on its first ask in each isolate each
+     minute, which a sender can spend through an app holding no secret: while
+     those keys are in use, a sender can have such asks refused for the rest
+     of a minute. A direct caller's asks also spend
+     its address's minute budget. Each answer is counted (`osn.arc.jwks.key_lookups`, by
+     `lane` and `result`: `memory`, `read`, `probe` or `refused`), and a full
+     memory is logged once a minute (`osn.arc key memory is full; answering
+     without holding`).
+   - **The whole list.** The unexpired rows, read fresh on every request: a key
+     written a moment ago must be in the next answer, or an app asking for it
+     would refuse that `kid` for 30 seconds. osn-db reads its primary
+     (`readReplication: "disabled"`), so it is. It serves at most the newest
+     1,000 keys by expiry (`PUBLISHED_OUTBOUND_KEYS_BOUND`), so a key just
+     written is always among them. The set holds the keys written in the last
+     four hours: one for each isolate that started in that time, two for one
+     older than two hours. From 500 live keys the read logs
+     `osn.arc published outbound keys are nearing the read bound`, and past
+     1,000 `... passed the read bound; the oldest are left out`, each at most
+     once a minute per isolate. A key left out is refused by every app on the
+     code before key-by-id that has not cached it, until its isolate's next
+     call replaces it (step 3); calls signed in the thirty seconds a passing
+     check stands can still be refused. No published figure caps how many
+     isolates load can start: Cloudflare runs 348 cities
+     ([network](https://www.cloudflare.com/network/)), publishes no server
+     count per city, and runs a Worker on more than one server in a data
+     centre when the first is overloaded
+     ([sharding](https://blog.cloudflare.com/eliminating-cold-starts-2-shard-and-conquer/)).
+     On either warning, find why the set grew before raising the bound. Each
+     caller's address (an IPv6 one by its /64) may read the list 30 times a
+     minute, and every address shares one budget of 60 an hour; a configured
+     app's fetch, which Cloudflare sends from the address every Worker's
+     cross-zone subrequest shares, is budgeted under the app's zone (its
+     `CF-Worker` header) instead, 30 a minute and 60 an hour. The apps read
+     the list only while a release runs their code from before key-by-id, and
+     a person may read it by hand. A refused app fetches again 30 seconds
+     later, so it recovers when its window ends, at most an hour; meanwhile
+     some of osn-api's calls to it can be refused. Each refusal is counted
+     (`osn.arc.jwks.refused`, by `lane` and `reason`) and the first in each
+     minute per lane is logged (`osn.arc key list refused a caller over its
+     budget`) ([[rate-limiting]]).
+5. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
-   lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`
-   whose MAC verifies and whose expiry has not passed; only then is the key
-   resolved, through the same bounded kid cache
-   the app uses for access-token keys, at `<issuer>/.well-known/arc-jwks.json`
-   below the issuer origin it already pins. Then jose checks the signature
-   (ES256 only), `iss`, `aud`, `exp` and `iat`, and the token's scope must hold
-   the route's.
+   lets osn-api use, and, when the app holds a secret that can key a MAC, carry
+   a `kid` with a MAC that verifies under it and an expiry that has not passed.
+   Only then does it ask osn-api for the key,
+   `<issuer>/.well-known/arc-jwks.json?kid=<ask>` below the issuer origin it
+   already pins, and keep it four minutes, through the same bounded kid cache
+   the app uses for access-token keys (`@shared/osn-auth-client/jwks-cache`).
+   A checked kid is looked up, cached and fetched once by the
+   `<uuid>.<expiry>` its verified MAC covers, never by a part the app did not
+   verify (below). An osn-api on the code before key-by-id ignores `kid` and
+   answers the whole list, from which the app takes the same key, so either
+   side may deploy first. Then jose checks the signature (ES256 only), `iss`,
+   `aud`, `exp` and `iat`, and the token's scope must hold the route's.
 
-**The key id.** `<uuid>.<expiry>.<MAC>`, the MAC the first 22 base64url
-characters of HMAC-SHA256 over the uuid and the expiry, under a key derived
-from `INTERNAL_SERVICE_SECRET` with HKDF-SHA-256 (fixed salt
-`osn-arc-kid-salt`, `info` `osn-arc-kid-mac-v1`), never under the secret
-itself (`@shared/crypto/arc-kid`). osn-api and every app derive the key in
-that one module, so both sides change together. An app holding the secret
-refuses a `kid` whose MAC fails, or whose expiry has passed, before it fetches
-anything, so a stream of tokens with made-up or scraped `kid`s costs it no
-request to osn-api. On the ARC path the MAC gates fetching only; a token is
-authenticated by its signature against the published key.
+**The key id.** `<uuid>.<expiry>` and one or two MACs, each the first 22
+base64url characters of HMAC-SHA256 over the uuid and the expiry
+(`@shared/crypto/arc-kid`). Each MAC is keyed by a key derived from its secret
+with HKDF-SHA-256 (fixed salt `osn-arc-kid-salt`), never by the secret itself:
 
-The same secret is the bearer of the key-registration routes
+| MAC | Secret | HKDF `info` | Held by |
+|---|---|---|---|
+| First | `OSN_ARC_KID_SECRET`, held for this MAC alone | `osn-arc-kid-mac-v2` | osn-api, zap-api, pulse-api, cire-api, once set on each |
+| Second | `INTERNAL_SERVICE_SECRET` | `osn-arc-kid-mac-v1` | osn-api, zap-api, pulse-api |
+
+osn-api puts a MAC in the kid for each secret it holds: `<uuid>.<expiry>.<v1>`
+with the service secret alone, `<uuid>.<expiry>.<v2>.<v1>` with both. An app
+holding either secret refuses, before it fetches anything, a kid whose expiry
+has passed or that carries no MAC verifying under a secret it holds, so a
+stream of tokens with made-up `kid`s costs it no request to osn-api. On the
+ARC path the MAC gates fetching only; a token is authenticated by its
+signature against the published key. osn-api and every app derive the keys in
+that one module, so both sides change together.
+
+A 4-part kid carries a MAC the app may hold no key for. An app that checked a
+kid therefore looks the key up, caches it or its absence, and shares one fetch,
+by the `<uuid>.<expiry>` its verified MAC covers, and takes from the answer the
+3- or 4-part kid with that uuid and expiry (`checkArcKid`'s lookup, passed to
+`resolvePublicKeyForKid` in `@shared/osn-auth-client/jwks-cache`). It asks
+osn-api for the `<uuid>.<expiry>` and the kid's parts shaped as MACs, the
+verified one always among them (`checkArcKid`'s `ask`): osn-api can check each
+MAC it holds, and junk in a part the app could not verify never reaches it,
+so no copy of a real kid can make osn-api refuse the ask for it. No fetch
+count and no cache entry depends on a part of a kid the app did not verify.
+An app holding no secret checks nothing, asks for the kid as it came, and
+looks it up exactly as sent; osn-api checks the MACs, and a kid no URL can
+carry is refused before any fetch.
+
+**Rolling out the kid secret.** The owner sets `OSN_ARC_KID_SECRET` by hand,
+Worker by Worker ([[production-deploy#5.11 The ARC key-id secret 🔑]]), and
+until every Worker holds it, one holding the service secret alone behaves as
+before. Whether osn-api's kids are admitted:
+
+| osn-api holds | cire-api: neither | Zap, Pulse: service secret | cire-api: kid secret | Zap, Pulse: both |
+|---|---|---|---|---|
+| Service secret only | admitted, unchecked | admitted | **refused** | admitted |
+| Both | admitted, unchecked | admitted | admitted | admitted |
+
+Every cell that admits asks osn-api by kid. osn-api checks every MAC it
+holds, so an isolate holding the service secret alone still finds a key minted
+under both, from memory. A key it cannot verify at all, minted under a value
+it does not hold during a rotation, is found through its budgeted read: in
+normal running nothing spends that budget, and a sender who spends it through
+an app holding no secret can delay such keys for the rest of its minute.
+
+Zap and Pulse admit osn-api's kids whichever of them gets the secret first.
+cire-api never holds the service secret, so it admits only a kid carrying the
+kid secret's MAC: it gets the secret after osn-api, once every kid in the key
+set has four parts. Code older than this rule refuses a 4-part kid, so every
+Worker on the tier runs it before osn-api gets the secret. The service
+secret's MAC goes once every Worker holds the kid secret
+(englishstreetventures/osn#2540).
+
+The service secret is also the bearer of the key-registration routes
 (`POST /graph/internal/register-service` on osn-api,
-`POST /internal/register-service` on Zap) and of `GET /health/coordination`,
-and every kid in the public key set lets anyone test a guess at it offline:
-derive the key, compute the MAC, compare. The derivation keeps the bearer
-value itself out of the MAC, but HKDF is fast and adds no entropy, so it does
-not slow that search. A secret found that way would let anyone register a key
-under any service id and scope. Only the secret's own randomness stops it:
-generate it (`openssl rand -base64 32`), never choose it. A secret shorter
-than 32 characters never keys the MAC, on either side: osn-api mints kids
-without a MAC and logs `osn.arc outbound key id carries no MAC` once per key,
-and Pulse and Zap treat it as unset and skip the check. A dev deploy refuses a
-shorter `INTERNAL_SERVICE_SECRET` ([[infrastructure-as-code]]). The floor
-refuses a value too short to be random; it cannot tell a long generated value
-from a long guessable one. A secret held for the kid MAC alone, apart from the
-bearer, would keep a found MAC key from opening the registration routes. A deployed osn-api
-without the secret refuses to boot. Locally, osn-api and the app hold it both
-or neither: an app holding it refuses osn-api's kids minted without it.
+`POST /internal/register-service` on Zap) and of `GET /health/coordination`.
+Every kid in the public key set lets anyone test a guess at a secret that
+keys one of its MACs offline: derive the key, compute the MAC, compare. HKDF
+is fast and adds no entropy, so it does not slow that search. Only each
+secret's own randomness stops it: generate each (`openssl rand -base64 32`),
+never choose it, and generate the kid secret on its own, never as a copy of
+the service secret: every Worker ignores a kid secret equal to the service
+secret, osn-api logs `osn.arc OSN_ARC_KID_SECRET equals INTERNAL_SERVICE_SECRET;
+key ids carry no MAC under it`, and a dev deploy refuses the pair. A secret shorter than 32 characters never keys a MAC, on
+either side: osn-api mints the kid without it and logs `osn.arc outbound key
+id carries no MAC under a secret too short to key one` once per key, naming
+the secret; Pulse and Zap treat it as unset; cire-api treats it as unset and
+logs `osn-api's ARC key ids are not checked: OSN_ARC_KID_SECRET is shorter
+than 32 characters` once per app build. A dev deploy refuses either secret
+shorter than 32 characters ([[infrastructure-as-code]]). The floor refuses a
+value too short to be random; it cannot tell a long generated value from a
+long guessable one. A deployed osn-api without `INTERNAL_SERVICE_SECRET`
+refuses to boot. Locally, osn-api and the app hold each secret both or
+neither: an app holding one refuses osn-api's kids minted without it.
 
 **What each app lets osn-api use.** Pulse: `account:erase`, `account:export`,
 `account:deletion-preview`, `account:sessions-revoke`; it takes ARC from no
@@ -302,25 +445,29 @@ holds `chat:c2b` keys for cire-api only. cire-api: `account:deletion-preview`,
 `cire/api/src/lib/osn-arc.ts`; each of its three routes asks for its own
 scope, so a token for one opens neither other.
 
-**cire-api holds no kid secret.** The value that keys the kid MAC is the
-registration bearer above, and cire-api is not given it, so a compromised
-cire-api cannot register keys or revoke Zap's. Without it the kid's MAC is not
-checked: a token with a made-up kid costs cire-api one fetch of osn-api's public
-key set before it is refused, and the shared key cache then remembers that kid
-as unknown for 30 seconds, one fetch serving concurrent requests. The key set
-is public, so that is the load anyone can put on it directly. A secret held for
-the kid MAC alone would let cire-api check kids too.
+**cire-api holds the kid secret, never the service secret.** The service
+secret is the registration bearer above, and cire-api is not given it, so a
+compromised cire-api cannot register keys or revoke Zap's. cire-api checks
+kids with `OSN_ARC_KID_SECRET` alone (`cire/api/src/lib/osn-arc.ts`), and
+checks none while it does not hold it.
 
 **Trust.** Whoever can write osn-db's `arc_outbound_keys`, or answer for
 osn-api's origin, can mint tokens an app accepts as osn-api's. The same write
 access already reaches every account (a session row), and the same origin
 already vouches for every access token, so neither gains a power it lacks.
 
-**Revoking a key.** Delete its `arc_outbound_keys` row. Apps stop accepting it
-when their cached copy lapses, within five minutes. The isolate holding it
-keeps signing with it, and its calls are refused, until a redeploy starts fresh
-isolates with new keys. osn-api never signs with a key past its expiry, and a
-token lives five minutes.
+**Revoking a key.** Delete its `arc_outbound_keys` row. Each osn-api isolate
+stops answering it within a minute, and apps stop accepting it when their copy
+lapses, within five minutes in all: osn-api holds it a minute from its read's
+start and an app four from its fetch's start. An app on the code before
+key-by-id reads the whole list, which osn-api reads fresh, and keeps its copy
+five minutes. The isolate holding it
+replaces it at its next call to an app once its last passing check is thirty
+seconds old (step 3). Until then it still signs with the revoked key, and so
+does an account export already streaming with it; apps accept those calls
+until their cached copy lapses. osn-api signs with a key past its expiry only
+when a caller holds it longer than two hours (the account export, step 3), and
+a token lives five minutes.
 
 ### Key revocation
 

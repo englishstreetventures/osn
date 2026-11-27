@@ -1,3 +1,5 @@
+import { passkeys } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
 import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import type { StepUpPurpose } from "@shared/observability/metrics";
 import type { RateLimiterBackend } from "@shared/rate-limit";
@@ -9,6 +11,7 @@ import {
   createAuthRoutes as createAuthRoutesRaw,
   createDefaultAuthRateLimiters,
 } from "../../src/routes/auth";
+import { AUTH_RATE_LIMITS } from "../../src/routes/auth/limiters";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settledHandle } from "../helpers/background";
@@ -48,6 +51,34 @@ beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
+/**
+ * A sign-up through the routes with its first passkey added, read the way the
+ * completing status answer is read: its body, with the ordinary session the
+ * passkey earns in place of the restricted one the answer carried, and that
+ * session's `Set-Cookie` lines. For the tests that use the session rather than
+ * test the answer.
+ */
+async function signedUp(
+  app: ReturnType<typeof createAuthRoutes>,
+  recorded: () => readonly RecordedEmail[],
+  email: string,
+  handle: string,
+  options?: { displayName?: string },
+) {
+  const done = await registerThroughRoutes(app, recorded, email, handle, options);
+  return {
+    status: 201,
+    json: async () => ({
+      ...done.body,
+      session: { ...done.body.session, access_token: done.accessToken },
+    }),
+    headers: {
+      get: (name: string) => (name === "set-cookie" ? done.cookies.join(", ") : null),
+      getSetCookie: () => done.cookies,
+    },
+  };
+}
+
 /** Drive the whole sign-up through the emailed link and return an access token. */
 async function registerAndGetAccessToken(
   freshApp: ReturnType<typeof createAuthRoutes>,
@@ -82,13 +113,12 @@ describe("auth routes", () => {
   // -------------------------------------------------------------------------
   // Registration
   //
-  // There is no unverified `POST /register` endpoint: sign-up proves the
-  // address with an emailed link (begin, confirm, status). The service-layer
-  // `registerProfile` helper survives as a test seeder; direct HTTP access
-  // to it must stay 404 so unverified account creation can't sneak back in.
+  // No route makes an account without a confirmed address: sign-up proves the
+  // address with an emailed link (begin, confirm, status), and
+  // `registerProfile` is a test seeder only.
   // -------------------------------------------------------------------------
-  describe("POST /register (removed)", () => {
-    it("returns 404 — the unverified endpoint was deleted", async () => {
+  describe("POST /register", () => {
+    it("answers 404: no route makes an account without a confirmed address", async () => {
       const res = await app.handle(
         new Request("http://localhost/register", {
           method: "POST",
@@ -275,11 +305,11 @@ describe("auth routes", () => {
       expect(res.headers.get("cache-control")).toBe("no-store");
     });
 
-    it("C2: replaying a rotated-out refresh cookie within grace is rejected but keeps the family alive", async () => {
+    it("replaying a rotated-out refresh cookie within grace is rejected but keeps the family alive", async () => {
       // Route-layer integration test for reuse detection. Service-level
       // coverage already exercises the detector in isolation; this one
-      // locks in the Elysia derive + cookie-reader glue so a regression in
-      // cookie handling or rate-limit ordering can't silently downgrade C2.
+      // locks in the Elysia derive + cookie-reader glue so a change in cookie
+      // handling or rate-limit ordering cannot silently weaken reuse detection.
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
 
@@ -342,9 +372,8 @@ describe("auth routes", () => {
     });
 
     it("rejects refresh_token supplied in the body (cookie-only contract)", async () => {
-      // The body fallback was removed: any refresh_token submitted outside
-      // the HttpOnly cookie must fail with invalid_request, independent of
-      // whether the token itself would be valid.
+      // A refresh_token outside the HttpOnly cookie fails with invalid_request,
+      // whether or not it is valid.
       const capture = buildEmailCapture(layer);
       const cookieOnlyApp = createAuthRoutes(config, capture.layer);
 
@@ -500,7 +529,7 @@ describe("auth routes", () => {
       });
     }
 
-    it("a step-up link's claim yields a step-up token and never a session", async () => {
+    it("a step-up link's claim yields a token with the step-up audience", async () => {
       // The step-up link is confirmed on any device and signs nobody in; the
       // tab that began, already signed in, gets a token only gates accept.
       const capture = buildEmailCapture(layer);
@@ -635,25 +664,52 @@ describe("auth routes", () => {
 
     it("returns 400 for a malformed assertion", async () => {
       const svc = createAuthService(config);
-      await Effect.runPromise(
+      const profile = await Effect.runPromise(
         svc.registerProfile("pk-complete@example.com", "pkcomplete").pipe(Effect.provide(layer)),
       );
-      // Issue a challenge (matches what /login/passkey/begin would do for a
-      // user with a registered passkey — we don't have one, but the challenge
-      // guard itself is populated by beginPasskeyLogin's precondition failure,
-      // so just hit complete with a bogus payload and expect a 400 from the
-      // downstream "passkey not found" / verification-failed path).
+      const credentialId = "pk-complete-credential";
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.promise(() =>
+            db.insert(passkeys).values({
+              id: "pk_0123456789ab",
+              accountId: profile.accountId,
+              credentialId,
+              publicKey: "AAAA",
+              counter: 0,
+              createdAt: new Date(),
+            }),
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+      // A real begin parks the account's challenge, so the complete below
+      // gets past the challenge lookup and the credential lookup, and the
+      // assertion itself is what is refused.
+      const begun = await app.handle(
+        new Request("http://localhost/login/passkey/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: "pk-complete@example.com" }),
+        }),
+      );
+      expect(begun.status).toBe(200);
+      const options = (await begun.json()) as { options: { allowCredentials: { id: string }[] } };
+      expect(options.options.allowCredentials.map((c) => c.id)).toEqual([credentialId]);
+
       const res = await app.handle(
         new Request("http://localhost/login/passkey/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             identifier: "pk-complete@example.com",
-            assertion: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
+            assertion: { id: credentialId, rawId: credentialId, response: {}, type: "public-key" },
           }),
         }),
       );
       expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
+      expect(res.headers.getSetCookie()).toEqual([]);
     });
 
     // Identifier ⊕ challengeId — exactly one must be present.
@@ -800,11 +856,11 @@ describe("auth routes", () => {
     });
 
     // Authorization is bound to the access token's own `sub`, not to a
-    // client-echoed `body.profileId` (Bug B). A mismatching profileId is
-    // therefore IGNORED rather than rejected: the begin still proceeds for
-    // the token's own account (bootstrap path here). The companion "Bug B
-    // guard" test below proves a *foreign* profileId can't redirect the
-    // enrolment onto another account.
+    // client-echoed `body.profileId`. A mismatching profileId is therefore
+    // IGNORED rather than rejected: the begin still proceeds for the token's
+    // own account (bootstrap path here). The companion "foreign
+    // body.profileId" test below proves a profileId on another account cannot
+    // redirect the enrolment there.
     it("ignores a body.profileId that mismatches the token sub (proceeds for the token's account)", async () => {
       const { accessToken } = await setupProfileAndAccessToken();
       const res = await app.handle(
@@ -892,13 +948,9 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // Regression pin: the enrollmentToken JWT machinery was deleted, but
-    // the test config still signs with a real ES256 key. If a future change
-    // relaxes `verifyAccessToken`'s claim check, a legacy `type:"passkey-
-    // enroll"` token would silently regain access. This test forges one and
-    // asserts the route rejects it — independent of the implementation
-    // accident that currently does the rejecting.
-    it("rejects a legacy passkey-enrollment JWT (type: 'passkey-enroll')", async () => {
+    // A token of type `passkey-enroll` with no `osn-access` audience is
+    // refused; `verifyAccessToken`'s claim check must not admit it.
+    it("rejects a JWT of type passkey-enroll", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("tess@example.com", "tess").pipe(Effect.provide(layer)),
@@ -948,7 +1000,6 @@ describe("auth routes", () => {
       );
       // Seed one passkey to flip the account out of the bootstrap path.
       const { passkeys: passkeysTable } = await import("@osn/db/schema");
-      const { Db } = await import("@osn/db/service");
       await Effect.runPromise(
         Effect.gen(function* () {
           const { db } = yield* Db;
@@ -988,18 +1039,16 @@ describe("auth routes", () => {
     });
 
     // -----------------------------------------------------------------------
-    // Bug B (production): the organiser "Add passkey" 401.
-    //
-    // The enrol principal must be resolved from the ACCESS TOKEN'S OWN `sub`
-    // (the verified caller), not gated on the client echoing a matching
-    // `body.profileId`. A signed-in caller can present a valid token whose
-    // `sub` is one profile while the client-supplied `profileId` names a
-    // *different profile on the SAME account* (e.g. a stale `activeProfileId`
+    // The enrol principal is the access token's own `sub`; a `body.profileId`
+    // naming another profile on the same account is ignored, and one on
+    // another account cannot move the enrolment there. A signed-in caller can
+    // present a token whose `sub` is one profile while `profileId` names
+    // another profile on the same account (e.g. a stale `activeProfileId`
     // after a silent token refresh re-issues for the account's default
-    // profile). The enrolment belongs to the caller's own account either way,
-    // so it MUST proceed — gating on the echo produced a spurious 401.
+    // profile); the enrolment belongs to the caller's own account either way,
+    // so it proceeds.
     // -----------------------------------------------------------------------
-    it("Bug B: proceeds when body.profileId names another profile on the caller's own account", async () => {
+    it("proceeds when body.profileId names another profile on the caller's own account", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("wendy@example.com", "wendy").pipe(Effect.provide(layer)),
@@ -1018,7 +1067,6 @@ describe("auth routes", () => {
       );
       // Seed a SECOND, non-default profile on the SAME account.
       const { users: usersTable } = await import("@osn/db/schema");
-      const { Db } = await import("@osn/db/service");
       const secondProfileId = "usr_wendysecond0";
       await Effect.runPromise(
         Effect.gen(function* () {
@@ -1054,12 +1102,11 @@ describe("auth routes", () => {
       expect(json.challenge).toBeTruthy();
     });
 
-    // Security guard for the Bug B fix: a caller MUST NOT be able to drive
-    // enrolment onto a DIFFERENT account by supplying a foreign
-    // `body.profileId`. The principal is the token's own account; the foreign
+    // A caller MUST NOT be able to drive enrolment onto a DIFFERENT account by
+    // supplying a foreign `body.profileId`. The principal is the token's own account; the foreign
     // profileId must be ignored, and the begin options must carry the
     // CALLER'S passkey user handle (their account), never the victim's.
-    it("Bug B guard: a foreign body.profileId never enrols on another account", async () => {
+    it("a foreign body.profileId never enrols on another account", async () => {
       const svc = createAuthService(config);
       const caller = await Effect.runPromise(
         svc.registerProfile("carol@example.com", "carol").pipe(Effect.provide(layer)),
@@ -1361,33 +1408,41 @@ describe("auth routes", () => {
     });
 
     it("passes when the injected limiter returns true", async () => {
-      const allowAll: RateLimiterBackend = { check: () => true };
+      let checks = 0;
+      const allowAll: RateLimiterBackend = {
+        check: () => {
+          checks += 1;
+          return true;
+        },
+      };
       const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: allowAll };
 
       const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
-      // Fire a burst that would exceed the default 10/min cap; everything
-      // should pass because the injected limiter always says yes.
-      for (let i = 0; i < 20; i++) {
+      // One more request than the default limiter allows from one IP: every
+      // one passes, and each is asked of the injected limiter.
+      const burst = AUTH_RATE_LIMITS.handleCheck.maxRequests + 1;
+      for (let i = 0; i < burst; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         const res = await freshApp.handle(
           new Request(`http://localhost/handle/user${i}`, {
             headers: { "x-forwarded-for": "7.7.7.7" },
           }),
         );
-        expect(res.status).not.toBe(429);
+        expect(res.status).toBe(200);
       }
+      expect(checks).toBe(burst);
     });
   });
 
   // -------------------------------------------------------------------------
-  // Profile switching (P2)
+  // Profile switching
   // -------------------------------------------------------------------------
 
   describe("GET /profiles/list", () => {
     async function getAccessToken(): Promise<{ accessToken: string; profileId: string }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         verifiedApp,
         capture.recorded,
         "profiles@example.com",
@@ -1432,7 +1487,8 @@ describe("auth routes", () => {
           headers: { Authorization: "Bearer not.a.valid.token" },
         }),
       );
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
     });
 
     it("rate limits profile list requests", async () => {
@@ -1457,7 +1513,7 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         verifiedApp,
         capture.recorded,
         "switch@example.com",
@@ -1504,7 +1560,10 @@ describe("auth routes", () => {
           }),
         }),
       );
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // The caller's session is live, so the refusal is the switch's own: no
+      // such profile, answered as any other refused switch.
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
     });
 
     it("returns error for invalid access token", async () => {
@@ -1517,7 +1576,8 @@ describe("auth routes", () => {
           }),
         }),
       );
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
     });
 
     it("rate limits profile switch requests", async () => {
@@ -1541,7 +1601,7 @@ describe("auth routes", () => {
     });
   });
 
-  describe("recovery codes (Copenhagen Book M2)", () => {
+  describe("recovery codes", () => {
     async function registerForRecovery(): Promise<{
       accessToken: string;
       email: string;
@@ -1550,7 +1610,7 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         verifiedApp,
         capture.recorded,
         "recovery-user@example.com",
@@ -1562,8 +1622,8 @@ describe("auth routes", () => {
       };
       const accessToken = json.session.access_token;
 
-      // M-PK1: /recovery/generate requires a step-up token. Drive the emailed
-      // link now so the caller can attach `step_up_token` to its body.
+      // `/recovery/generate` requires a step-up token; drive the emailed link
+      // so the caller can attach it.
       const stepUpToken = await stepUpThroughRoutes(
         verifiedApp,
         accessToken,
@@ -1627,8 +1687,8 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // M-PK1 gate: authenticated access token alone is no longer enough; a
-    // fresh step-up ceremony must have been completed.
+    // An access token alone is not enough; a step-up ceremony must have
+    // completed.
     it("POST /recovery/generate without a step-up token returns 403", async () => {
       const { accessToken } = await registerForRecovery();
       const res = await app.handle(
@@ -1702,9 +1762,8 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // the assignment used to run after the DB read, inside the
-    // `try`, so the 401/429/500 paths never got it. Moved to the first
-    // statement — this is the rejection path a 200-only test cannot see.
+    // The header is the first statement, so the 401 carries it too — the
+    // rejection path a 200-only test cannot see.
     it("GET /recovery/status sets cache-control: no-store even on the 401 rejection", async () => {
       const res = await app.handle(new Request("http://localhost/recovery/status"));
       expect(res.status).toBe(401);
@@ -1866,12 +1925,19 @@ describe("auth routes", () => {
     });
 
     it("POST /step-up/passkey/begin rejects accounts without passkeys", async () => {
-      const { app: freshApp, captured } = appWithCapturingEmail();
-      const accessToken = await registerAndGetAccessToken(
-        freshApp,
-        captured,
-        "su-pkbegin@example.com",
-        "supkbegin",
+      // An account with no passkey and an ordinary session: no sign-up makes
+      // one any more (its session stays restricted until the passkey is in),
+      // so the store seeds it, as an account from before that held one.
+      const { app: freshApp } = appWithCapturingEmail();
+      const svc = createAuthService(config);
+      const accessToken = await Effect.runPromise(
+        svc.registerProfile("su-pkbegin@example.com", "supkbegin").pipe(
+          Effect.flatMap((user) =>
+            svc.issueTokens(user.id, user.accountId, user.email, user.handle, user.displayName),
+          ),
+          Effect.map((issued) => issued.accessToken),
+          Effect.provide(layer),
+        ),
       );
       const res = await freshApp.handle(
         new Request("http://localhost/step-up/passkey/begin", {
@@ -1913,7 +1979,7 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, capture.layer);
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         freshApp,
         capture.recorded,
         "sess-route@example.com",
@@ -2042,12 +2108,7 @@ describe("auth routes", () => {
     }> {
       const cap = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, cap.layer);
-      const completeRes = await registeredResponse(
-        freshApp,
-        cap.recorded,
-        "ec-route@example.com",
-        "ecroute",
-      );
+      const completeRes = await signedUp(freshApp, cap.recorded, "ec-route@example.com", "ecroute");
       const json = (await completeRes.json()) as {
         session: { access_token: string };
       };
@@ -2257,7 +2318,7 @@ describe("auth routes", () => {
       expect((await list()).map((e) => e.id)).toContain(event.id);
     });
 
-    it("POST /account/email/:requestId/complete fails without a step-up token", async () => {
+    it("POST /account/email/:requestId/complete refuses an invalid step-up token", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
       const request = await confirmedChange(
         freshApp,
@@ -2273,6 +2334,7 @@ describe("auth routes", () => {
         "not.a.jwt",
       );
       expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
     });
 
     it("rate limits /account/email/begin aggressively (3/hr)", async () => {
@@ -2295,7 +2357,7 @@ describe("auth routes", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Security events (M-PK1b)
+  // Security events
   // ---------------------------------------------------------------------------
   describe("security events routes", () => {
     async function setupWithRecovery(): Promise<{
@@ -2307,11 +2369,12 @@ describe("auth routes", () => {
     }> {
       // Drive the full register → step-up → /recovery/generate ceremony so
       // there's exactly one unacked recovery_code_generate event on the
-      // account by the time we hit GET /account/security-events.
+      // account by the time we hit GET /account/security-events, beside the
+      // `passkey_register` event the sign-up's first passkey recorded.
       const cap = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, cap.layer);
 
-      const completeRes = await registeredResponse(
+      const completeRes = await signedUp(
         freshApp,
         cap.recorded,
         "sev-route@example.com",
@@ -2353,7 +2416,7 @@ describe("auth routes", () => {
         app: freshApp,
         accessToken,
         recorded: cap.recorded,
-        generatedEventId: events[0]!.id,
+        generatedEventId: events.find((e) => e.kind === "recovery_code_generate")!.id,
       };
     }
 
@@ -2382,21 +2445,24 @@ describe("auth routes", () => {
           ipHash: string | null;
         }>;
       };
-      expect(json.events).toHaveLength(1);
-      expect(json.events[0]!.kind).toBe("recovery_code_generate");
-      expect(json.events[0]!.id).toMatch(/^sev_[a-f0-9]{12}$/);
+      expect(json.events.map((e) => e.kind).toSorted()).toEqual([
+        "passkey_register",
+        "recovery_code_generate",
+      ]);
+      const generated = json.events.find((e) => e.kind === "recovery_code_generate")!;
+      expect(generated.id).toMatch(/^sev_[a-f0-9]{12}$/);
       // The route's `response` schema deletes any key it doesn't declare, so
       // pin the whole `SecurityEventSummary` key set: dropping `createdAt` or
       // `uaLabel` would quietly leave the banner unable to say when the event
       // happened or which device caused it.
-      expect(Object.keys(json.events[0]!).toSorted()).toEqual([
+      expect(Object.keys(generated).toSorted()).toEqual([
         "createdAt",
         "id",
         "ipHash",
         "kind",
         "uaLabel",
       ]);
-      expect(typeof json.events[0]!.createdAt).toBe("number");
+      expect(typeof generated.createdAt).toBe("number");
     });
 
     // the list is per-user and names auth events — nothing may
@@ -2445,14 +2511,15 @@ describe("auth routes", () => {
       expect(ackRes.status).toBe(200);
       expect((await ackRes.json()) as { acknowledged: boolean }).toEqual({ acknowledged: true });
 
-      // List again — should be empty.
+      // List again — only the sign-up's own passkey event is left.
       const listAfter = await freshApp.handle(
         new Request("http://localhost/account/security-events", {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
       );
-      const json = (await listAfter.json()) as { events: unknown[] };
-      expect(json.events).toHaveLength(0);
+      const json = (await listAfter.json()) as { events: Array<{ id: string; kind: string }> };
+      expect(json.events.map((e) => e.id)).not.toContain(generatedEventId);
+      expect(json.events.map((e) => e.kind)).toEqual(["passkey_register"]);
     });
 
     it("POST /account/security-events/:id/ack rejects malformed ids via path regex", async () => {
@@ -2492,7 +2559,8 @@ describe("auth routes", () => {
 
     it("POST /account/security-events/ack-all dismisses every unacked event in one call", async () => {
       const { app: freshApp, accessToken, recorded } = await setupWithRecovery();
-      // Generate two more events so there are 3 unacked rows.
+      // Generate two more events so there are 4 unacked rows: three
+      // generates and the sign-up's first passkey.
       for (const _ of [1, 2]) {
         // eslint-disable-next-line no-await-in-loop -- each step-up reads its own mailed link
         const freshStepUp = await mintStepUp(freshApp, accessToken, recorded, "recovery_generate");
@@ -2521,7 +2589,7 @@ describe("auth routes", () => {
         }),
       );
       expect(ackAllRes.status).toBe(200);
-      expect((await ackAllRes.json()) as { acknowledged: number }).toEqual({ acknowledged: 3 });
+      expect((await ackAllRes.json()) as { acknowledged: number }).toEqual({ acknowledged: 4 });
 
       const listAfter = await freshApp.handle(
         new Request("http://localhost/account/security-events", {

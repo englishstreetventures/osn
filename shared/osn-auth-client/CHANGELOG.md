@@ -1,5 +1,81 @@
 # @shared/osn-auth-client
 
+## 0.8.2
+
+### Patch Changes
+
+- @shared/crypto@0.17.2
+
+## 0.8.1
+
+### Patch Changes
+
+- @shared/crypto@0.17.1
+
+## 0.8.0
+
+### Minor Changes
+
+- 8235ebd: Apps ask osn-api for the one ARC key a token names instead of the whole key list. `verifyOsnArcToken` (`@shared/osn-auth-client/arc`) fetches `<issuer>/.well-known/arc-jwks.json?kid=<ask>` and keeps an osn-api key four minutes from when its fetch started; it reads a whole-list answer the same way, so an osn-api on the earlier code still verifies. `resolvePublicKeyForKid`'s third argument is now a `KeyLookup` (`names`, the `from` URL, `ttlMs`), whose fetches share one flight per cache key apart from access-token fetches; two-argument calls are unchanged. `@shared/crypto/arc-kid` adds `ask` to `checkArcKid`'s lookup (the `<uuid>.<expiry>` and the parts shaped as MACs), `readArcKeyAsk`, which osn-api reads an ask with, and `holdsArcKidKey`.
+
+  osn-api answers `?kid=`: an ask no osn-api could have minted a kid for gets no key and no read; a kid one of whose MACs verifies under a secret it holds is answered from the isolate's memory (a key found held a minute from its read's start, one not found 30 seconds; at most 1,024 keys and, apart, 128 absences; asks share a read for five seconds), with one primary-key read when not held; a kid it cannot verify is answered from memory when its key is held, and otherwise read under 30 a minute per app zone or address (per Cloudflare location), holding a key found and never an absence. An app's ask spends no other budget and calls no coordination store. The whole list keeps its minute budgets and per-zone hour budget; every address now shares one hour budget of 60. A failed key read answers 500. New counter `osn.arc.jwks.key_lookups`; `osn.arc.jwks.refused` gains reason `probe`. Zap's and Pulse's test stand-ins answer by kid.
+
+### Patch Changes
+
+- Updated dependencies [8235ebd]
+  - @shared/crypto@0.17.0
+
+## 0.7.0
+
+### Minor Changes
+
+- 1bf7502: osn-api's outbound ARC key ids can carry a MAC under `OSN_ARC_KID_SECRET`, a secret held for that alone, beside the one under `INTERNAL_SERVICE_SECRET`. `@shared/crypto/arc-kid` takes both secrets (`ArcKidSecrets`): `mintArcKid` puts one MAC in the kid for each secret of at least 32 characters, and `checkArcKid` admits a kid one of whose MACs verifies under a secret the app holds, answering what to look the key up by (`ArcKidLookup`), or `null`. A checked kid is looked up and cached by the `<uuid>.<expiry>` its verified MAC covers, through the new `names` argument of `resolvePublicKeyForKid` (`@shared/osn-auth-client/jwks-cache`), never by a part the app did not verify. `OsnArcVerification` takes `kidSecret` and `serviceSecret`. osn-api, Zap and Pulse read `OSN_ARC_KID_SECRET`; unset, each behaves as before. osn-api warns once per key, naming the secret, when either is too short to key a MAC. Every Worker ignores a kid secret equal to the service secret, and osn-api warns of it. The inventory lists the secret as optional for osn-api, zap-api and cire-api on dev and production, one value per tier; dev refuses one under 32 characters, or equal to `INTERNAL_SERVICE_SECRET` on a Worker holding both.
+
+### Patch Changes
+
+- Updated dependencies [1bf7502]
+  - @shared/crypto@0.16.0
+
+## 0.6.1
+
+### Patch Changes
+
+- @shared/crypto@0.15.14
+
+## 0.6.0
+
+### Minor Changes
+
+- 89d6af2: Delete three pieces of code that nothing called.
+
+  `@shared/db-utils` drops `./effect/batch` and its `commitEffectWrites`; no package imported either.
+
+  `@shared/osn-auth-client` drops `./middleware/elysia`, the Elysia middleware no service used, and its `elysia` peer and dev dependency. `OsnAuthOptions`, the options shape a service's own middleware takes, is exported from the package root, and its README example sets every option, the issuer included.
+
+  `@pulse/landing` drops its Cloudflare Pages Function for `GET /api/geo`. The pulse stack's Worker entry (`worker/index.ts`) serves that route from the same handler, and its tests hold the one case the Pages Function's test held: the count's place is the region, then the city, then the country.
+
+### Patch Changes
+
+- @shared/crypto@0.15.13
+
+## 0.5.12
+
+### Patch Changes
+
+- @shared/crypto@0.15.12
+
+## 0.5.11
+
+### Patch Changes
+
+- @shared/crypto@0.15.11
+
+## 0.5.10
+
+### Patch Changes
+
+- @shared/crypto@0.15.10
+
 ## 0.5.9
 
 ### Patch Changes

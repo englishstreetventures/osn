@@ -170,7 +170,7 @@ describe("webauthn chunk split", () => {
     expect(gate).toMatch(/lazy\(\s*\(\)\s*=>\s*import\(\s*"\.\/AccountBannerStack"\s*\)\s*\)/);
   });
 
-  it("keeps the entry chunk off the sign-in and switcher dialogs", () => {
+  it("keeps the entry chunk off the sign-in and create-account dialogs", () => {
     // The dialogs reach `@osn/auth-ui`'s `SignIn` and `Register`, which
     // `/authorize` must not pay for before it paints. `ShellDialogs`, in the
     // entry chunk, names them in one dynamic import; a static import of any of
@@ -179,16 +179,12 @@ describe("webauthn chunk split", () => {
     expect(entry, "the walk reaches the dialogs' provider").toContain(
       "components/ShellDialogs.tsx",
     );
-    for (const dialogModule of [
-      "components/ShellDialogSet.tsx",
-      "components/AuthDialogs.tsx",
-      "components/ProfileSwitcherDialog.tsx",
-    ]) {
+    for (const dialogModule of ["components/ShellDialogSet.tsx", "components/AuthDialogs.tsx"]) {
       expect(entry, `${dialogModule} is in the entry chunk`).not.toContain(dialogModule);
     }
     expect([...entry].filter((specifier) => specifier.startsWith("@osn/auth-ui"))).toEqual([]);
 
-    // One dynamic import for all three dialogs: one per dialog makes the
+    // One dynamic import for both dialogs: one per dialog makes the
     // bundler split the entry chunk and keep client code it otherwise drops.
     const provider = readSource("../src/components/ShellDialogs.tsx");
     expect([...provider.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)].map((m) => m[1])).toEqual([

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { PERMITTED_OSN_SCOPES, requireOsnArc } from "../../src/lib/arc-middleware";
-import { osnArc } from "../helpers/osn-arc";
+import { HOLDS, osnArc } from "../helpers/osn-arc";
 
 /**
  * Pulse lets osn-api use four scopes and nothing else, whatever osn-api's key
@@ -31,7 +31,7 @@ describe("requireOsnArc", () => {
       await requireOsnArc(
         await arc.token("graph:read"),
         set,
-        { osnIssuer: arc.verification.issuer, kidSecret: "test-internal-secret-of-32-chars!" },
+        { osnIssuer: arc.verification.issuer, ...HOLDS["both secrets"] },
         "graph:read",
       ),
     ).toBe(false);
@@ -44,7 +44,7 @@ describe("requireOsnArc", () => {
       await requireOsnArc(
         await arc.token("account:erase"),
         set,
-        { osnIssuer: arc.verification.issuer, kidSecret: "test-internal-secret-of-32-chars!" },
+        { osnIssuer: arc.verification.issuer, ...HOLDS["both secrets"] },
         "account:erase",
       ),
     ).toBe(true);

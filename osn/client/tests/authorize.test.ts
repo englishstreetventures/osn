@@ -277,8 +277,13 @@ describe("createAuthorizeClient", () => {
         const quick = createAuthorizeClient({ ...config, timeoutMs: 50 });
         stubStalledFetch();
 
-        const pending = quick.getContext(requestId).catch((e: unknown) => e);
+        let settled = false;
+        const pending = quick
+          .getContext(requestId)
+          .catch((e: unknown) => e)
+          .finally(() => (settled = true));
         await vi.advanceTimersByTimeAsync(50);
+        expect(settled).toBe(true);
         const err = (await pending) as AuthorizeError;
 
         expect(err).toBeInstanceOf(AuthorizeError);
@@ -293,7 +298,6 @@ describe("createAuthorizeClient", () => {
     it("passes a signal to fetch and clears the timer once a call settles", async () => {
       vi.useFakeTimers();
       try {
-        const clearSpy = vi.spyOn(globalThis, "clearTimeout");
         const { calls } = stubFetch(() => jsonResponse(sampleContext));
 
         await createAuthorizeClient(config).getContext(requestId);
@@ -302,7 +306,9 @@ describe("createAuthorizeClient", () => {
         expect(calls[0]!.init?.signal?.aborted).toBe(false);
         // A settled call must not leave a live timer behind — on the consent
         // screen that would abort a later, unrelated request.
-        expect(clearSpy).toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(DEFAULT_AUTHORIZE_TIMEOUT_MS);
+        expect(calls[0]!.init?.signal?.aborted).toBe(false);
       } finally {
         vi.useRealTimers();
       }
@@ -368,6 +374,8 @@ describe("createAuthorizeClient", () => {
         expect(err).toBeInstanceOf(AuthorizeError);
         expect(err.code).toBe("unknown");
         expect(err.terminal).toBe(false);
+        // The abort, not the status of the headers that came before it.
+        expect(err.status).toBe(0);
       } finally {
         vi.useRealTimers();
       }

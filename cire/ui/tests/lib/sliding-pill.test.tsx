@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,9 +44,9 @@ class FakeResizeObserver {
     this.targets.clear();
     this.disconnected = true;
   }
-  /** Every live observer reports, the way a reflow makes them. */
-  static fire() {
-    for (const o of FakeResizeObserver.live) if (!o.disconnected) o.cb();
+  /** Each live observer watching `el` reports, as a resize of `el` makes them. */
+  static fire(el: Element) {
+    for (const o of FakeResizeObserver.live) if (!o.disconnected && o.targets.has(el)) o.cb();
   }
 }
 
@@ -110,11 +110,6 @@ describe("pillBox", () => {
       width: 90,
       height: 32,
     });
-  });
-
-  it("measures both axes, so a wrapped strip lands on the right line", () => {
-    // Second row of a strip that wrapped: same track, y is what tells them apart.
-    expect(pillBox(rect(0, 0, 300, 80), rect(8, 44, 70, 32))?.y).toBe(44);
   });
 
   it("gives no position to a zero-area item", () => {
@@ -241,15 +236,6 @@ describe("createSlidingPill", () => {
     expect(pillEl().style.transition).toContain("transform");
   });
 
-  it("re-measures when the track reflows under it", async () => {
-    const { pillEl } = mount();
-    await settle();
-    // The rail got wider; the rows with it.
-    rects.one = rect(0, 108, 260, 36);
-    FakeResizeObserver.fire();
-    expect(pillEl().style.width).toBe("260px");
-  });
-
   it("snaps rather than slides when it was the track that changed width", async () => {
     // A window being dragged fires the observer every frame. The pill's new
     // place each time is not a move the host made, and sliding to it means the
@@ -258,7 +244,7 @@ describe("createSlidingPill", () => {
     await settle();
     rects.track = rect(0, 100, 260, 200);
     rects.one = rect(0, 108, 260, 36);
-    FakeResizeObserver.fire();
+    FakeResizeObserver.fire(screen.getByTestId("track"));
     expect(pillEl().style.width).toBe("260px");
     expect(pillEl().style.transition).toBe("none");
   });

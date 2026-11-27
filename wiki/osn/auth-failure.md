@@ -10,7 +10,7 @@ related:
   - "[[sessions]]"
   - "[[rate-limiting]]"
   - "[[email]]"
-last-reviewed: 2026-11-17
+last-reviewed: 2026-11-25
 ---
 
 # Auth Flow Failure Runbook
@@ -109,6 +109,8 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 
 | Symptom | Likely cause | Action |
 |---|---|---|
+| `403 passkey_held` on `POST /step-up/requests/:id/confirm` (Musubi's confirm page: "That passkey is less than 3 days old…") | The passkey was added by an emailed link, an authenticator code or recovery less than 72 hours ago; removing an app's data waits out that hold. `osn.auth.recovery.cooldown{outcome="app_delete_refused"}` counts it | Confirm with an older passkey, or start again from the app after `hold_ends_at` (unix seconds). No other factor skips it ([[account-deletion#Leaving one app takes a passkey]]) |
+| `{ ok: false, reason: "invalid" }` from `/internal/step-up/verify` for `pulse_app_delete` or `zap_app_delete` with a token minted moments ago | The token is an emailed link's or an authenticator code's, or a passkey's inside its 72-hour hold: removing an app's data takes a passkey past its hold. `osn.auth.step_up.verified{result="amr_not_allowed"}` or `{result="provenance_blocked"}`, with the purpose | Step up with a passkey the account has held for 72 hours |
 | `403 email_change_held` on `POST /account/security-events/:id/ack` | The event is an `email_changed` row less than 7 days old; no factor clears it until `holdEndsAt` (unix seconds) | Wait until `holdEndsAt`; `ack-all` dismisses every other row meanwhile |
 | `403 step_up_required` on `DELETE /account`, `POST /account/restore`, `GET /account/export`, `POST /recovery/generate`, `PATCH` or `DELETE /passkeys/:id`, `POST /account/security-events/:id/ack` or `/ack-all`, `POST /totp/enroll/begin`, `DELETE /totp` | Token missing or wrong amr | Mint a token with `POST /step-up/passkey/{begin,complete}`, the emailed link (`POST /step-up/email/begin`, then the status poll) or `POST /step-up/totp/complete`. Check the route's `allowedAmr` config |
 | `400` on `POST /account/email/:requestId/complete` | `step_up_token` is a required body field there, so a missing one fails body validation; a request not yet confirmed, spent, replaced by a newer begin or another account's, and a stale token, are also `400 invalid_request` | Poll status until `confirmed`, mint a fresh `email_change` token, and complete; a refused request needs a new begin |

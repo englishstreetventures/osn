@@ -1263,7 +1263,11 @@ const GATED: readonly GatedCall[] = [
       path: `/step-up/requests/${await appStepUpRequest(h, profile)}/confirm`,
       body: {
         step_up_token: await h.svc(
-          mintStepUpToken(h.auth, profile.accountId, "otp", "cire_app_delete"),
+          mintStepUpToken(h.auth, profile.accountId, "passkey", "cire_app_delete", {
+            id: "pk_aaaaaaaaaaaa",
+            provenance: "webauthn",
+            createdAt: Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60,
+          }),
         ),
       },
       ok: 200,

@@ -1,5 +1,6 @@
 import type { DesignMeta } from "@cire/invite-designs";
 import { cors } from "@elysiajs/cors";
+import { arcKidMacSecret } from "@shared/crypto/arc-kid";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
@@ -86,7 +87,10 @@ import {
   createRegistryGuestListRoutes,
   createRegistryGuestMineRoutes,
 } from "./routes/registry-guest";
-import { createRegistryStripeRoutes } from "./routes/registry-stripe";
+import {
+  createRegistryStripeRetireRoutes,
+  createRegistryStripeRoutes,
+} from "./routes/registry-stripe";
 import {
   createRegistryStripeOAuthRoutes,
   createStripeOAuthCallbackRoutes,
@@ -588,6 +592,14 @@ export interface AppOptions {
    * `index.ts`; tests inject a literal.
    */
   internalRevokeSecret?: string | null;
+  /**
+   * The secret osn-api keys one of its ARC kid MACs with for that alone
+   * (`OSN_ARC_KID_SECRET`, read in `index.ts` and `local.ts`). Set, the
+   * account-deletion and export calls refuse a kid with no MAC that verifies
+   * under it before fetching osn-api's keys (`lib/osn-arc.ts`). Absent, or
+   * shorter than 32 characters ⇒ no kid is checked.
+   */
+  osnArcKidSecret?: string;
   /** Override the internal revoke rate limiter (useful for testing). */
   internalRevokeLimiter?: RateLimiterBackend;
   /**
@@ -902,6 +914,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     oidcStartLimiter = defaultOidcStartLimiter,
     oidcSessionLimiter = defaultOidcSessionLimiter,
     internalRevokeSecret = null,
+    osnArcKidSecret,
     internalRevokeLimiter = defaultInternalRevokeLimiter,
     digestStopSecret = null,
     digestStopLimiter = defaultDigestStopLimiter,
@@ -987,6 +1000,20 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
         {
           detail:
             "guests are offered no money gift until the Connect webhook secret is set and the Worker redeployed",
+        },
+      ),
+    );
+  }
+
+  if (osnArcKidSecret !== undefined && arcKidMacSecret(osnArcKidSecret) === undefined) {
+    // Once per app build. Names the variable, never its value. A value this
+    // short is treated as unset, as osn-api treats its own.
+    runCireSync(
+      Effect.logWarning(
+        "osn-api's ARC key ids are not checked: OSN_ARC_KID_SECRET is shorter than 32 characters",
+        {
+          detail:
+            "set a value from `openssl rand -base64 32`, the one osn-api holds, and redeploy the Worker",
         },
       ),
     );
@@ -1185,12 +1212,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       // `Origin`. ARC authenticates each call (lib/osn-arc.ts).
       .use(
         createInternalAccountDeletionRoutes(db, {
-          osnIssuer: osnIssuerUrl,
+          osnArc: { osnIssuer: osnIssuerUrl, kidSecret: osnArcKidSecret },
           organiserOrigin,
         }),
       )
       // osn-api's account export, cire's section of it: the same reasons.
-      .use(createInternalAccountExportRoutes(db, { osnIssuer: osnIssuerUrl, organiserOrigin }))
+      .use(
+        createInternalAccountExportRoutes(db, {
+          osnArc: { osnIssuer: osnIssuerUrl, kidSecret: osnArcKidSecret },
+          organiserOrigin,
+        }),
+      )
       // The digest's one-click stop link. Mounted BEFORE the origin guard: a
       // mail provider's one-click POST has no Origin, and the confirm page's
       // form posts from this API's own origin. A signed token authorises it.
@@ -1414,6 +1446,16 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
               takesPayments,
             })
           : new Elysia(),
+      )
+      // Retiring the wedding's Stripe account: owner-only, behind the same
+      // per-organiser limiter, and mounted on every deployment and tier — it
+      // calls Stripe for nothing and only clears cire's own row.
+      .use(
+        createRegistryStripeRetireRoutes(db, osnAuthOptions, {
+          limiter: registryStripeLimiter,
+          takesPayments,
+          ownerNotices,
+        }),
       )
       // Stripe Connect OAuth: the start, behind the same owner, tier and
       // per-organiser gates as onboarding, and the callback Stripe redirects

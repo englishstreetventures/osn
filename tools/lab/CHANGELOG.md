@@ -1,5 +1,99 @@
 # @tools/lab
 
+## 0.3.94
+
+### Patch Changes
+
+- b378067: The lab lists the new menu-row radius role, `--ui-radius-menu-row`, in the radius gallery, gives cire's subtree the role's fallback, and adds `shared/ui/overlays/MenuRowCorner`: an open default menu above a drawn `Checkbox`, its control lending the role 8px or nothing, with both corners read back from the page.
+- 065e215: The lab's `MenuItems` story says its rows take Musubi's 8px menu-row corner, since the lab loads Musubi's stylesheet, where pulse's rows keep its 6px small corner.
+- Updated dependencies [b378067]
+  - @shared/design-tokens@0.12.0
+  - @shared/ui@0.20.2
+  - @osn/auth-ui@6.6.1
+
+## 0.3.93
+
+### Patch Changes
+
+- e393eb0: Musubi's sign-up keeps what was typed across a closed dialog or a reload, says under the handle what typing does to it, refuses a date of birth in the future or more than 120 years ago with a line saying so, and holds Send for a minute after a rate limit, counting down. The passkey step names the handle the account was made under, comes back after a reload or a closed tab while the account's session lasts, and ends on a screen with a heading, a line and one action when that session has gone: Sign in, or Sign in with your new passkey once the passkey is in. `Register` takes `onSignIn` and `SignIn` takes `onCreateAccount`, and Musubi's dialogs link to each other with them, the second opening once the first has closed. `CreateProfileForm`'s handle field shows the same hint and too-long line as `Register`'s, from `@osn/auth-ui/handle-copy`. `SignIn` removes the sign-up draft and the passkey-step marker once its session is published, on every host, and `forgetEnrolling(profileId)` removes the marker only when it names that account.
+- Updated dependencies [e393eb0]
+- Updated dependencies [e393eb0]
+  - @osn/auth-ui@6.6.0
+  - @osn/client@4.8.0
+
+## 0.3.92
+
+### Patch Changes
+
+- Updated dependencies [cd4349b]
+  - @osn/auth-ui@6.5.11
+
+## 0.3.91
+
+### Patch Changes
+
+- Updated dependencies [b8fc725]
+  - @osn/client@4.7.0
+  - @osn/auth-ui@6.5.10
+
+## 0.3.90
+
+### Patch Changes
+
+- Updated dependencies [9aab460]
+  - @shared/ui@0.20.1
+  - @osn/auth-ui@6.5.9
+
+## 0.3.89
+
+### Patch Changes
+
+- ca94e62: A `Dialog` sheet below `md` can be dragged down by its title row, or by its body once scrolled to the top, to close it. It follows the finger, its scrim fading with it; let go past a quarter of its height or after a flick it closes through `onOpenChange(false)` on a no-bounce spring started at the finger's speed, and otherwise springs back. Under reduced motion it still follows the finger and fades once let go. `DialogContent` takes `dismissible`, which refuses the drag, Escape and a press outside while false; the step-up sheet, the profile switcher and the delete-organisation confirmation pass it while their call runs. The rubber band and the spring move to `@shared/ui/lib/spring`. The lab gains a `DialogSheetDrag` story.
+- Updated dependencies [ca94e62]
+  - @shared/ui@0.20.0
+  - @osn/auth-ui@6.5.8
+
+## 0.3.88
+
+### Patch Changes
+
+- c266b7f: Removing an app's data takes a passkey. `pulse_app_delete` and `zap_app_delete` at `/internal/step-up/verify`, and `cire_app_delete` at `POST /step-up/requests/:id/confirm`, now admit a passkey step-up alone (`appDeleteAllowedAmr`, fixed in `context.ts`), and a passkey added by an emailed link, an authenticator code or recovery only once it is 72 hours old. The confirm route answers a passkey inside that hold `403 { error: "passkey_held", hold_ends_at }`; `createAppStepUpClient().confirm` resolves it as `{ status: "held", holdEndsAt }`.
+
+  `StepUpDialog` offers the passkey alone for the three purposes. Musubi's confirm page always tells a person with no such passkey to add one in Settings and start again from the app in 3 days, and names the day and time a held passkey's hold ends.
+
+  Every passkey enrolled from a restricted recovery session is stamped `recovery`, and so is an account's first passkey enrolled within 72 hours of any recovery, so it waits out the same hold; a first passkey from sign-up stays `webauthn`.
+
+  `osn.auth.step_up.verified` gains a bounded `purpose` attribute, and `osn.auth.recovery.cooldown` an `app_delete_refused` outcome.
+
+  The lab's `osn/auth-ui/StepUpDialog/AppDataRemoval` story shows the sheet for removing an app's data, and the playground offers `cire_app_delete`.
+
+- Updated dependencies [c266b7f]
+  - @osn/client@4.6.0
+  - @osn/auth-ui@6.5.7
+
+## 0.3.87
+
+### Patch Changes
+
+- Updated dependencies [91b32ae]
+  - @osn/client@4.5.0
+  - @osn/auth-ui@6.5.6
+
+## 0.3.86
+
+### Patch Changes
+
+- Updated dependencies [80aa052]
+  - @osn/client@4.4.1
+  - @osn/auth-ui@6.5.5
+
+## 0.3.85
+
+### Patch Changes
+
+- Updated dependencies [0edd50f]
+  - @osn/auth-ui@6.5.4
+
 ## 0.3.84
 
 ### Patch Changes

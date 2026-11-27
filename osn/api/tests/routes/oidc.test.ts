@@ -20,6 +20,7 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import { createApp } from "../../src/app";
 import { buildAppDeps } from "../../src/build-deps";
+import type { CeremonyStore } from "../../src/lib/ceremony-store";
 import { createDurableCeremonyStore } from "../../src/lib/coordination/durable";
 import { createInMemoryCoordination } from "../../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../../src/observability";
@@ -31,8 +32,9 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
-import { registeredResponse } from "../helpers/registration";
+import { registeredResponse, registerThroughRoutes } from "../helpers/registration";
 import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
+import { noneAttestation, type CreationOptions } from "../helpers/soft-authenticator";
 
 const REDIRECT_URI = "https://rp.example.com/callback";
 const VERIFIER = "test-code-verifier-0123456789abcdefghijklmnopqrstuvwxyz";
@@ -129,18 +131,19 @@ function setup(
   };
 }
 
-/** Registers an account; returns its session cookie + a bearer access token. */
+/**
+ * Registers an account and adds its first passkey; returns its session cookie
+ * + a bearer access token, both of the ordinary session the passkey earns.
+ */
 async function register(
   h: Harness,
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  const res = await registeredResponse(h.app, h.recorded, email, handle);
-  const body = (await res.json()) as { session: { access_token: string } };
-  const setCookie = res.headers.get("set-cookie") ?? "";
-  const token = setCookie.split(";")[0];
+  const done = await registerThroughRoutes(h.app, h.recorded, email, handle);
+  const token = done.cookies.map((c) => c.split(";")[0]!).find((c) => c.startsWith("osn_session="));
   expect(token).toContain("osn_session=");
-  return { cookie: token, accessToken: body.session.access_token };
+  return { cookie: token!, accessToken: done.accessToken };
 }
 
 /** Registers an account and returns its session cookie header value. */
@@ -453,7 +456,7 @@ describe("GET /authorize", () => {
     expect(loc.searchParams.get("error")).toBe("invalid_request");
   });
 
-  it("serves the rendered rate_limited error page when the oidcAuthorize limiter denies (#465)", async () => {
+  it("serves the rendered rate_limited error page when the oidcAuthorize limiter denies", async () => {
     const { layer } = createTestLayerWithSqlite();
     const rec = makeLogEmailLive();
     const limiters: AuthRateLimiters = {
@@ -472,7 +475,7 @@ describe("GET /authorize", () => {
 });
 
 describe("renderAuthorizeErrorPage", () => {
-  it("renders each known code's own copy (#492 item 1)", () => {
+  it("renders each known code's own copy", () => {
     const invalidClient = renderAuthorizeErrorPage("invalid_client");
     expect(invalidClient).toContain("We don't recognise the app that sent you here");
     expect(invalidClient).toContain("<code>invalid_client</code>");
@@ -488,19 +491,19 @@ describe("renderAuthorizeErrorPage", () => {
     expect(rateLimited).toContain("<code>rate_limited</code>");
   });
 
-  it("falls back to the invalid_request copy for an unrecognised code (#492 item 2)", () => {
+  it("falls back to the invalid_request copy for an unrecognised code", () => {
     const html = renderAuthorizeErrorPage("server_error");
     expect(html).toContain("This sign-in link is malformed or has expired");
     expect(html).toContain("<code>server_error</code>");
   });
 
-  it("does not leak the built-in Object.prototype.constructor (#464)", () => {
+  it("does not leak the built-in Object.prototype.constructor", () => {
     const html = renderAuthorizeErrorPage("constructor");
     expect(html).toContain("This sign-in link is malformed or has expired");
     expect(html).not.toContain("native code");
   });
 
-  it("does not resolve a planted Object.prototype member as copy (#492 item 3)", () => {
+  it("does not resolve a planted Object.prototype member as copy", () => {
     // Guard pin matching the house form in
     // musubi/social/tests/components/AuthorizePage.test.tsx. Non-enumerable, so
     // no unrelated `for...in` loop across the test run can see it, and
@@ -735,6 +738,49 @@ async function parkRequest(
   return { requestId, profileId: profiles[0].id, cookie };
 }
 
+/**
+ * `store`, and `pairs(k)`: the next `2k` calls that read an entry — `get`, and
+ * the single-use `consume` — run as they arrive, two at a time, and neither of
+ * a pair answers until both have run. Every other call goes straight through.
+ * A read left without its pair for two seconds fails, saying so; a passing run
+ * never reaches the bound.
+ */
+function readsInPairs<V>(store: CeremonyStore<V>) {
+  let left = 0;
+  let waiting: (() => void)[] = [];
+  const paired = async <A>(read: Promise<A>): Promise<A> => {
+    const value = await read;
+    if (left === 0) return value;
+    left -= 1;
+    await new Promise<void>((resolve, reject) => {
+      const bound = setTimeout(
+        () => reject(new Error("a read waited two seconds for its pair")),
+        2_000,
+      );
+      waiting.push(() => {
+        clearTimeout(bound);
+        resolve();
+      });
+      if (waiting.length < 2) return;
+      const pair = waiting;
+      waiting = [];
+      for (const answer of pair) answer();
+    });
+    return value;
+  };
+  const wrapped: CeremonyStore<V> = {
+    ...store,
+    get: (key) => paired(store.get(key)),
+    consume: (key, expected) => paired(store.consume(key, expected)),
+  };
+  return {
+    store: wrapped,
+    pairs: (k: number) => {
+      left = 2 * k;
+    },
+  };
+}
+
 describe("POST /authorize/decision", () => {
   it("401s when the decider is not signed in", async () => {
     const h = setup();
@@ -823,10 +869,17 @@ describe("POST /authorize/decision", () => {
   });
 
   it("answers exactly one of two decisions sent at once on one request", async () => {
-    const h = setup();
+    // Each decision reads the parked request, then claims it. Both reads run
+    // before either answers, and both claims likewise, so the claim alone
+    // decides: one that read the entry and then deleted it would let both
+    // decisions through.
+    const stores = createDefaultCeremonyStores();
+    const reads = readsInPairs(stores.authorizeRequests);
+    const h = setup({ ceremonyStores: { ...stores, authorizeRequests: reads.store } });
     h.seedClient();
     const sessionCookie = await signIn(h, "race@example.com", "race_user");
     const { requestId, profileId, cookie } = await parkRequest(h, sessionCookie);
+    reads.pairs(2);
 
     const decide = () =>
       h.app.handle(
@@ -1712,7 +1765,7 @@ describe("POST /oidc/token", () => {
   });
 });
 
-describe("browser binding (S-M1)", () => {
+describe("browser binding", () => {
   it("sets an HttpOnly short-TTL binding cookie on the interaction redirect", async () => {
     const h = setup();
     h.seedClient();
@@ -1770,9 +1823,32 @@ describe("browser binding (S-M1)", () => {
     );
     expect(real.status).toBe(200);
   });
+
+  it("a decision without the binding cookie reads exactly like an unknown id", async () => {
+    const h = setup();
+    h.seedClient();
+    const sessionCookie = await signIn(h, "oracle@example.com", "oracle_user");
+    const { requestId, profileId } = await parkRequest(h, sessionCookie);
+
+    const decideWithout = (id: string) =>
+      h.app.handle(
+        new Request("http://localhost/authorize/decision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie: sessionCookie },
+          body: JSON.stringify({ requestId: id, profileId, approved: true }),
+        }),
+      );
+
+    const real = await decideWithout(requestId);
+    const fake = await decideWithout("oar_ffffffffffff");
+    expect(real.status).toBe(400);
+    expect(fake.status).toBe(400);
+    // Byte-identical bodies: a real-but-unbound id must not be distinguishable.
+    expect(await real.json()).toEqual(await fake.json());
+  });
 });
 
-describe("auth freshness (S-H1)", () => {
+describe("auth freshness", () => {
   it("forces re-login when the session is older than max_age", async () => {
     const h = setup();
     h.seedClient();
@@ -1928,9 +2004,50 @@ describe("auth freshness (S-H1)", () => {
     // The session is two hours old; auth_time must say so.
     expect(claims.auth_time).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) - 7000);
   });
+
+  it("prompt=login parked signed-out still demands a fresh session at decision", async () => {
+    const h = setup();
+    h.seedClient();
+    const sessionCookie = await signIn(h, "strip@example.com", "strip_user");
+    ageSessions(h, 60);
+
+    // The attacker path: strip the session cookie on the /authorize
+    // navigation so the park records no session — the freshness demand must
+    // be recorded anyway.
+    const { requestId, binding } = await startAuthorize(h, null, {
+      ...goodParams,
+      prompt: "login",
+    });
+    const cookie = `${sessionCookie}; ${binding}`;
+    const ctxRes = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    const { profiles } = (await ctxRes.json()) as { profiles: { id: string }[] };
+
+    const decide = () =>
+      h.app.handle(
+        new Request("http://localhost/authorize/decision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie },
+          body: JSON.stringify({ requestId, profileId: profiles[0]!.id, approved: true }),
+        }),
+      );
+
+    const stale = await decide();
+    expect(stale.status).toBe(400);
+    expect(((await stale.json()) as { error: string }).error).toBe("login_required");
+
+    // A session created after the park (a real re-login) is accepted.
+    h.sqlite.run(
+      `UPDATE sessions SET created_at = created_at + 120, authenticated_at = COALESCE(authenticated_at, created_at) + 120`,
+    );
+    expect((await decide()).status).toBe(200);
+  });
 });
 
-describe("token typing (S-M2)", () => {
+describe("token typing", () => {
   it("marks the OIDC access token typ: at+jwt and leaves the id_token untyped", async () => {
     const h = setup();
     h.seedClient();
@@ -1973,7 +2090,7 @@ describe("token typing (S-M2)", () => {
   );
 });
 
-describe("connections (S-M3)", () => {
+describe("connections", () => {
   /** Registers, links the account to cid_rp, returns the bearer token. */
   async function linkAccount(h: Harness, email: string, handle: string): Promise<string> {
     const { cookie: sessionCookie, accessToken } = await register(h, email, handle);
@@ -2045,20 +2162,30 @@ describe("connections (S-M3)", () => {
       "unlink_user",
     );
     const { requestId, profileId, cookie } = await parkRequest(h, sessionCookie);
-    await h.app.handle(
+    const decision = await h.app.handle(
       new Request("http://localhost/authorize/decision", {
         method: "POST",
         headers: { "Content-Type": "application/json", cookie },
         body: JSON.stringify({ requestId, profileId, approved: true }),
       }),
     );
+    expect(decision.status).toBe(200);
 
-    await h.app.handle(
+    // The consent is on record: a silent request gets a code before the revoke.
+    const before = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
+        headers: { cookie: sessionCookie },
+      }),
+    );
+    expect(new URL(before.headers.get("location")!).searchParams.get("code")).toMatch(/^cod_/);
+
+    const revoked = await h.app.handle(
       new Request("http://localhost/oidc/connections/cid_rp", {
         method: "DELETE",
         headers: { authorization: `Bearer ${accessToken}` },
       }),
     );
+    expect(revoked.status).toBe(200);
 
     const res = await h.app.handle(
       new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
@@ -2107,9 +2234,31 @@ describe("connections (S-M3)", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe("invalid_grant");
   });
+
+  it("the token exchange refuses a code whose consent was revoked mid-flight", async () => {
+    const h = setup();
+    h.seedClient();
+    const code = await mintCode(h, "midflight@example.com", "midflight_user");
+
+    // Revoke directly in the DB — simulating the race where a code slips past
+    // the revoke route's delete — so only the exchange-time re-check can act.
+    h.sqlite.run(`UPDATE oauth_consents SET revoked_at = 1 WHERE client_id = 'cid_rp'`);
+
+    const res = await h.app.handle(
+      tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: VERIFIER,
+        client_id: "cid_rp",
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("invalid_grant");
+  });
 });
 
-describe("auth freshness boundaries (S-H1)", () => {
+describe("auth freshness boundaries", () => {
   it("does not force re-login when the session age is within max_age", async () => {
     const h = setup();
     h.seedClient();
@@ -2252,51 +2401,8 @@ describe("re-consent (recordConsent conflict path)", () => {
     expect(loc.searchParams.get("code")).toMatch(/^cod_/);
     expect(loc.searchParams.get("error")).toBeNull();
   });
-});
 
-describe("security-review fixes (prep-pr round)", () => {
-  it("S-M1: prompt=login parked signed-out still demands a fresh session at decision", async () => {
-    const h = setup();
-    h.seedClient();
-    const sessionCookie = await signIn(h, "strip@example.com", "strip_user");
-    ageSessions(h, 60);
-
-    // The attacker path: strip the session cookie on the /authorize
-    // navigation so the park records no session — the freshness demand must
-    // be recorded anyway.
-    const { requestId, binding } = await startAuthorize(h, null, {
-      ...goodParams,
-      prompt: "login",
-    });
-    const cookie = `${sessionCookie}; ${binding}`;
-    const ctxRes = await h.app.handle(
-      new Request(`http://localhost/authorize/context?request=${requestId}`, {
-        headers: { cookie },
-      }),
-    );
-    const { profiles } = (await ctxRes.json()) as { profiles: { id: string }[] };
-
-    const decide = () =>
-      h.app.handle(
-        new Request("http://localhost/authorize/decision", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", cookie },
-          body: JSON.stringify({ requestId, profileId: profiles[0]!.id, approved: true }),
-        }),
-      );
-
-    const stale = await decide();
-    expect(stale.status).toBe(400);
-    expect(((await stale.json()) as { error: string }).error).toBe("login_required");
-
-    // A session created after the park (a real re-login) is accepted.
-    h.sqlite.run(
-      `UPDATE sessions SET created_at = created_at + 120, authenticated_at = COALESCE(authenticated_at, created_at) + 120`,
-    );
-    expect((await decide()).status).toBe(200);
-  });
-
-  it("S-M2: re-consent after a revoke grants only what was just approved", async () => {
+  it("re-consent after a revoke grants only what was just approved", async () => {
     const h = setup();
     h.seedClient();
     const { cookie: sessionCookie, accessToken } = await register(
@@ -2306,7 +2412,7 @@ describe("security-review fixes (prep-pr round)", () => {
     );
     const authed = { authorization: `Bearer ${accessToken}` };
 
-    const approve = async (params: Record<string, string>) => {
+    const approveScope = async (params: Record<string, string>) => {
       const { requestId, binding } = await startAuthorize(h, sessionCookie, params);
       const cookie = `${sessionCookie}; ${binding}`;
       const ctxRes = await h.app.handle(
@@ -2325,14 +2431,14 @@ describe("security-review fixes (prep-pr round)", () => {
       expect(res.status).toBe(200);
     };
 
-    await approve(goodParams); // openid profile
+    await approveScope(goodParams); // openid profile
     await h.app.handle(
       new Request("http://localhost/oidc/connections/cid_rp", {
         method: "DELETE",
         headers: authed,
       }),
     );
-    await approve({ ...goodParams, scope: "openid" });
+    await approveScope({ ...goodParams, scope: "openid" });
 
     const listRes = await h.app.handle(
       new Request("http://localhost/oidc/connections", { headers: authed }),
@@ -2341,51 +2447,6 @@ describe("security-review fixes (prep-pr round)", () => {
     // The withdrawn "profile" scope must NOT resurrect — only what the user
     // just saw on the consent screen is granted.
     expect(connections[0]!.scope).toBe("openid");
-  });
-
-  it("S-L4: the token exchange refuses a code whose consent was revoked mid-flight", async () => {
-    const h = setup();
-    h.seedClient();
-    const code = await mintCode(h, "midflight@example.com", "midflight_user");
-
-    // Revoke directly in the DB — simulating the race where a code slips past
-    // the revoke route's delete — so only the exchange-time re-check can act.
-    h.sqlite.run(`UPDATE oauth_consents SET revoked_at = 1 WHERE client_id = 'cid_rp'`);
-
-    const res = await h.app.handle(
-      tokenRequest({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: REDIRECT_URI,
-        code_verifier: VERIFIER,
-        client_id: "cid_rp",
-      }),
-    );
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe("invalid_grant");
-  });
-
-  it("S-L1: a decision without the binding cookie reads exactly like an unknown id", async () => {
-    const h = setup();
-    h.seedClient();
-    const sessionCookie = await signIn(h, "oracle@example.com", "oracle_user");
-    const { requestId, profileId } = await parkRequest(h, sessionCookie);
-
-    const decideWithout = (id: string) =>
-      h.app.handle(
-        new Request("http://localhost/authorize/decision", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", cookie: sessionCookie },
-          body: JSON.stringify({ requestId: id, profileId, approved: true }),
-        }),
-      );
-
-    const real = await decideWithout(requestId);
-    const fake = await decideWithout("oar_ffffffffffff");
-    expect(real.status).toBe(400);
-    expect(fake.status).toBe(400);
-    // Byte-identical bodies: a real-but-unbound id must not be distinguishable.
-    expect(await real.json()).toEqual(await fake.json());
   });
 });
 
@@ -2464,6 +2525,100 @@ describe("GET /authorize with a restricted recovery session", () => {
     const res = await h.app.handle(
       new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
         headers: { cookie: `osn_session=${restricted.refreshToken}` },
+      }),
+    );
+
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("error")).toBe("login_required");
+    expect(loc.searchParams.get("code")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A sign-up's session before its first passkey must not be a signed-in
+// session here either.
+//
+// The completing status poll sets the session cookie, because enrolling the
+// first passkey resolves the caller from it, but the account has no
+// credential yet. Read as signed in, it would complete an authorization for an
+// account nobody can sign back into, `prompt=create` included. Once the
+// passkey is enrolled the same cookie is an ordinary session.
+// ---------------------------------------------------------------------------
+describe("GET /authorize with a sign-up's session before its passkey", () => {
+  async function signedUpBeforePasskey(h: Harness, email: string, handle: string) {
+    const res = await registeredResponse(h.app, h.recorded, email, handle);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { profileId: string; session: { access_token: string } };
+    const cookie = res.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    return { profileId: body.profileId, accessToken: body.session.access_token, cookie };
+  }
+
+  it("treats the cookie exactly like no cookie, until the passkey is in", async () => {
+    const h = setup();
+    h.seedClient();
+    const s = await signedUpBeforePasskey(h, "su-oidc@example.com", "su_oidc_user");
+
+    const withSignUp = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: s.cookie } }),
+    );
+    const withNothing = await h.app.handle(new Request(authorizeUrl(goodParams)));
+    expect(new URL(withSignUp.headers.get("location")!).searchParams.get("reason")).toBe("login");
+    expect(new URL(withNothing.headers.get("location")!).searchParams.get("reason")).toBe("login");
+
+    // `prompt=create` is the relying party's way to send a new person to sign
+    // up; it must not end in a code for a passkeyless account either.
+    const created = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "create" }), {
+        headers: { cookie: s.cookie },
+      }),
+    );
+    expect(new URL(created.headers.get("location")!).searchParams.get("code")).toBeNull();
+
+    // The control: the same cookie, once the first passkey is enrolled, gets
+    // as far as consent, so `reason=login` above is the restriction talking.
+    const headers = {
+      Authorization: `Bearer ${s.accessToken}`,
+      "Content-Type": "application/json",
+      cookie: s.cookie,
+    };
+    const begun = await h.app.handle(
+      new Request("http://localhost/passkey/register/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ profileId: s.profileId }),
+      }),
+    );
+    expect(begun.status).toBe(200);
+    const attestation = await noneAttestation(
+      (await begun.json()) as CreationOptions,
+      config.origin,
+      config.rpId,
+    );
+    const completed = await h.app.handle(
+      new Request("http://localhost/passkey/register/complete", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ profileId: s.profileId, attestation }),
+      }),
+    );
+    expect(completed.status).toBe(200);
+    const enrolled = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: s.cookie } }),
+    );
+    expect(new URL(enrolled.headers.get("location")!).searchParams.get("reason")).toBe("consent");
+  });
+
+  it("prompt=none with the cookie answers login_required, never a code", async () => {
+    const h = setup();
+    h.seedClient();
+    const s = await signedUpBeforePasskey(h, "su-oidc2@example.com", "su_oidc_user2");
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
+        headers: { cookie: s.cookie },
       }),
     );
 
@@ -2623,9 +2778,9 @@ describe("GET /authorize for an account whose deletion is pending", () => {
     expect(count(h, "oauth_authorization_codes")).toBe(0);
   });
 
-  // A page from before `pendingDeletion` shows such an account consent with
-  // its profiles, and its Cancel posts a refusal: that must still reach the
-  // relying party, since only an approval waits for a keep.
+  // A page that does not read `pendingDeletion` shows such an account consent
+  // with its profiles, and its Cancel posts a refusal: that must still reach
+  // the relying party, since only an approval waits for a keep.
   it("lets the account's Cancel through, as the refusal every Cancel sends", async () => {
     const h = setup();
     h.seedClient({ firstParty: true });

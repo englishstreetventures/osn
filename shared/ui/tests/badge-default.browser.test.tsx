@@ -20,9 +20,8 @@
  * The badges carry no text, so no width or height comes from a platform font.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { commands } from "vitest/browser";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 
 import { Badge, type BadgeProps } from "../src/ui/badge";
 
@@ -47,21 +46,6 @@ const TREATMENTS = Object.keys({ default: 1, eyebrow: 1 } satisfies Record<
 const CASES = VARIANTS.flatMap((variant) =>
   TREATMENTS.map((treatment) => ({ variant, treatment })),
 );
-
-const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
-  (
-    commands as unknown as {
-      emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
-    }
-  ).emulateMedia(options);
-
-beforeAll(async () => {
-  await emulateMedia({ forcedColors: "none" });
-});
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Jump every running transition to its end, so no value is read part-way. */
 function settle() {

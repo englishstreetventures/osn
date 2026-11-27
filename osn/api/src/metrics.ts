@@ -54,6 +54,7 @@ import type {
   SecurityInvalidationTrigger,
   SessionAction,
   StepUpFactor,
+  StepUpPurpose,
   StepUpStep,
   TotpOp,
   TotpVerifyResult,
@@ -63,6 +64,7 @@ import type {
 import { Effect } from "effect";
 
 import type { CeremonyStoreName, CoordinationStoreName } from "./lib/coordination/names";
+import type { ManageDataRefusal } from "./services/auth/client-links";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
@@ -84,6 +86,8 @@ export const OSN_METRICS = {
   coordinationStoreOps: "osn.coordination.store.operations",
   retentionRowsDeleted: "osn.retention.rows_deleted",
   retentionCycleDuration: "osn.retention.cycle.duration",
+  changeNoticeBatches: "osn.change_notice.batches",
+  changeNoticeEmails: "osn.change_notice.emails",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authSessionStaleRefused: "osn.auth.session.stale_refused",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
@@ -128,6 +132,10 @@ export const OSN_METRICS = {
   profileCrudDuration: "osn.profile.crud.duration",
   // Account data export (DSAR Art. 15 / 20)
   accountExportRequested: "osn.account.export.requested",
+  // `GET /.well-known/arc-jwks.json` refusals, by lane and the budget that refused
+  arcJwksRefused: "osn.arc.jwks.refused",
+  // `GET /.well-known/arc-jwks.json?kid=` answers, by lane and where the answer came from
+  arcJwksKeyLookups: "osn.arc.jwks.key_lookups",
   // Account deletion (Flow A)
   accountDeletionRequested: "osn.account.deletion.requested",
   accountDeletionCompleted: "osn.account.deletion.completed",
@@ -144,6 +152,7 @@ export const OSN_METRICS = {
   oidcAuthorize: "osn.oidc.authorize",
   oidcToken: "osn.oidc.token",
   oidcConsentGranted: "osn.oidc.consent.granted",
+  oidcManageDataLinkRefused: "osn.oidc.manage_data_link.refused",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -382,6 +391,15 @@ const measureSeconds =
         Effect.tapError(() => Effect.sync(() => onDuration((Date.now() - start) / 1000, "error"))),
       );
     });
+
+/**
+ * Counts one sign-up funnel step that is not a call of its own: the new
+ * account's first passkey (`passkey_enroll`), enrolled through
+ * `/passkey/register/complete`.
+ */
+export const metricAuthRegisterStep = (step: RegisterStep): void => {
+  authRegisterAttempts.inc({ step, result: "ok" });
+};
 
 export const withAuthRegister =
   (step: RegisterStep) =>
@@ -1033,12 +1051,28 @@ export const metricOidcToken = (attrs: OidcTokenAttrs): void => oidcToken.inc(at
 export const metricOidcConsentGranted = (clientKind: OidcClientKind): void =>
   oidcConsentGranted.inc({ clientKind });
 
+const oidcManageDataLinkRefused = createCounter<{ reason: ManageDataRefusal }>({
+  name: OSN_METRICS.oidcManageDataLinkRefused,
+  description:
+    "Stored manage-your-data links the connections list refused to answer, by the rule they failed",
+  unit: "{link}",
+});
+
+/** A stored link failed the read rule (`services/auth/client-links.ts`) and was answered as null. */
+export const metricOidcManageDataLinkRefused = (reason: ManageDataRefusal): void =>
+  oidcManageDataLinkRefused.inc({ reason });
+
 // ---------------------------------------------------------------------------
 // Step-up (sudo mode)
 // ---------------------------------------------------------------------------
 
 type StepUpIssuedAttrs = { factor: StepUpFactor };
-type StepUpVerifiedAttrs = { result: StepUpVerifyResult };
+/**
+ * The purpose the gate named, or `none` for a gate that names none: bounded by
+ * `StepUpPurpose`, so a dashboard can tell, say, removing an app's data from
+ * the rest.
+ */
+type StepUpVerifiedAttrs = { result: StepUpVerifyResult; purpose: StepUpPurpose | "none" };
 type SessionOpAttrs = { action: SessionAction; result: Result };
 type EmailChangeAttrs = { step: EmailChangeStep; result: Result };
 
@@ -1075,8 +1109,10 @@ const authEmailChangeDuration = createHistogram<EmailChangeAttrs>({
 
 export const metricStepUpIssued = (factor: StepUpFactor): void => authStepUpIssued.inc({ factor });
 
-export const metricStepUpVerified = (result: StepUpVerifyResult): void =>
-  authStepUpVerified.inc({ result });
+export const metricStepUpVerified = (
+  result: StepUpVerifyResult,
+  purpose: StepUpPurpose | "none",
+): void => authStepUpVerified.inc({ result, purpose });
 
 export const withStepUp =
   (step: StepUpStep) =>
@@ -1372,6 +1408,23 @@ export type ExportRequestResult =
   | "rate_limited"
   | "error";
 type ExportRequestedAttrs = { result: ExportRequestResult };
+
+/** Whose budget a key-list request spent: a configured app's zone, or the caller's address. */
+export type ArcJwksLane = "app" | "address";
+/**
+ * Why a key-list request was refused: its minute or hour budget, the budget
+ * for asks osn-api cannot verify (`probe`), or no address. A failing limiter
+ * refuses as its budget would, so a store failure reads as `hour`.
+ */
+export type ArcJwksRefusal = "minute" | "hour" | "probe" | "unresolved";
+type ArcJwksRefusedAttrs = { lane: ArcJwksLane; reason: ArcJwksRefusal };
+/**
+ * Where an answer to an ask for one key came from: osn-api's memory of a kid
+ * it verified, a read for one, a read for a kid it could not verify
+ * (`probe`), or no read for an ask no osn-api could have minted (`refused`).
+ */
+export type ArcJwksKeyLookup = "memory" | "read" | "probe" | "refused";
+type ArcJwksKeyLookupAttrs = { lane: ArcJwksLane; result: ArcJwksKeyLookup };
 type DeletionCompletedAttrs = {
   result: DeletionCompletedResult;
   source: DeletionCompletedSource;
@@ -1457,6 +1510,24 @@ const appEnrollmentLeft = createCounter<AppEnrollmentLeftAttrs>({
   unit: "{enrollment}",
 });
 
+const arcJwksRefused = createCounter<ArcJwksRefusedAttrs>({
+  name: OSN_METRICS.arcJwksRefused,
+  description: "Refused reads of osn-api's outbound ARC key list, by lane and reason",
+  unit: "{request}",
+});
+
+export const metricArcJwksRefused = (lane: ArcJwksLane, reason: ArcJwksRefusal): void =>
+  arcJwksRefused.inc({ lane, reason });
+
+const arcJwksKeyLookups = createCounter<ArcJwksKeyLookupAttrs>({
+  name: OSN_METRICS.arcJwksKeyLookups,
+  description: "Answers to an ask for one of osn-api's outbound ARC keys, by lane and source",
+  unit: "{request}",
+});
+
+export const metricArcJwksKeyLookup = (lane: ArcJwksLane, result: ArcJwksKeyLookup): void =>
+  arcJwksKeyLookups.inc({ lane, result });
+
 const accountExportRequested = createCounter<ExportRequestedAttrs>({
   name: OSN_METRICS.accountExportRequested,
   description: "Account data-export request attempts (DSAR Art. 15 / 20)",
@@ -1526,3 +1597,36 @@ export const withAccountDeletion =
         Effect.logError("account.deletion failed", { phase, ...safeErrorSummary(e) }),
       ),
     );
+
+// ---------------------------------------------------------------------------
+// Change notices
+// ---------------------------------------------------------------------------
+
+/** What one call of a change-notice run did with its batch. */
+export type ChangeNoticeBatchResult =
+  | "sent"
+  | "rate_limited"
+  | "refused"
+  | "unknown"
+  | "busy"
+  | "unconfirmed";
+
+const changeNoticeBatches = createCounter<{ result: ChangeNoticeBatchResult }>({
+  name: OSN_METRICS.changeNoticeBatches,
+  description: "Change-notice batches, by what the mail provider answered",
+  unit: "{batch}",
+});
+
+const changeNoticeEmails = createCounter<{ outcome: "accepted" | "refused" }>({
+  name: OSN_METRICS.changeNoticeEmails,
+  description: "Change-notice addresses the mail provider accepted, or refused on their own",
+  unit: "{email}",
+});
+
+export const metricChangeNoticeBatch = (result: ChangeNoticeBatchResult): void =>
+  changeNoticeBatches.inc({ result });
+
+export const metricChangeNoticeEmails = (accepted: number, refused: number): void => {
+  if (accepted > 0) changeNoticeEmails.add(accepted, { outcome: "accepted" });
+  if (refused > 0) changeNoticeEmails.add(refused, { outcome: "refused" });
+};

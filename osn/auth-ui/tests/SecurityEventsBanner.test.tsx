@@ -94,15 +94,18 @@ describe("SecurityEventsBanner", () => {
   afterEach(() => cleanup());
 
   it("renders nothing when the list is empty", async () => {
+    const counts: number[] = [];
     stub.list.mockResolvedValue({ events: [] });
     const { container } = render(() => (
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         productName="Musubi"
+        onVisibleCountChange={(count) => counts.push(count)}
       />
     ));
-    await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(1));
+    // The count comes once the read has landed, so the page is read after it.
+    await waitFor(() => expect(counts).toEqual([0]));
     expect(container.textContent?.trim()).toBe("");
   });
 
@@ -241,15 +244,17 @@ describe("SecurityEventsBanner", () => {
   // own banners under this one needs to know whether this one is showing.
 
   it("renders nothing, rather than throwing, when the list cannot be read", async () => {
+    const counts: number[] = [];
     stub.list.mockRejectedValue(new Error("Request failed: 429"));
     const { container } = render(() => (
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         productName="Musubi"
+        onVisibleCountChange={(count) => counts.push(count)}
       />
     ));
-    await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(counts).toEqual([0]));
     expect(container.textContent?.trim()).toBe("");
   });
 

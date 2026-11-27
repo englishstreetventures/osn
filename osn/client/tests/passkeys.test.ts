@@ -95,11 +95,6 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.init?.credentials).toBe("include");
     });
 
-    it("throws PasskeysError on non-2xx", async () => {
-      stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
-      await expect(client.list()).rejects.toBeInstanceOf(PasskeysError);
-    });
-
     it("throws PasskeysError when the body is missing the passkeys array", async () => {
       stubFetch(() => jsonResponse({ something: "else" }));
       await expect(client.list()).rejects.toBeInstanceOf(PasskeysError);
@@ -166,17 +161,10 @@ describe("createPasskeysClient", () => {
       });
       expect(result).toEqual({ success: true, remaining: 0 });
     });
-
-    it("throws PasskeysError on 403 (step-up missing server-side)", async () => {
-      stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
-      await expect(client.delete({ id: "pk_x", stepUpToken: "s" })).rejects.toBeInstanceOf(
-        PasskeysError,
-      );
-    });
   });
 
   describe("registerBegin", () => {
-    it("POSTs /passkey/register/begin with bearer + X-Step-Up-Token + body step_up_token + profileId", async () => {
+    it("POSTs /passkey/register/begin through authFetch, with X-Step-Up-Token and body step_up_token and profileId", async () => {
       const options = { challenge: "chal_xyz" };
       const { calls } = stubFetch(() => jsonResponse(options));
       const result = await client.registerBegin({
@@ -196,20 +184,10 @@ describe("createPasskeysClient", () => {
       });
       expect(calls[0]!.init?.credentials).toBe("include");
     });
-
-    it("throws PasskeysError on 403 (step-up missing server-side)", async () => {
-      stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
-      await expect(
-        client.registerBegin({
-          profileId: "prof",
-          stepUpToken: "s",
-        }),
-      ).rejects.toBeInstanceOf(PasskeysError);
-    });
   });
 
   describe("registerComplete", () => {
-    it("POSTs /passkey/register/complete with bearer and body { profileId, attestation }", async () => {
+    it("POSTs /passkey/register/complete through authFetch, with body { profileId, attestation }", async () => {
       const attestation = { id: "cred_abc" };
       const { calls } = stubFetch(() => jsonResponse({ passkeyId: "pk_new" }));
       const result = await client.registerComplete({
@@ -229,19 +207,8 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.init?.credentials).toBe("include");
     });
 
-    it("throws PasskeysError when the body is missing passkeyId", async () => {
-      stubFetch(() => jsonResponse({ error: "bad_attestation" }, { status: 400 }));
-      await expect(
-        client.registerComplete({
-          profileId: "prof",
-          attestation: {},
-        }),
-      ).rejects.toBeInstanceOf(PasskeysError);
-    });
-
-    // The negative test above hits `!res.ok` before the missing-
-    // passkeyId guard is even reached. Cover the guard directly: a 2xx
-    // with a non-string `passkeyId` must still surface as PasskeysError.
+    // A 2xx with no string `passkeyId` still surfaces as PasskeysError. The
+    // refusal before it (`!res.ok`) is client-errors' "P1 passkeys.registerComplete".
     it("throws PasskeysError on 2xx when passkeyId is absent / wrong type", async () => {
       stubFetch(() => jsonResponse({ ok: true }, { status: 200 }));
       await expect(

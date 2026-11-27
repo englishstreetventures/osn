@@ -1,5 +1,31 @@
 # @shared/infra
 
+## 0.12.1
+
+### Patch Changes
+
+- c05552d: osn-api can mail a change notice — a privacy notice or the terms are changing, what changes, the day it takes effect, a link to the page — to every account that can still sign in or restore, when the operator runs `send-change-notice` in the production operator workflow.
+
+  `@shared/email` adds the `change-notice` template, a legal notice with no unsubscribe link or header, and `sendKeyedBatch`: one batch of at most 100 in one Resend call, under an idempotency key and in permissive validation, answering how many addresses Resend accepted and refused. `EmailError` carries Resend's HTTP status and error name when Resend answered.
+
+  `@osn/db` adds `change_notice_runs`: per notice, a cursor and the batch in hand, so a run that stops half way resumes without skipping or repeating anyone. It stores no address.
+
+  `@osn/api` adds `POST /internal/change-notices/:noticeId/send`, behind its own optional secret, `OSN_CHANGE_NOTICE_SECRET` (off while unset or under 32 characters). It sends only notices in the reviewed registry `services/change-notices.json`, which ships empty, refuses unless the notice's words match the digest the approver saw, and answers counts only. Metrics `osn.change_notice.batches` and `osn.change_notice.emails`.
+
+  `@shared/infra` lists `OSN_CHANGE_NOTICE_SECRET` as an optional osn-api production secret; `@musubi/infra`'s parity and read checks name it, and `OSN_CHANGE_NOTICES_FILE`, as unset on dev.
+
+## 0.12.0
+
+### Minor Changes
+
+- 1bf7502: osn-api's outbound ARC key ids can carry a MAC under `OSN_ARC_KID_SECRET`, a secret held for that alone, beside the one under `INTERNAL_SERVICE_SECRET`. `@shared/crypto/arc-kid` takes both secrets (`ArcKidSecrets`): `mintArcKid` puts one MAC in the kid for each secret of at least 32 characters, and `checkArcKid` admits a kid one of whose MACs verifies under a secret the app holds, answering what to look the key up by (`ArcKidLookup`), or `null`. A checked kid is looked up and cached by the `<uuid>.<expiry>` its verified MAC covers, through the new `names` argument of `resolvePublicKeyForKid` (`@shared/osn-auth-client/jwks-cache`), never by a part the app did not verify. `OsnArcVerification` takes `kidSecret` and `serviceSecret`. osn-api, Zap and Pulse read `OSN_ARC_KID_SECRET`; unset, each behaves as before. osn-api warns once per key, naming the secret, when either is too short to key a MAC. Every Worker ignores a kid secret equal to the service secret, and osn-api warns of it. The inventory lists the secret as optional for osn-api, zap-api and cire-api on dev and production, one value per tier; dev refuses one under 32 characters, or equal to `INTERNAL_SERVICE_SECRET` on a Worker holding both.
+
+## 0.11.1
+
+### Patch Changes
+
+- 6223317: The cire squash cases in the D1 ledger tests (S1 to S8) take the squash release's live directory as its baseline alone and apply every later migration as the release after it, over the repository's live directory and over it with one more migration, so they hold whatever migrations a later branch adds after the baseline.
+
 ## 0.11.0
 
 ### Minor Changes

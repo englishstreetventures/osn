@@ -23,6 +23,7 @@ import { runCire } from "../observability";
 import { accountErasureService } from "../services/account-erasure";
 import type { OpenAction } from "../services/account-erasure";
 import { accountRemovalService } from "../services/account-removal";
+import type { HeldPayoutWedding } from "../services/account-removal";
 import type { OsnRemovalBridge } from "../services/osn-bridge";
 import type { WeddingSignals } from "../services/realtime";
 
@@ -40,9 +41,12 @@ import type { WeddingSignals } from "../services/realtime";
  *   holds, which the person confirms on Musubi. Answers the request's id, for
  *   the portal to send the person to Musubi's confirm page.
  * - `DELETE /api/organiser/account` — the removal. It needs the confirmed
- *   request (the cookie, and the code in the body), and an answer of `delete`
- *   for each wedding the person alone owns, or `deleteEverything`; it is
- *   refused with the fresh list otherwise. It then runs the account erasure
+ *   request (the cookie, and the code in the body). While a profile of the
+ *   account holds a wedding's payout account as one of its owners, it is
+ *   refused, naming those weddings and the way on: hand the account over or
+ *   disconnect it, then remove. Then it needs an answer of `delete` for each
+ *   wedding the person alone owns, or `deleteEverything`; it is refused with
+ *   the fresh list otherwise. It then runs the account erasure
  *   with the `host` scope, once: every seat of every profile goes, a wedding
  *   left with no owner is deleted, and the person's organiser sessions end.
  *   Past three owned weddings it answers 202 `not_finished`, and the portal
@@ -131,6 +135,13 @@ const plan = (profileIds: ReadonlyArray<string>, organiserOrigin: string) =>
 
 type SetStatus = { status?: number | string };
 
+/**
+ * The way on from a refusal for a payout account the person holds, in the
+ * words the removal screen can show as they are.
+ */
+const HOLDS_PAYOUT_ACCOUNT_MESSAGE =
+  "You connected the Stripe account that money gifts are paid into on the weddings listed. Before you remove your Cire data, hand money gifts to another owner or disconnect the account in each wedding's Money gifts settings, then remove your data again.";
+
 export interface OrganiserAccountRouteOptions {
   readonly limiter: RateLimiterBackend;
   /** osn-api's step-up request calls; absent (no ARC key), every route answers 503. */
@@ -160,6 +171,24 @@ export const createOrganiserAccountRoutes = (
     metricAccountRemoval(result);
     return answer;
   };
+  /**
+   * The removal refused while the person holds a payout account: the weddings
+   * by id and name, which they see as one of its owners, and the way on.
+   * Logged with no wedding, profile or name.
+   */
+  const holdsRefusal = (set: SetStatus, held: ReadonlyArray<HeldPayoutWedding>) =>
+    Effect.logInfo("account removal refused: holds payout account").pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          set.status = 409;
+          return counted("holds_payout_account", {
+            error: "holds_payout_account",
+            message: HOLDS_PAYOUT_ACCOUNT_MESSAGE,
+            weddings: held,
+          });
+        }),
+      ),
+    );
 
   /**
    * The account's profiles from a confirmed request, or why there are none:
@@ -326,6 +355,13 @@ export const createOrganiserAccountRoutes = (
 
         return runCire(
           Effect.gen(function* () {
+            // A wedding whose payout account a profile of the account holds,
+            // as one of its owners beside another, is handed over first: the
+            // owner chose to refuse the removal until then. Ahead of the
+            // answers, since the hand-over is done outside this screen.
+            const held = yield* accountRemovalService.payoutHolds(profileIds);
+            if (held.length > 0) return yield* holdsRefusal(set, held);
+
             // Every wedding the account alone owns needs its answer, on the
             // rows as they stand now, over every profile of the account. The
             // full list is read only for the refusal, which shows it.
@@ -344,7 +380,10 @@ export const createOrganiserAccountRoutes = (
               });
             }
 
-            const { result, owned, lowerSeatWeddings } =
+            // A holder's owner seat the erasure's own writes kept (an account
+            // connected since the read above) answers `not_finished`: the
+            // portal calls again, and that call is refused by the read.
+            const { result, owned, lowerSeatWeddings, payoutHeld } =
               yield* accountErasureService.eraseWithOutcomes({
                 accountId,
                 profileIds,
@@ -368,11 +407,16 @@ export const createOrganiserAccountRoutes = (
               }
             }
             // Each wedding a seat went from: its open tabs re-read their
-            // members, and the person's own sockets close.
+            // members, and the person's own sockets close, except where the
+            // erasure kept a payout holder's seat: the holder still sits there.
             if (options.signals) {
               const touched = new Set([...owned.map((o) => o.weddingId), ...lowerSeatWeddings]);
               for (const weddingId of touched) {
-                yield* options.signals.membersChanged(weddingId, request, profileIds);
+                yield* options.signals.membersChanged(
+                  weddingId,
+                  request,
+                  payoutHeld.includes(weddingId) ? [] : profileIds,
+                );
               }
             }
 

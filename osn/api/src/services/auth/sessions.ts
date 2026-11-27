@@ -45,7 +45,12 @@ import type { SessionSummary } from "./types";
  * See {@link createSessionsModule}'s `classifyCallerSession`.
  */
 type CallerSessionResolution =
-  | { readonly _tag: "resolved"; readonly sessionHash: string }
+  | {
+      readonly _tag: "resolved";
+      readonly sessionHash: string;
+      /** Whether the row is restricted (`restricted_until` set), expired or not. */
+      readonly restricted: boolean;
+    }
   | { readonly _tag: "none" }
   | { readonly _tag: "stale" };
 
@@ -323,7 +328,9 @@ export function createSessionsModule() {
     endFamilyOfToken(sessionToken, "sign-in").pipe(Effect.withSpan("auth.session.end_replaced"));
 
   /**
-   * The account's live session ids, most recently used first.
+   * The account's live sessions, most recently used first: each one's id and
+   * whether it is restricted (`restricted_until` set). No expiry term, so a
+   * row past its `expires_at` that nothing has deleted yet is listed too.
    *
    * `MAX_SESSIONS_PER_ACCOUNT` is enforced read-then-delete in `issueTokens`
    * and D1 has no interactive transaction, so two concurrent logins can leave
@@ -332,20 +339,22 @@ export function createSessionsModule() {
    * sits at the front of the window rather than being the row that falls off
    * the end. `sessions_account_last_used_idx` covers the sort.
    */
-  const liveSessionIds = (accountId: string): Effect.Effect<string[], DatabaseError, Db> =>
+  const liveSessionRows = (
+    accountId: string,
+  ): Effect.Effect<{ id: string; restricted: boolean }[], DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: sessions.id })
+            .select({ id: sessions.id, restrictedUntil: sessions.restrictedUntil })
             .from(sessions)
             .where(eq(sessions.accountId, accountId))
             .orderBy(desc(sessions.lastUsedAt))
             .limit(MAX_SESSIONS_PER_ACCOUNT),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return rows.map((row) => row.id);
+      return rows.map((row) => ({ id: row.id, restricted: row.restrictedUntil !== null }));
     });
 
   /**
@@ -364,8 +373,12 @@ export function createSessionsModule() {
     sessionBinding: string,
   ): Effect.Effect<string | null, DatabaseError, Db> =>
     Effect.gen(function* () {
-      const ids = yield* liveSessionIds(accountId);
-      return matchBinding(ids, profileId, sessionBinding);
+      const rows = yield* liveSessionRows(accountId);
+      return matchBinding(
+        rows.map((row) => row.id),
+        profileId,
+        sessionBinding,
+      );
     }).pipe(Effect.withSpan("auth.session.resolve_binding"));
 
   /**
@@ -388,7 +401,8 @@ export function createSessionsModule() {
    * wipe on ambiguity:
    *
    *  - `resolved`  — a cookie or `osn_sid` binding names a live session. Keep
-   *    it, revoke the rest.
+   *    it, revoke the rest. It says whether that row is restricted, so passkey
+   *    enrolment can refuse a restricted token whose row has been lifted.
    *  - `none`      — neither a cookie nor a binding was presented at all. A
    *    genuinely credential-less-but-authenticated call (an access token
    *    with no `osn_sid`, no cookie): there is no "self" to preserve, so
@@ -408,13 +422,17 @@ export function createSessionsModule() {
     Effect.gen(function* () {
       const { cookieSessionHash, sessionBinding } = caller;
       if (!cookieSessionHash && !sessionBinding) return { _tag: "none" } as const;
-      const ids = yield* liveSessionIds(accountId);
-      if (cookieSessionHash && ids.includes(cookieSessionHash)) {
-        return { _tag: "resolved", sessionHash: cookieSessionHash } as const;
-      }
-      const bound = sessionBinding ? matchBinding(ids, profileId, sessionBinding) : null;
-      if (bound) return { _tag: "resolved", sessionHash: bound } as const;
-      return { _tag: "stale" } as const;
+      const rows = yield* liveSessionRows(accountId);
+      const ids = rows.map((row) => row.id);
+      const hash =
+        cookieSessionHash && ids.includes(cookieSessionHash)
+          ? cookieSessionHash
+          : sessionBinding
+            ? matchBinding(ids, profileId, sessionBinding)
+            : null;
+      const row = hash === null ? undefined : rows.find((r) => r.id === hash);
+      if (!row) return { _tag: "stale" } as const;
+      return { _tag: "resolved", sessionHash: row.id, restricted: row.restricted } as const;
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
   /**
@@ -446,7 +464,7 @@ export function createSessionsModule() {
       if (!cookieSessionHash && !sessionBinding) return null;
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      // Same window as `liveSessionIds`: newest first, so the caller's own
+      // Same window as `liveSessionRows`: newest first, so the caller's own
       // row (recently used by definition) sits inside the cap.
       const rows = yield* Effect.tryPromise({
         try: () =>

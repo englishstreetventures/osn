@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-26
 ---
 
 # OIDC provider
@@ -73,7 +73,7 @@ sequenceDiagram
 | `POST /authorize/decision` | The consent screen | Approve or refuse. Returns `{redirectTo}` as JSON, not a 302, so `fetch` does not follow it. Requires the binding cookie; `400 login_required` means "re-authenticate, then retry the same request id"; `400 access_denied` refuses an approval from an account whose deletion is pending and leaves the request alive |
 | `POST /authorize/decline` | The consent screen, signed out; the deletion screen | Refuse only. Body `{requestId}`; returns `{redirectTo}` carrying `error=access_denied` to the registered redirect URI. Requires the binding cookie and never reads the session cookie. Unknown, expired, answered and wrong-browser ids all get `400 invalid_request` |
 | `POST /oidc/token` | The client's server | Code for tokens. Exempt from the origin guard — there is no browser here |
-| `GET /oidc/connections` | The account owner (Bearer access token) | The apps this account has authorised: client id/name/logo, linked profile, scope, granted-at |
+| `GET /oidc/connections` | The account owner (Bearer access token) | The apps this account has authorised: client id/name/logo, linked profile, scope, granted-at, and the app's own remove-my-data screen (`manageDataUrl`) when it passes [[#Manage-your-data link]], null otherwise. A revoked consent is not listed, so Revoke takes the link away with the row |
 | `DELETE /oidc/connections/:clientId` | The account owner (Bearer access token, live session; `409 session_stale` otherwise) | Withdraws the grant (Art. 7(3)) and deletes any authorization code in flight for the pair — revocation is immediate, not "after the 60 s code window drains". 404 when nothing is live. When the client is cire's (`CIRE_OIDC_CLIENT_ID`), a live revoke also ends the account's cire organiser sessions in the background, as sign out everywhere else does ([[sessions#Sign out everywhere else reaches cire]]); no other client's revoke reaches cire. With `CIRE_OIDC_CLIENT_ID` unset, any live revoke logs the back-channel as unconfigured instead. A second revoke finds nothing live, answers 404 and sends nothing; sign out everywhere else sends the calls again |
 | `GET /.well-known/openid-configuration` | Anyone | Discovery |
 | `GET /.well-known/jwks.json` | Anyone | The ES256 public key, shared with access tokens |
@@ -110,7 +110,7 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **A re-grant after revocation starts from zero.** Scope merging holds only for live consents (a narrower approval must not shrink an existing grant). Across a revocation boundary the old scope is a withdrawal record: re-approving grants exactly what the consent screen displayed, never the union with the withdrawn scopes. This holds against a revoke that lands mid-approval: the merge is written only while the row is as the approval read it (same scope, same `revoked_at`). A change in between makes the approval read the row once more and merge again; a second change in that window fails the approval with a 500 the client can retry, and writes nothing.
 
-**A restricted recovery session is not a signed-in session.** `/authorize` resolves the visitor from the HttpOnly **session cookie**, not from an access token — so the `osn-recovery` audience, which every access-token verifier rejects, does not reach this decision at all, and a recovery session sets that cookie because passkey enrolment needs it. `verifyRefreshToken` therefore refuses a restricted session unless the caller explicitly asks for one, and token refresh is the only caller that does. Without that default a user midway through account recovery — holding a session that may enrol a passkey and nothing else — could complete an authorization here and be signed into every relying party, which is full access at pulse, cire and zap from a session that has none at the issuer. A recovery cookie is treated exactly like no cookie: `reason=login`, or `login_required` under `prompt=none`. See [[sessions#The restricted recovery session]].
+**A restricted session is not a signed-in session** — a recovery's, or a sign-up's before the new account's first passkey. `/authorize` resolves the visitor from the HttpOnly **session cookie**, not from an access token — so the `osn-recovery` audience, which every access-token verifier rejects, does not reach this decision at all, and a restricted session sets that cookie because passkey enrolment needs it. `verifyRefreshToken` therefore refuses a restricted session unless the caller explicitly asks for one, and token refresh is the only caller that does. Without that default a user midway through account recovery — holding a session that may enrol a passkey and nothing else — could complete an authorization here and be signed into every relying party, which is full access at pulse, cire and zap from a session that has none at the issuer. A restricted cookie is treated exactly like no cookie: `reason=login`, or `login_required` under `prompt=none`, `prompt=create` included, so a relying party that sends a new person to sign up gets no code until the account has its passkey. See [[sessions#The restricted recovery session]].
 
 **Reserved client ids do not exist.** `RESERVED_OIDC_CLIENT_IDS` (`osn-access`, `osn-recovery`, `osn-pending-deletion`, `osn-step-up`, and the ARC S2S audiences) is enforced in `findClient` — a row seeded under such a name reads as absent everywhere at once. Self-serve registration cannot collide by construction (`client_id` is server-generated), so the lookup guard covers hand-seeded rows. OIDC access tokens carry a `typ: "at+jwt"` header (RFC 9068), so no verifier can mistake one for an ID token or a first-party token even before checking `aud`.
 
@@ -150,7 +150,7 @@ First-party clients skip the consent screen — the link is recorded for the def
 
 Three tables in `@osn/db` (migration `0002_wet_gamora`):
 
-- `oauth_clients` — the registry. `redirect_uris` is a JSON array; exact match, no wildcards. `sector_identifier` feeds the pairwise subject. `client_secret_hash` is null for public clients. Confidential clients register themselves through the routes below; first-party rows are seeded by hand, because `is_first_party` is not a registration input.
+- `oauth_clients` — the registry. `redirect_uris` is a JSON array; exact match, no wildcards. `sector_identifier` feeds the pairwise subject. `client_secret_hash` is null for public clients. `manage_data_url` is the app's own remove-my-data screen, null when it has none ([[#Manage-your-data link]]). Confidential clients register themselves through the routes below; first-party rows are seeded by hand, because `is_first_party` is not a registration input.
 - `oauth_authorization_codes` — id is the hash of the code. 60-second TTL. A redeemed code is deleted on the spot; an abandoned one is left behind, so `runExpiredAuthCodeSweep` (a `DELETE … WHERE expires_at <= now`, riding `oauth_codes_expires_idx`) runs from the Worker's `scheduled` handler alongside the session and deletion sweeps. Nothing reads an expired code — the sweep only keeps the table from growing without bound.
 - `oauth_consents` — one row per (account, client), holding the linked profile and the granted scope. Scope **merges** on re-consent, never replaces. The write is insert-first (`INSERT … ON CONFLICT DO NOTHING`, then merge only on conflict, written only while the row is as read). Revoking (`DELETE /oidc/connections/:clientId`) stamps `revoked_at`, deletes the pair's in-flight codes, and the row is kept as the withdrawal record until account erasure purges it.
 
@@ -166,10 +166,31 @@ Three tables in `@osn/db` (migration `0002_wet_gamora`):
 | `allowed_scopes` | `openid profile email` |
 | `is_first_party` | `1` |
 | `owner_account_id` | null — a platform client, owned by nobody, so account erasure cannot disable it |
+| `manage_data_url` | `https://host.cireweddings.com/#/remove-data`, once the owner runs the step in [[production-deploy]] §3.5; null until then |
 
 The redirect URI points at **cire-api**, never at a browser origin: cire runs the exchange server-side and mints its own cookie, so no OSN token reaches the browser. The secret lives in two places that must move together — `CIRE_OIDC_CLIENT_SECRET` on the cire-api production Worker and `oauth_clients.client_secret_hash` here. Rotating one alone locks organisers out at the token endpoint. cire-api also derives the key for its RSVP digest stop links from this secret ([[cire-rsvp-changes]]), so a rotation voids the stop links in emails already sent. Local development needs its own row in the local D1, with a `http://localhost:8787/…` callback.
 
-**Registered clients (dev).** Nobody seeds the dev row by hand. The musubi stack upserts the same row into `osn-db-dev` from a seed file it imports on the first dev deploy and again whenever the file changes ([[infrastructure-as-code#Seeds and the ARC registration]]): the redirect URI is the dev cire-api origin's `/api/auth/oidc/callback`, derived from `DEV_DOMAIN` exactly as cire-api builds it from `CIRE_API_ORIGIN`, and the hash is the SHA-256 hex of the `dev` Environment's `CIRE_OIDC_CLIENT_SECRET`, which the cire stack uploads to cire-api from the same secret. A step of the musubi stack job, `cire_seed`, computes the hash; the step that deploys holds only the hash, never the secret. So the two sides cannot drift: rotate the dev secret in the `dev` Environment and dispatch **Deploy**, which updates both. A re-import never clears `disabled_at`, so a dev client someone disabled stays disabled. The SQL the stack generates carries the hash, never the secret.
+**Registered clients (dev).** Nobody seeds the dev row by hand. The musubi stack upserts the same row into `osn-db-dev` from a seed file it imports on the first dev deploy and again whenever the file changes ([[infrastructure-as-code#Seeds and the ARC registration]]): the redirect URI is the dev cire-api origin's `/api/auth/oidc/callback`, derived from `DEV_DOMAIN` exactly as cire-api builds it from `CIRE_API_ORIGIN`, and the hash is the SHA-256 hex of the `dev` Environment's `CIRE_OIDC_CLIENT_SECRET`, which the cire stack uploads to cire-api from the same secret. A step of the musubi stack job, `cire_seed`, computes the hash; the step that deploys holds only the hash, never the secret. So the two sides cannot drift: rotate the dev secret in the `dev` Environment and dispatch **Deploy**, which updates both. The seed also sets the row's `manage_data_url` to the dev organiser portal's `/#/remove-data`, built from the same `cireHost` the stack gives osn-api as `CIRE_ORGANISER_ORIGIN`, and a re-import sets it again, as it does the redirect URI. A re-import never clears `disabled_at`, so a dev client someone disabled stays disabled. The SQL the stack generates carries the hash, never the secret.
+
+## Manage-your-data link
+
+An app may carry a link to its own screen for removing a person's data from it. Musubi's Settings › Connected apps shows it on the app's row as "Remove my data from <name>": Musubi's words and the app's registered name, never text the app supplies. It opens in a new tab with `rel="noopener noreferrer"`. cire's is its organiser portal's "Remove my Cire data" screen; Pulse has none (it has a leave route and no screen for it).
+
+**Who writes it.** Operators only: the musubi stack's dev seed, the E2E seed, and the owner's one-row statement in production ([[production-deploy]] §3.5). `POST /oidc/clients` does not take it, and no route writes it.
+
+**The rule, checked on every read** (`manageDataLink` in [`services/auth/client-links.ts`](../../osn/api/src/services/auth/client-links.ts)). `GET /oidc/connections` answers the stored value only when all of these hold, and null otherwise:
+
+- the client is enabled and its row exists;
+- it is at most 512 characters and parses as a URL;
+- it is exactly its own serialisation (`href`): no upper-case scheme or host, backslash, whitespace, default port or Unicode host, so the string sent is the string checked;
+- it carries no user name or password;
+- its scheme is `https:`, or `http:` to `localhost` or `127.0.0.1` (the redirect-URI rule, `isClientUrlScheme`), checked before the origin, since a `blob:` URL reports the origin inside it;
+- the client's `redirect_uris` is a JSON list of strings. The list reads that column unparsed, so a hand-written row holding anything else refuses its own link and never fails the whole list;
+- its origin is the origin of one of the client's redirect URIs, or the app origin osn-api's deployment pins to that client id. Today that pin is one entry: `CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID` (`clientAppOrigins`), the same origin a confirmed cire step-up request returns to ([[step-up#App step-up requests]]). Ports, a trailing dot and subdomains all make another origin.
+
+The rule bounds the origin, not the path: the operator who writes the link is trusted for the page on that origin. Following it signs no one in. No first-party flag is required: the origin is one the app's registration or osn-api's own config already vouches for. A refused value counts on `osn.oidc.manage_data_link.refused`, by the rule it failed (`reason`), and is never logged.
+
+Every person with a cire connection sees cire's link, guests included: the guest site signs in through the same client, and the owner chose on 2026-11-20 to show it to everyone, since guests' data is collected through cire too. cire's screen is for hosts today: it says "Leave Cire as a host" and keeps a guest's link to their invitation (englishstreetventures/osn#2448 covers a guest's own removal).
 
 ## Rate limits
 
@@ -190,6 +211,7 @@ Trust decisions, all server-owned (`registerClient` + `validateClientRegistratio
 - **`client_id` is server-generated** (`cid_` + random) — it can never collide with a reserved audience, and carries no user-chosen content. The `RESERVED_OIDC_CLIENT_IDS` lookup guard stays as defence in depth for hand-seeded rows.
 - **Redirect URIs are the open-redirect boundary**: 1–8 of them, ≤512 chars, valid URLs, `https:` only (`http:` tolerated solely for `localhost`/`127.0.0.1` development), no fragments, exact strings.
 - **`logo_url` must be https** — it flows into the first-party consent/connections UI as an image `src`.
+- **`manage_data_url` is not a registration input** — an operator sets it ([[#Manage-your-data link]]).
 - **`sector_identifier` is the client's own `client_id`**, never chosen and never derived from a redirect host — two colluding clients registering the same host could otherwise share a sector and defeat pairwise-subject isolation. A shared sector exists only on hand-seeded first-party rows, where an operator sets it deliberately.
 - **Display names that impersonate are refused.** `validateClientRegistration` folds the name to a confusable skeleton (NFKC, lowercase, digit/symbol and Cyrillic/Greek homoglyph folding) and rejects one matching a reserved first-party name such as "Musubi". The consent screen also marks whether an app is verified or a third-party host.
 - **`is_first_party` is not a registration input.** First-party status stays a hand-seeded trust decision.

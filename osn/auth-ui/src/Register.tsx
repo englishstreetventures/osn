@@ -1,10 +1,12 @@
 import {
   describeAuthError,
+  extractJwtSub,
+  isRestrictedToken,
+  type HeldSession,
   type EmailVerificationNonce,
   type PreviousRegistration,
   type RegistrationClient,
   type RegistrationStatus,
-  type Session,
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
@@ -21,24 +23,45 @@ import { createEffect, createSignal, createUniqueId, on, Show, onCleanup, onMoun
 import { AuthHeader } from "./AuthHeader";
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy } from "./error-lines";
+import { HANDLE_HINT, HANDLE_TOO_LONG } from "./handle-copy";
 import { describePasskeyError } from "./passkey-errors";
 import {
   clearLive,
+  forgetDraft,
+  forgetEnrolling,
   forgetPrevious,
+  keepEnrolling,
   keepPrevious,
   PENDING_KEY,
   PREVIOUS_KEY,
   readLive,
+  storedDraft,
+  storedEnrolling,
   storedPrevious,
   storedWaiting,
+  writeDraft,
   writeLive,
   writeStored,
   type Waiting,
 } from "./pending-sign-up";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
-import { stepAction, ViewStep } from "./ViewParts";
+import { stepAction, SwitchLine, ViewStep } from "./ViewParts";
 
-type Step = "details" | "verify" | "passkey" | "done";
+type Step = "details" | "verify" | "passkey" | "ran-out" | "added" | "done";
+
+/** The sign-up's session ended before its passkey was added. */
+class Ended extends Error {}
+/** The renewal is this account's ordinary session: its passkey is in already. */
+class AlreadyIn extends Error {
+  constructor(readonly session: HeldSession["session"]) {
+    super("The account's session is an ordinary one");
+  }
+}
+
+/** The issuer refused a renewal: the session behind the cookie has ended. */
+function sessionRefused(err: unknown): boolean {
+  return (err as { refused?: unknown } | null)?.refused === true;
+}
 
 /** The first poll waits this long after the link is sent; each later one longer, up to the cap. */
 const POLL_FIRST_MS = 2_000;
@@ -54,12 +77,64 @@ const LIMIT_LINE =
   "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again.";
 const CONFLICT_LINE = "That handle was taken while you waited. Choose another.";
 
+/**
+ * The countdown label's box: tabular figures, and an unseen two-digit label in
+ * the same cell, so the button holds one width from 60 to 1 and Cancel beside
+ * it never moves as the label loses a digit. The shown label is one text node,
+ * as the unseen one is: Chromium rounds each text node's width up to 1/64px,
+ * so the same words split over three nodes can measure 1/32px wider.
+ */
+const COUNTDOWN_BOX = "inline-grid tabular-nums";
+const COUNTDOWN_CELL = "col-start-1 row-start-1";
+const BIRTHDATE_FUTURE = "That date is in the future. Enter your date of birth.";
+const BIRTHDATE_EARLY = "Check the year. That date is more than 120 years ago.";
+/** The earliest date of birth the field takes, in years before today. */
+const OLDEST_YEARS = 120;
+/**
+ * The new account's session ended before its first passkey: the account and
+ * its address are kept, and the emailed recovery link is the way back in.
+ */
+const RAN_OUT_HEADING = "This sign-up ran out of time";
+const RAN_OUT_LINE =
+  "Your account is saved, but it has no passkey yet. Sign in, choose “Lost your passkey?”, and confirm your email to add one.";
+/** The passkey is in, but this browser holds no session for the account. */
+const ADDED_HEADING = "Your passkey is added";
+const ADDED_LINE = "Sign in with it to finish.";
+/** The passkey is in, and signing the person in failed in a way a retry may mend. */
+const NOT_SIGNED_IN_LINE = "Your passkey is added, but we couldn't sign you in. Try again.";
+/**
+ * How long Send stays held after the server answers a sign-up's begin with a
+ * rate limit: begins are counted by the minute (`registerBegin` in
+ * `osn/api/src/routes/auth/limiters.ts`), so a minute from the refusal the
+ * window has turned.
+ */
+const SEND_WAIT_MS = 60_000;
+/**
+ * How long a sign-up's session lives before its first passkey (osn-api's
+ * `RECOVERY_SESSION_TTL_SEC`): when the stored enrolment stops reopening the
+ * passkey step. The server's own deadline decides; this only stops a stale
+ * marker reopening the view.
+ */
+const ENROLMENT_WINDOW_MS = 15 * 60_000;
+
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BIRTHDATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // (COPPA) Mirrors the server's under-13 gate for immediate feedback. The
 // server remains authoritative — it re-checks and returns 422 for under-13.
 const MIN_AGE_YEARS = 13;
+
+/** `date` as `YYYY-MM-DD` on the person's own calendar, as a date field reads it. */
+function localDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** The status a failed call carries, if any. */
+function statusOf(err: unknown): number | undefined {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : undefined;
+}
 
 /**
  * Whether a call was answered with a refusal: a 4xx other than a rate limit.
@@ -105,6 +180,12 @@ interface RegisterBaseProps {
    * linking each in a tab of its own so the form keeps what was typed.
    */
   legal: { termsHref: string; privacyHref: string };
+  /**
+   * Takes the person to the host's sign-in. Given, the details step ends with
+   * "Already have an account? Sign in". A page whose Cancel already goes to
+   * sign-in (`cancelLabel`) leaves it out.
+   */
+  onSignIn?: () => void;
 }
 
 /**
@@ -126,17 +207,24 @@ export type RegisterProps = RegisterBaseProps &
   );
 
 export function Register(props: RegisterProps) {
-  const { adoptSession } = useAuth();
+  const { adoptSession, refreshHeldSession } = useAuth();
   const client = props.client;
   // Feature-detect on each mount so test code can toggle the underlying mock.
   const webauthnSupported = browserSupportsWebAuthn();
 
+  // Where this tab left off: a link it waits on, a new account still to get
+  // its passkey, and what was typed. A wait's address and handle are the ones
+  // it was sent with.
   const resumed = storedWaiting();
-  const [step, setStep] = createSignal<Step>(resumed ? "verify" : "details");
-  const [email, setEmail] = createSignal(resumed?.email ?? "");
-  const [handle, setHandle] = createSignal(resumed?.handle ?? "");
-  const [birthdate, setBirthdate] = createSignal("");
-  const [displayName, setDisplayName] = createSignal("");
+  const enrolment = resumed ? null : storedEnrolling();
+  const draft = storedDraft();
+  const [step, setStep] = createSignal<Step>(
+    resumed ? "verify" : enrolment ? "passkey" : "details",
+  );
+  const [email, setEmail] = createSignal(resumed?.email ?? draft.email);
+  const [handle, setHandle] = createSignal(resumed?.handle ?? draft.handle);
+  const [birthdate, setBirthdate] = createSignal(draft.birthdate);
+  const [displayName, setDisplayName] = createSignal(draft.displayName);
   // One signal per call, so only the button that started a wait shows it.
   const [sending, setSending] = createSignal(false);
   const [resending, setResending] = createSignal(false);
@@ -153,11 +241,16 @@ export function Register(props: RegisterProps) {
   // The wait ended because someone took the handle: a line under the handle,
   // which the field names while it shows.
   const [handleTaken, setHandleTaken] = createSignal(false);
-  const [profileId, setProfileId] = createSignal<string | null>(null);
+  const [profileId, setProfileId] = createSignal<string | null>(enrolment?.profileId ?? null);
+  // The handle the server made the account under, from its answer: what the
+  // welcome names, whatever the handle field last held.
+  const [registered, setRegistered] = createSignal<string | null>(enrolment?.handle ?? null);
+  // The restricted session's token, held for the passkey step and never
+  // published: it reaches only passkey enrolment. None after a reload, until
+  // the press asks the cookie for one. See `finish`.
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
-  // Held, not published, between the account being made and passkey
-  // enrollment. See `finish` for why the hand-off to `adoptSession` waits.
-  const [session, setSession] = createSignal<Session | null>(null);
+  // The passkey is in; what is left is signing in.
+  const [enrolled, setEnrolled] = createSignal(false);
   const [passkeyError, setPasskeyError] = createSignal<string | null>(null);
   // The email line waits until the field is left, so it is not announced on
   // every keystroke of an address still being typed.
@@ -177,6 +270,10 @@ export function Register(props: RegisterProps) {
   let resetTurnstile: (() => void) | undefined;
   // The handle box, for focus when a wait ends because the handle was taken.
   let handleField: HTMLInputElement | undefined;
+  // Send, and the line above it: where focus goes when a rate limit holds
+  // Send that held it.
+  let sendButton: HTMLButtonElement | undefined;
+  let detailsErrorLine: HTMLDivElement | undefined;
   // The browser Email Verification API field. The proposal has no feature
   // detection: the form carries the hidden field whenever osn-api hands out a
   // nonce (its flag is on), and a browser with the API fills it when the
@@ -252,18 +349,78 @@ export function Register(props: RegisterProps) {
     }, 300);
   }
 
-  // A birthdate that both parses and clears the under-13 gate. The
-  // server re-checks authoritatively (422 on under-13); this is UX only.
-  const birthdateOk = () =>
-    BIRTHDATE_RE.test(birthdate()) && ageInYears(birthdate()) >= MIN_AGE_YEARS;
-  const underAge = () => BIRTHDATE_RE.test(birthdate()) && !birthdateOk();
+  // The field's range, on the person's own calendar: no later than today, no
+  // earlier than 120 years ago. Read once per view; a view left open past
+  // midnight keeps yesterday's, which refuses nothing a person could mean.
+  const today = new Date();
+  const latestBirthdate = localDate(today);
+  const earliestBirthdate = localDate(
+    new Date(today.getFullYear() - OLDEST_YEARS, today.getMonth(), today.getDate()),
+  );
+  // What is wrong with the date typed, if anything: outside the range, or
+  // under 13. `YYYY-MM-DD` strings sort as the dates they name.
+  const birthdateProblem = (): "future" | "early" | "under-age" | null => {
+    const value = birthdate();
+    if (!BIRTHDATE_RE.test(value)) return null;
+    if (value > latestBirthdate) return "future";
+    if (value < earliestBirthdate) return "early";
+    // The server re-checks the age gate authoritatively (422 on under-13);
+    // this is UX only.
+    return ageInYears(value) >= MIN_AGE_YEARS ? null : "under-age";
+  };
+  const birthdateOk = () => BIRTHDATE_RE.test(birthdate()) && birthdateProblem() === null;
+  const birthdateLine = () => {
+    const problem = birthdateProblem();
+    if (problem === "future") return BIRTHDATE_FUTURE;
+    if (problem === "early") return BIRTHDATE_EARLY;
+    if (problem === "under-age") return `${props.productName} is for users 13 and older`;
+    return null;
+  };
   const emailMalformed = () => emailLeft() && email() !== "" && !EMAIL_RE.test(email());
+
+  // After a rate limit, Send waits out the minute. The time left is worked out
+  // from a deadline on every tick, as `CheckEmailView`'s Resend does, so a tab
+  // the browser held in the background shows the true time.
+  const [sendWait, setSendWait] = createSignal(0);
+  let sendDeadline = 0;
+  let sendTimer: ReturnType<typeof setInterval> | undefined;
+  function stopSendWait() {
+    if (sendTimer !== undefined) clearInterval(sendTimer);
+    sendTimer = undefined;
+  }
+  function tickSendWait() {
+    const left = Math.max(0, Math.ceil((sendDeadline - Date.now()) / 1000));
+    setSendWait(left);
+    if (left === 0) stopSendWait();
+  }
+  function startSendWait() {
+    stopSendWait();
+    sendDeadline = Date.now() + SEND_WAIT_MS;
+    tickSendWait();
+    sendTimer = setInterval(tickSendWait, 1000);
+  }
+  onCleanup(stopSendWait);
 
   const detailsValid = () =>
     EMAIL_RE.test(email()) &&
     handleStatus() === "available" &&
     birthdateOk() &&
     (!turnstileOn() || turnstileToken() !== null);
+
+  // What was typed goes into the tab's storage as it is typed, so closing the
+  // dialog or reloading keeps it. A date of birth the form would refuse is
+  // left out. Once the account is made there is nothing left to keep.
+  createEffect(() => {
+    const current = step();
+    const draftNow = {
+      email: email(),
+      handle: handle(),
+      birthdate: birthdateOk() ? birthdate() : "",
+      displayName: displayName(),
+    };
+    if (current !== "details" && current !== "verify") return;
+    writeDraft(draftNow);
+  });
 
   // ---------------------------------------------------------------------------
   // Waiting on the link
@@ -322,7 +479,7 @@ export function Register(props: RegisterProps) {
     // view takes it to the passkey step, and once the view is gone it is
     // handed over without one.
     if (answer?.status === "complete") {
-      if (disposed) void handOver(answer, request.requestId);
+      if (disposed) handOver(answer, request.requestId);
       else finish(answer, request.requestId);
       return;
     }
@@ -366,6 +523,12 @@ export function Register(props: RegisterProps) {
   onMount(() => {
     // An entry left by a request that has expired goes as the view opens.
     readLive();
+    // Kept from before: the handle is checked again, since its last answer is
+    // old, and a kept address is one the person has already left.
+    if (step() === "details") {
+      if (handle()) onHandleInput(handle());
+      if (email()) setEmailLeft(true);
+    }
     window.addEventListener("focus", pollOnReturn);
     document.addEventListener("visibilitychange", pollOnReturn);
     // A resumed wait polls at once: its number is not kept, and the link may
@@ -494,7 +657,7 @@ export function Register(props: RegisterProps) {
 
   async function submitDetails(e: Event) {
     e.preventDefault();
-    if (!detailsValid() || sending()) return;
+    if (!detailsValid() || sending() || sendWait() > 0) return;
     setSending(true);
     setDetailsError(null);
     const typed = email();
@@ -557,10 +720,16 @@ export function Register(props: RegisterProps) {
         forgetPrevious(previous.requestId);
       }
       // The server answers a taken email or handle the same as a free one, so
-      // this never says which; a 422 is the age gate, a 429 says to wait.
+      // this never says which; a 422 is the age gate, a 429 says to wait, and
+      // Send waits out the minute with it.
       setDetailsError(describeAuthError(err, "details"));
+      if (statusOf(err) === 429) startSendWait();
     } finally {
+      // Busy kept focus on Send through the call. A wait that now disables it
+      // would drop focus to the page, so it goes to the line saying why.
+      const held = document.activeElement === sendButton;
       setSending(false);
+      if (held && sendWait() > 0) detailsErrorLine?.focus();
     }
   }
 
@@ -630,52 +799,106 @@ export function Register(props: RegisterProps) {
   }
 
   /**
-   * Parks the new account's session in a signal — it is NOT adopted here.
-   * The passkey step authenticates with the access token directly, so
-   * nothing in the flow needs a published session, and publishing one early
-   * would announce a signed-in user whose account still has zero passkeys.
-   * Consumers act on that announcement: `@musubi/social` hides its auth
-   * dialogs the moment `session()` is truthy, which unmounted this component
-   * mid-flow and skipped enrollment altogether. `enrollPasskey` adopts it
-   * once the credential exists — that, plus the server-side last-passkey
-   * guard on `DELETE /passkeys/:id`, is what holds up the "every account has
-   * ≥1 passkey" invariant.
+   * Keeps the new account's session for the passkey step, never publishing
+   * it. Until the account has a passkey, osn-api makes that session a
+   * restricted one: its token reaches only the passkey-enrolment routes, and
+   * its cookie is no signed-in session to `/authorize` or to a `/token` grant
+   * for anything but itself (`wiki/osn/passkey-primary.md` §Account-level
+   * invariant). Publishing it would announce a signed-in user the app cannot
+   * serve; `@musubi/social` would also close its dialog at once, skipping
+   * enrolment. `enrollPasskey` publishes the session the cookie renews into
+   * once the passkey is in.
+   *
+   * The account and its handle go into the tab's storage (no token), so a
+   * reload, a closed dialog or a closed tab reopens on this step while the
+   * session lasts. The draft goes: what it held is now the account's.
    */
   function finish(done: Extract<RegistrationStatus, { status: "complete" }>, requestId: string) {
     stopPolling();
     setWaiting(null);
     setPairingCode(undefined);
-    writeStored(PENDING_KEY, null);
-    writeStored(PREVIOUS_KEY, null);
-    unshare(requestId);
+    keepAccount(done, requestId);
     setProfileId(done.profileId);
     setAccessToken(done.session.accessToken);
-    setSession(done.session);
-    setHandle(done.handle);
+    setRegistered(done.handle);
     toast.success("Email verified");
     setStep("passkey");
   }
 
   /**
-   * A completing answer that lands after the view is gone — the dialog was
-   * closed while the poll was out. There is no passkey step left to hold the
-   * session for, so it is published at once, as the cookie the answer set
-   * would publish it on the next load, and the stored wait, the request left
-   * for retiring and the shared entry for `requestId` are cleared so no later
-   * dialog or tab resumes or retires it. Nothing here touches the view.
+   * What the browser keeps once a sign-up has made its account: the account
+   * to add a passkey to (`keepEnrolling`, for every tab, as the cookie is),
+   * and nothing of the wait, the request left for retiring, the shared entry
+   * for `requestId` or the draft, so no later dialog or tab resumes or retires
+   * a request that is spent.
    */
-  async function handOver(
+  function keepAccount(
     done: Extract<RegistrationStatus, { status: "complete" }>,
     requestId: string,
   ) {
     writeStored(PENDING_KEY, null);
     writeStored(PREVIOUS_KEY, null);
+    forgetDraft();
     clearLive(requestId);
+    keepEnrolling({
+      profileId: done.profileId,
+      handle: done.handle,
+      expiresAt: Date.now() + ENROLMENT_WINDOW_MS,
+    });
+  }
+
+  /**
+   * A completing answer that lands after the view is gone — the dialog was
+   * closed while the poll was out. The account exists and the answer set the
+   * cookie of its restricted session; there is no passkey step to hold the
+   * token for, and the token reaches nothing else, so it is dropped. The
+   * browser keeps the account, so the next `Register` opens on the passkey
+   * step and asks the cookie for a token. Nothing here touches the view.
+   */
+  function handOver(done: Extract<RegistrationStatus, { status: "complete" }>, requestId: string) {
+    keepAccount(done, requestId);
+  }
+
+  /**
+   * The token the passkey step sends: the one held since the account was
+   * made, or, after a reload or once it has expired (`fresh`), one the cookie
+   * renews without publishing it. The renewal is the browser's cookie, which
+   * another tab may have changed, so it is checked: a refusal, or a token for
+   * any other profile, means the sign-up's session has ended (`Ended`); an
+   * ordinary token for this profile means its passkey went in elsewhere and
+   * the session is a full one already (`AlreadyIn`).
+   */
+  async function enrolmentToken(fresh: boolean): Promise<string> {
+    const held = fresh ? null : accessToken();
+    if (held) return held;
+    let renewed: Awaited<ReturnType<typeof refreshHeldSession>>;
     try {
-      await adoptSession(done.session);
-    } catch {
-      // Storage refused the session; the cookie still signs the browser in
-      // on its next load, and there is no view to say so.
+      renewed = await refreshHeldSession();
+    } catch (err) {
+      throw sessionRefused(err) ? new Ended() : err;
+    }
+    const token = renewed.session.accessToken;
+    if (extractJwtSub(token) !== profileId()) throw new Ended();
+    if (!isRestrictedToken(token)) throw new AlreadyIn(renewed.session);
+    setAccessToken(token);
+    return token;
+  }
+
+  /**
+   * Runs `call` with the enrolment token, renewing it once if osn-api answers
+   * 401. A 409 says the session behind the token has ended (`session_stale`).
+   */
+  async function withEnrolmentToken<T>(call: (token: string) => Promise<T>): Promise<T> {
+    const ended = (err: unknown) => (statusOf(err) === 409 ? new Ended() : err);
+    try {
+      return await call(await enrolmentToken(false));
+    } catch (err) {
+      if (statusOf(err) !== 401) throw ended(err);
+    }
+    try {
+      return await call(await enrolmentToken(true));
+    } catch (err) {
+      throw statusOf(err) === 401 ? new Ended() : ended(err);
     }
   }
 
@@ -685,40 +908,96 @@ export function Register(props: RegisterProps) {
    * is present, and until the credential exists there is no account worth
    * announcing — a failed or abandoned ceremony leaves the user signed out,
    * still on this step, able to try again.
+   *
+   * Enrolling lifts the session's restriction on the server, but the token in
+   * hand stays restricted, so the session is renewed from the cookie and
+   * published only when the renewal is this account's ordinary one. Once the
+   * passkey is in, a press only tries that renewal again.
    */
   async function enrollPasskey() {
     const id = profileId();
-    const token = accessToken();
-    if (!id || !token || enrolling()) return;
+    const name = registered();
+    if (!id || !name || enrolling()) return;
     setEnrolling(true);
     setPasskeyError(null);
     try {
-      const options = (await client.passkeyRegisterBegin({
-        profileId: id,
-        accessToken: token,
-      })) as Parameters<typeof startRegistration>[0]["optionsJSON"];
-      const attestation = await startRegistration({ optionsJSON: options });
-      await client.passkeyRegisterComplete({
-        profileId: id,
-        accessToken: token,
-        attestation,
-      });
-      toast.success(`Welcome, @${handle()}`);
-      const next = session();
-      if (next) await adoptSession(next);
-      // "done" comes last, after the session is actually published. It is the
-      // one step with no error slot and no retry button, so anything that can
-      // still fail has to fail while the passkey step is on screen — and
-      // `adoptSession` can: it writes to `localStorage`, which throws when
-      // storage is disabled or full.
-      setStep("done");
-      props.onSuccess?.();
+      if (!enrolled()) {
+        const options = (await withEnrolmentToken((token) =>
+          client.passkeyRegisterBegin({ profileId: id, accessToken: token }),
+        )) as Parameters<typeof startRegistration>[0]["optionsJSON"];
+        const attestation = await startRegistration({ optionsJSON: options });
+        await withEnrolmentToken((token) =>
+          client.passkeyRegisterComplete({ profileId: id, accessToken: token, attestation }),
+        );
+        // The account has its passkey: nothing is left to reopen this step
+        // for. Only this account's marker goes; another tab's sign-up may have
+        // written its own over it since.
+        forgetEnrolling(id);
+        setEnrolled(true);
+      }
+      await signIn(name);
     } catch (err) {
-      setPasskeyError(describePasskeyError(err, "registration"));
+      if (err instanceof Ended) {
+        forgetEnrolling(id);
+        setAccessToken(null);
+        setStep("ran-out");
+      } else if (err instanceof AlreadyIn) {
+        forgetEnrolling(id);
+        await publish(err.session, name).catch(() => setStep("added"));
+      } else if (enrolled()) {
+        setPasskeyError(NOT_SIGNED_IN_LINE);
+      } else {
+        setPasskeyError(describePasskeyError(err, "registration"));
+      }
     } finally {
       setEnrolling(false);
     }
   }
+
+  /**
+   * Publishes the session the cookie renews into, now that the account has a
+   * passkey, and only this account's ordinary one. A refused renewal, or one
+   * that is still restricted or names anyone else, means this browser holds
+   * no session for the account (it lapsed, or another tab's renewal moved
+   * it): the passkey is in all the same, so the step says to sign in with it.
+   * A renewal with no answer throws, and the press tries again.
+   */
+  async function signIn(name: string) {
+    let renewed: Awaited<ReturnType<typeof refreshHeldSession>>;
+    try {
+      renewed = await refreshHeldSession();
+    } catch (err) {
+      if (!sessionRefused(err)) throw err;
+      setStep("added");
+      return;
+    }
+    const token = renewed.session.accessToken;
+    if (isRestrictedToken(token) || extractJwtSub(token) !== profileId()) {
+      setStep("added");
+      return;
+    }
+    await publish(renewed.session, name);
+  }
+
+  /** Signs the person in with `session`, the account's own ordinary one, and ends the flow. */
+  async function publish(session: HeldSession["session"], name: string) {
+    setAccessToken(null);
+    // Unwrapped on purpose: this is the ordinary session the passkey earned,
+    // not the restricted one the step held.
+    await adoptSession(session);
+    toast.success(`Welcome, @${name}`);
+    // "done" comes last, after the session is actually published. It is the
+    // one step with no error slot and no retry button, so anything that can
+    // still fail has to fail while the passkey step is on screen — and
+    // `adoptSession` can: it writes to `localStorage`, which throws when
+    // storage is disabled or full.
+    setStep("done");
+    props.onSuccess?.();
+  }
+
+  // The sign-in the ended steps send the person to: the host's, else Cancel,
+  // which on a page such as `/authorize` is its "Sign in instead".
+  const toSignIn = () => (props.onSignIn ?? props.onCancel)();
 
   const busyNow = () => sending() || resending() || enrolling();
   const title = () => `Create your ${props.productName} account`;
@@ -766,18 +1045,44 @@ export function Register(props: RegisterProps) {
               cancelDisabled={busyNow()}
               action={
                 // Invalid only while idle: the send spends the token, and a
-                // refused one drops it before the wait ends. Described by the
-                // agreement line, so a screen reader hears what the send
-                // agrees to where it is pressed.
+                // refused one drops it before the wait ends. Held while a
+                // rate limit's minute runs, its seconds in the label (in
+                // tabular figures, so the centred label does not shift).
+                // Described by the agreement line, so a screen reader hears
+                // what the send agrees to where it is pressed.
                 <Button
+                  ref={sendButton}
                   type="submit"
                   {...stepAction(props.host)}
                   busy={sending()}
-                  disabled={!sending() && !detailsValid()}
+                  disabled={!sending() && (!detailsValid() || sendWait() > 0)}
                   aria-describedby={agreementId}
                 >
-                  {sending() ? "Sending…" : "Send verification link"}
+                  {sending() ? (
+                    "Sending…"
+                  ) : sendWait() > 0 ? (
+                    <span class={COUNTDOWN_BOX}>
+                      <span class={`${COUNTDOWN_CELL} text-center`}>
+                        {`Try again in ${sendWait()}s`}
+                      </span>
+                      <span aria-hidden="true" class={`${COUNTDOWN_CELL} invisible`}>
+                        Try again in 00s
+                      </span>
+                    </span>
+                  ) : (
+                    "Send verification link"
+                  )}
                 </Button>
+              }
+              links={
+                props.onSignIn && (
+                  <SwitchLine
+                    lead="Already have an account?"
+                    action="Sign in"
+                    onClick={props.onSignIn}
+                    disabled={busyNow()}
+                  />
+                )
               }
             >
               {/* A bare Label: the "i" beside it is a button, which a label
@@ -828,7 +1133,10 @@ export function Register(props: RegisterProps) {
                 </Show>
               </div>
 
-              <Field labelTreatment="plain" label="Handle">
+              {/* The hint stands for the whole time the field shows, so the
+                  lowercasing and the characters left out as the person types
+                  are never a surprise. */}
+              <Field labelTreatment="plain" label="Handle" hint={HANDLE_HINT}>
                 {(field) => (
                   <>
                     <UsernameInput
@@ -844,8 +1152,7 @@ export function Register(props: RegisterProps) {
                       )}
                       aria-invalid={handleTaken() || undefined}
                       status={handleStatus()}
-                      placeholder="lowercase, numbers, _"
-                      invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
+                      invalidMessage={HANDLE_TOO_LONG}
                     />
                     <Show when={handleTaken()}>
                       <Notice tone="danger" size="inline" alert id={handleTakenId}>
@@ -856,7 +1163,9 @@ export function Register(props: RegisterProps) {
                 )}
               </Field>
 
-              {/* The hint goes once a date is in; the under-13 line comes with one. */}
+              {/* The hint goes once a date is in; a line comes with a date the
+                  form refuses — in the future, more than 120 years ago, or
+                  under 13 — and the field's own range says the same. */}
               <Field
                 labelTreatment="plain"
                 label="Date of birth"
@@ -869,18 +1178,22 @@ export function Register(props: RegisterProps) {
                       type="date"
                       required
                       autocomplete="bday"
+                      min={earliestBirthdate}
+                      max={latestBirthdate}
                       value={birthdate()}
                       onInput={(e) => setBirthdate(e.currentTarget.value)}
                       aria-describedby={describedBy(
                         field["aria-describedby"],
-                        underAge() && birthdateErrorId,
+                        birthdateLine() !== null && birthdateErrorId,
                       )}
-                      aria-invalid={underAge() || undefined}
+                      aria-invalid={birthdateLine() !== null || undefined}
                     />
-                    <Show when={underAge()}>
-                      <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
-                        {props.productName} is for users 13 and older
-                      </Notice>
+                    <Show when={birthdateLine()}>
+                      {(line) => (
+                        <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
+                          {line()}
+                        </Notice>
+                      )}
                     </Show>
                   </>
                 )}
@@ -929,11 +1242,15 @@ export function Register(props: RegisterProps) {
                 .
               </p>
 
+              {/* Focus comes here, never by Tab, when a rate limit holds the
+                  Send that held it. */}
               <Show when={detailsError()}>
                 {(msg) => (
-                  <Notice tone="danger" size="inline" alert>
-                    {msg()}
-                  </Notice>
+                  <div ref={detailsErrorLine} tabindex="-1" class="focus:outline-none">
+                    <Notice tone="danger" size="inline" alert>
+                      {msg()}
+                    </Notice>
+                  </div>
                 )}
               </Show>
             </ViewStep>
@@ -965,14 +1282,26 @@ export function Register(props: RegisterProps) {
             onCancel={dismiss()}
             cancelDisabled={busyNow()}
             action={
+              // Once the passkey is in, a press only tries the sign-in again.
               <Button {...stepAction(props.host)} onClick={enrollPasskey} busy={enrolling()}>
-                {enrolling() ? "Waiting for your passkey…" : "Add a passkey"}
+                {enrolled()
+                  ? enrolling()
+                    ? "Signing in…"
+                    : "Try again"
+                  : enrolling()
+                    ? "Waiting for your passkey…"
+                    : "Add a passkey"}
               </Button>
             }
           >
+            {/* Names the handle the server made the account under, so a
+                handle edited after the link went is never silently replaced. */}
             <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-              Add a passkey or security key so you can sign back in. This is required to finish
-              creating your account.
+              Add a passkey or security key so you can sign back in as{" "}
+              <span class="text-ui-ink font-medium wrap-anywhere" translate="no">
+                @{registered()}
+              </span>
+              . This is required to finish creating your account.
             </p>
             <Show when={passkeyError()}>
               {(msg) => (
@@ -981,6 +1310,37 @@ export function Register(props: RegisterProps) {
                 </Notice>
               )}
             </Show>
+          </ViewStep>
+        </Show>
+
+        {/* Two ends that leave the person signed out with an account: its
+            session ran out before a passkey was added, or the passkey is in
+            and this browser holds no session for it. Each has one way on,
+            sign-in; neither offers the details again, whose address now has
+            an account. */}
+        <Show when={step() === "ran-out" || step() === "added"}>
+          <ViewStep
+            host={props.host}
+            onCancel={dismiss()}
+            action={
+              <Button {...stepAction(props.host)} onClick={toSignIn}>
+                {step() === "added" ? "Sign in with your new passkey" : "Sign in"}
+              </Button>
+            }
+          >
+            {/* The heading takes focus as the end appears: the passkey step's
+                button that held it is gone, and nothing else would announce
+                the change. */}
+            <h3
+              ref={(heading) => queueMicrotask(() => heading.focus())}
+              tabindex="-1"
+              class="text-ui-ink text-ui-base font-medium focus:outline-none"
+            >
+              {step() === "added" ? ADDED_HEADING : RAN_OUT_HEADING}
+            </h3>
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+              {step() === "added" ? ADDED_LINE : RAN_OUT_LINE}
+            </p>
           </ViewStep>
         </Show>
 

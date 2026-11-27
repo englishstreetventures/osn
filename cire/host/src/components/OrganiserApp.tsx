@@ -40,7 +40,7 @@ import { watchForbidden } from "../lib/forbidden-watch";
 import { invalidateHosts } from "../lib/hosts-store";
 import { invalidateInvite } from "../lib/invite-store";
 import { MembersChangedContext } from "../lib/members-changed";
-import { moduleDef } from "../lib/module-nav";
+import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
@@ -75,6 +75,7 @@ import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
 import RemovalDone from "./RemovalDone";
+import type { RemovalPlace } from "./RemoveCireData";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
 import { OwnerOnlyNote } from "./WeddingExport";
@@ -676,9 +677,14 @@ function Dashboard(props: {
       );
   }
 
-  /** "Remove my Cire data" opens a wedding's Settings view: its download, or its owners. */
-  function openWeddingSettings(weddingId: string, sub: "export" | "hosts") {
-    setRoute({ view: "weddings", weddingId, module: "settings", sub }, "push");
+  /** "Remove my Cire data" opens a wedding's download, its owners, or its Money gifts. */
+  function openWeddingSettings(weddingId: string, place: RemovalPlace) {
+    setRoute(
+      place === "money"
+        ? { view: "weddings", weddingId, module: "registry", sub: "settings" }
+        : { view: "weddings", weddingId, module: "settings", sub: place },
+      "push",
+    );
   }
 
   function selectWedding(wedding: WeddingSummary) {
@@ -1161,6 +1167,10 @@ function Dashboard(props: {
                   <RemoveCireData
                     code={takeArrivedCode()}
                     canOpen={(weddingId) => weddings()?.some((w) => w.id === weddingId) ?? false}
+                    canOpenMoney={(weddingId) => {
+                      const wedding = weddings()?.find((w) => w.id === weddingId);
+                      return wedding !== undefined && !isModuleLocked("registry", tierOf(wedding));
+                    }}
                     onOpen={openWeddingSettings}
                     onCancel={backToList}
                     onDone={props.onRemoved}

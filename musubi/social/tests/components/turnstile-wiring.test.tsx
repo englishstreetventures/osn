@@ -59,6 +59,8 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
 }));
 vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => false,
+  forgetDraft: () => {},
+  forgetEnrolling: () => {},
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { turnstileSiteKey?: string; productName: string }) => {
@@ -169,14 +171,15 @@ describe("Turnstile sitekey and product name reach every ceremony call site", ()
   it("passes both to <SignIn /> on the consent screen (default, sign-in mode)", () => {
     render(() => <AuthorizeSignIn onSuccess={() => {}} />);
     expect(captured.signIn).toEqual([{ turnstileSiteKey: SITEKEY, productName: PRODUCT_NAME }]);
+    expect(captured.register).toEqual([]);
   });
 
   // AuthorizeSignIn.tsx's register-mode <Register> is its own call site, and
-  // this is the only test that renders the consent screen with
-  // `initialMode="register"`.
+  // this is the one test that checks the sitekey and product name reach it.
   it("passes both to <Register /> on the consent screen (register mode)", () => {
     render(() => <AuthorizeSignIn initialMode="register" onSuccess={() => {}} />);
     expect(captured.register).toEqual([{ turnstileSiteKey: SITEKEY, productName: PRODUCT_NAME }]);
+    expect(captured.signIn).toEqual([]);
   });
 
   it("passes both to the shell's <SignIn /> and <Register /> dialogs", async () => {

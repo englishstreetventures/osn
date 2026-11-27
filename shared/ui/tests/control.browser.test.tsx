@@ -8,7 +8,7 @@
  * a light, a dark and a coloured ground and measured.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
@@ -20,7 +20,6 @@ import { Textarea } from "../src/ui/textarea";
 import "./test-support/tailwind.css";
 
 afterEach(async () => {
-  cleanup();
   await page.viewport(1280, 800);
 });
 
@@ -390,10 +389,6 @@ describe("Select's chevron", () => {
 });
 
 describe("on a site whose root is 17px", () => {
-  afterEach(() => {
-    document.documentElement.style.fontSize = "";
-  });
-
   it("grows a touch field and the claim code with the root, never under 44px", () => {
     document.documentElement.style.fontSize = "17px";
     render(() => (

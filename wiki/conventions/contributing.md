@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-26
 ---
 
 # Contributing
@@ -87,7 +87,7 @@ The Changeset Check workflow runs `bunx changeset status` to catch typos before 
 
 Never mix version-less packages (`@cire/*`) and versioned ones in one changeset — split them. `scripts/validate-changesets.sh` enforces both rules.
 
-**When none is needed.** A pull request that touches nothing a versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `.claude/`, `scripts/`, `wiki/`, `docs/`, top-level prose — needs no changeset, because there is no honest package to name. The test is an allowlist, `scripts/changeset-required.sh` (fixtures in `scripts/tests/changeset-required.test.sh`); anything not on it, `bun.lock` and root `turbo.json`/`tsconfig.json` included, still requires one. Always pipe the diff in:
+**When none is needed.** A pull request that touches nothing a versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `.claude/`, `scripts/`, `wiki/`, `docs/`, `tools/bend/`, a workspace's Bend law sets (`<workspace>/laws/<topic>/`), top-level prose — needs no changeset, because there is no honest package to name. The test is an allowlist, `scripts/changeset-required.sh` (fixtures in `scripts/tests/changeset-required.test.sh`); anything not on it, `bun.lock` and root `turbo.json`/`tsconfig.json` included, still requires one. Always pipe the diff in:
 
 ```bash
 git diff --name-only origin/main...HEAD | bash scripts/changeset-required.sh
@@ -131,7 +131,9 @@ Before opening a PR, verify:
 
 ## What CI runs for a change
 
-The `main` ruleset requires four checks: `CI` (the gate job in `.github/workflows/ci.yml`, which needs every job there but `E2E`), `Require changeset`, `Migration history` and `Secret scan`. The merge queue runs the same four.
+The `main` ruleset requires four checks: `CI` (the gate job in `.github/workflows/ci.yml`, which needs every job there, `E2E` included), `Require changeset`, `Migration history` and `Secret scan`. The merge queue runs the same four. `E2E` runs on pull requests only: the merge queue and the push to `main` skip it, and `CI` counts the skip as passed. So a pull request cannot merge while its `E2E` run is red, and no flow runs on the commit that lands ([[testing-patterns#The end-to-end suite]]). A pull request's `CI` finishes when `E2E` does, about ten minutes after the push; each other check still shows red as soon as it fails.
+
+*Measured 2026-11-24 — `gh api repos/englishstreetventures/osn/actions/runs/<id>/jobs` on four pull-request runs (45421980711, 45407529704, 45357789446, 45343275270): `E2E` took 8 min 42 s to 10 min 2 s.*
 
 **A prose-only change skips the heavy jobs.** The first job in `ci.yml`, `Detect a prose-only change`, diffs the change and pipes the paths through [`docs-only.sh`](../../scripts/docs-only.sh). When every path is prose, Type Check, Build & Test, the `@cire/api` unit tests, the D1 tests, the three browser legs, OpenAPI Freshness, the migration workflow and `E2E` are skipped, and the `CI` gate counts a skipped job as passed. Lint & Format, Scripts and the Secret scan run on every change. Prose is:
 
@@ -145,7 +147,7 @@ A pull request diffs its merge commit against the base it was merged with; a mer
 
 `E2E` runs the suite once and reruns a failed run whole; `E2E determinism` runs it twice and compares, daily and by hand only, so no pull request or push runs the suite twice ([[testing-patterns#The end-to-end suite]]). Swift CI (`ci-swift.yml`) runs only when Swift, Xcode or the OpenAPI documents change.
 
-*Measured 2026-11-11 — job times from `gh api repos/englishstreetventures/osn/actions/runs/<id>/jobs` on seven pull-request runs: a wiki-only change (run 42205244609) spent 9 min 9 s in `E2E`, 2 min 17 s in the migration workflow and 30 to 47 s in each other job; the gate's slowest need on most changes is the migration workflow, at 1.5 to 2.4 min.*
+*Measured 2026-11-11 — job times from `gh api repos/englishstreetventures/osn/actions/runs/<id>/jobs` on seven pull-request runs: a wiki-only change (run 42205244609) spent 9 min 9 s in `E2E`, 2 min 17 s in the migration workflow and 30 to 47 s in each other job; on most changes the migration workflow took 1.5 to 2.4 min.*
 
 ## Observability Checklist
 

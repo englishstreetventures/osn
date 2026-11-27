@@ -10,8 +10,8 @@
  * are the default's own. `field-default.browser.test.tsx` holds the default.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import { Field, type FieldProps } from "../src/ui/field";
@@ -19,8 +19,6 @@ import { Input } from "../src/ui/input";
 import { Label } from "../src/ui/label";
 
 import "./test-support/tailwind.css";
-
-afterEach(cleanup);
 
 type Treatment = NonNullable<FieldProps["labelTreatment"]>;
 

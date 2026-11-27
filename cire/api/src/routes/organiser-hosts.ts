@@ -26,6 +26,7 @@ import { AddHostBody, UpdateHostRoleBody, UpdateRunSheetScopeBody } from "../sch
 import { DELETED_PROFILE } from "../services/account-erasure";
 import { hostsService } from "../services/hosts";
 import type {
+  HoldsPayoutAccount,
   HostNotFound,
   HostWriteError,
   LastOwner,
@@ -80,6 +81,9 @@ interface HostSeatDto extends HostPersonDto {
   /** How far into the run sheet the seat sees. On a helper's seat only: it is
    *  a helper's setting, and no other role's (see {@link helperScope}). */
   runSheetScope?: RunSheetScope;
+  /** On the owner seat whose holder connected the Stripe account money gifts
+   *  are paid into, for an owner reading the list only. Absent otherwise. */
+  payoutHolder?: true;
 }
 
 /**
@@ -94,15 +98,24 @@ const helperScope = (seat: {
 }): { runSheetScope?: RunSheetScope } =>
   seat.role === "helper" ? { runSheetScope: seat.runSheetScope } : {};
 
+/**
+ * The 409 for a write that would take the owner seat of the person holding the
+ * wedding's payout account: they hand money gifts over first, or another owner
+ * replaces the account.
+ */
+const HOLDS_PAYOUT_ACCOUNT = { error: "holds_payout_account" } as const;
+
 /** The metric label for a role change the service refused or failed. */
 function roleChangeFailure(
-  err: HostNotFound | LastOwner | PeopleLimitReached | HostWriteError,
+  err: HostNotFound | LastOwner | HoldsPayoutAccount | PeopleLimitReached | HostWriteError,
 ): HostRoleChangeResult {
   switch (err._tag) {
     case "HostNotFound":
       return "not_found";
     case "LastOwner":
       return "last_owner";
+    case "HoldsPayoutAccount":
+      return "holds_payout_account";
     case "PeopleLimitReached":
       return "people_limit_reached";
     case "HostWriteError":
@@ -157,7 +170,7 @@ export const createOrganiserHostsReadRoutes = (
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/hosts", ({ weddingId, set }) => {
+      group.use(weddingMember(db)).get("/hosts", ({ weddingId, weddingIsOwner, set }) => {
         if (!weddingId) {
           set.status = 500;
           return { error: "Internal error" };
@@ -216,6 +229,9 @@ export const createOrganiserHostsReadRoutes = (
                     if (display?.displayName) row.displayName = display.displayName;
                     if (display?.avatarUrl) row.avatarUrl = display.avatarUrl;
                     if (addedBy) row.addedByHandle = addedBy.handle;
+                    // Whose bank the gifts reach is an owner's to know, as on
+                    // the registry settings.
+                    if (weddingIsOwner && h.payoutHolder) row.payoutHolder = true;
                     return row;
                   }),
                   // True row count, so a truncated list can never look complete.
@@ -265,8 +281,10 @@ export const createOrganiserHostsReadRoutes = (
  *
  * Owners are equals. Any owner may seat someone at any role, `owner` included,
  * demote or remove another owner, or step down or leave themselves; what no one
- * may do is leave the wedding with no owner (409 `last_owner`, enforced in the
- * writing statement itself).
+ * may do is leave the wedding with no owner (409 `last_owner`), or take the
+ * owner seat of the person who holds the Stripe account its money gifts are
+ * paid into (409 `holds_payout_account`, after `last_owner`), each enforced in
+ * the writing statement itself.
  *
  * Each write that changed a seat — its role, or a helper's run-sheet scope —
  * then tells the wedding's open tabs (`signals.membersChanged`). A removal and
@@ -464,12 +482,14 @@ export const createOrganiserHostsWriteRoutes = (
           { parse: () => ({}) },
         )
         // Set any seat's role to any assignable one, an owner's included — the
-        // caller's own is how an owner steps down, which is always allowed
-        // while another owner remains. 404 when the profile holds no seat on
-        // this wedding; 409 `last_owner` when the change would leave it with no
-        // owner; 409 `people_limit_reached` when moving ANOTHER owner below
-        // owner would pass the tier's people limit. A role change never adds a
-        // seat, so the host cap has nothing to say about it.
+        // caller's own is how an owner steps down, which is allowed while
+        // another owner remains. 404 when the profile holds no seat on this
+        // wedding; 409 `last_owner` when the change would leave it with no
+        // owner; 409 `holds_payout_account` when it moves the holder of the
+        // wedding's payout account below owner; 409 `people_limit_reached` when
+        // moving ANOTHER owner below owner would pass the tier's people limit.
+        // A role change never adds a seat, so the host cap has nothing to say
+        // about it.
         .put(
           "/hosts/:osnProfileId/role",
           async ({ request, weddingId, osnProfileId, params, set }) => {
@@ -559,6 +579,11 @@ export const createOrganiserHostsWriteRoutes = (
                     Effect.sync(() => {
                       set.status = 409;
                       return { error: "last_owner" };
+                    }),
+                  HoldsPayoutAccount: () =>
+                    Effect.sync(() => {
+                      set.status = 409;
+                      return HOLDS_PAYOUT_ACCOUNT;
                     }),
                   PeopleLimitReached: (err) =>
                     Effect.sync(() => {
@@ -670,7 +695,8 @@ export const createOrganiserHostsWriteRoutes = (
           { parse: () => ({}) },
         )
         // Remove any seat — a co-host's, another owner's, or the caller's own.
-        // 409 `last_owner` when it is the wedding's only owner.
+        // 409 `last_owner` when it is the wedding's only owner; 409
+        // `holds_payout_account` when its owner holds the payout account.
         .delete("/hosts/:osnProfileId", ({ request, weddingId, osnProfileId, params, set }) => {
           if (!weddingId || !osnProfileId) {
             set.status = 500;
@@ -713,6 +739,12 @@ export const createOrganiserHostsWriteRoutes = (
                       set.status = 409;
                       return { error: "last_owner" };
                     }),
+                  HoldsPayoutAccount: () =>
+                    Effect.sync(() => {
+                      metricHostRemoved("holds_payout_account", "owner");
+                      set.status = 409;
+                      return HOLDS_PAYOUT_ACCOUNT;
+                    }),
                   HostWriteError: () =>
                     Effect.sync(() => {
                       metricHostRemoved("error", "owner");
@@ -747,7 +779,9 @@ export const createOrganiserHostsWriteRoutes = (
           }
           // The same guarded removal as an owner's: an owner may leave while
           // another owner remains, and the last owner is refused 409
-          // `last_owner` — promote someone first, or delete the wedding.
+          // `last_owner` — promote someone first, or delete the wedding. An
+          // owner holding the payout account is refused 409
+          // `holds_payout_account` — hand money gifts over first.
           return runCire(
             hostsService.remove({ weddingId, osnProfileId }).pipe(
               Effect.provideService(DbService, db),
@@ -772,6 +806,12 @@ export const createOrganiserHostsWriteRoutes = (
                     metricHostRemoved("last_owner", "self");
                     set.status = 409;
                     return { error: "last_owner" };
+                  }),
+                HoldsPayoutAccount: () =>
+                  Effect.sync(() => {
+                    metricHostRemoved("holds_payout_account", "self");
+                    set.status = 409;
+                    return HOLDS_PAYOUT_ACCOUNT;
                   }),
                 HostWriteError: () =>
                   Effect.sync(() => {

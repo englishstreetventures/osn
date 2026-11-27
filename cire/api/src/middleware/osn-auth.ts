@@ -1,5 +1,7 @@
-import { extractClaims } from "@shared/osn-auth-client";
-import type { OsnAuthOptions as SharedOsnAuthOptions } from "@shared/osn-auth-client/middleware/elysia";
+import {
+  extractClaims,
+  type OsnAuthOptions as SharedOsnAuthOptions,
+} from "@shared/osn-auth-client";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 

@@ -1,5 +1,39 @@
 # @shared/email
 
+## 0.23.0
+
+### Minor Changes
+
+- c05552d: osn-api can mail a change notice — a privacy notice or the terms are changing, what changes, the day it takes effect, a link to the page — to every account that can still sign in or restore, when the operator runs `send-change-notice` in the production operator workflow.
+
+  `@shared/email` adds the `change-notice` template, a legal notice with no unsubscribe link or header, and `sendKeyedBatch`: one batch of at most 100 in one Resend call, under an idempotency key and in permissive validation, answering how many addresses Resend accepted and refused. `EmailError` carries Resend's HTTP status and error name when Resend answered.
+
+  `@osn/db` adds `change_notice_runs`: per notice, a cursor and the batch in hand, so a run that stops half way resumes without skipping or repeating anyone. It stores no address.
+
+  `@osn/api` adds `POST /internal/change-notices/:noticeId/send`, behind its own optional secret, `OSN_CHANGE_NOTICE_SECRET` (off while unset or under 32 characters). It sends only notices in the reviewed registry `services/change-notices.json`, which ships empty, refuses unless the notice's words match the digest the approver saw, and answers counts only. Metrics `osn.change_notice.batches` and `osn.change_notice.emails`.
+
+  `@shared/infra` lists `OSN_CHANGE_NOTICE_SECRET` as an optional osn-api production secret; `@musubi/infra`'s parity and read checks name it, and `OSN_CHANGE_NOTICES_FILE`, as unset on dev.
+
+## 0.22.1
+
+### Patch Changes
+
+- Updated dependencies [c266b7f]
+  - @shared/observability@0.26.6
+
+## 0.22.0
+
+### Minor Changes
+
+- 6223317: Adds the `registry-payout-retired` template: the notice a wedding's owners get when an owner retires the Stripe account its money gifts are paid into. It names who acted, whom the holder asked to connect the next account or whose account was replaced, says guests cannot give money until an owner connects an account, and links the registry's Settings tab. Copies speak to the actor, the owner asked to connect the next account, the holder whose account was replaced, and every other owner.
+
+## 0.21.4
+
+### Patch Changes
+
+- Updated dependencies [9b7ecdc]
+  - @shared/observability@0.26.5
+
 ## 0.21.3
 
 ### Patch Changes

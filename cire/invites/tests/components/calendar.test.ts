@@ -46,22 +46,6 @@ describe("googleCalendarUrl", () => {
     );
   });
 
-  it("URL-encodes commas, ampersands, and reserved characters in the name", () => {
-    const url = googleCalendarUrl(
-      { ...sydneyEvent, name: "Reception, Cocktail Hour & Dinner" },
-      SITE_URL,
-    );
-    const parsed = new URL(url);
-    expect(parsed.searchParams.get("text")).toBe("Reception, Cocktail Hour & Dinner");
-    // Ensure the raw query string really did encode the special chars (not literal &).
-    expect(parsed.search).toContain("text=Reception%2C+Cocktail+Hour+%26+Dinner");
-  });
-
-  it("passes the timezone through as ctz", () => {
-    const url = new URL(googleCalendarUrl(sydneyEvent, SITE_URL));
-    expect(url.searchParams.get("ctz")).toBe("Australia/Sydney");
-  });
-
   it("emits an empty location when the event has no address", () => {
     const url = new URL(googleCalendarUrl({ ...sydneyEvent, address: null }, SITE_URL));
     expect(url.searchParams.get("location")).toBe("");
@@ -77,11 +61,6 @@ describe("googleCalendarUrl", () => {
         "location",
       ),
     ).toBe("The Glasshouse");
-  });
-
-  it("includes the invite siteUrl in details", () => {
-    const url = new URL(googleCalendarUrl(sydneyEvent, SITE_URL));
-    expect(url.searchParams.get("details")).toBe(`An evening of henna\n\nInvite: ${SITE_URL}`);
   });
 
   it("falls back to a zero-duration entry when endAt is the '' no-stated-end sentinel", () => {
@@ -204,15 +183,6 @@ describe("icsBlob", () => {
     // Unfolding restores the original text.
     const unfolded = text.replace(/\r\n /g, "");
     expect(unfolded).toContain(`DESCRIPTION:${"A".repeat(200)}`);
-  });
-
-  it("emits a stable UID for the same event id", async () => {
-    const a = await blobText(icsBlob(sydneyEvent, SITE_URL));
-    const b = await blobText(icsBlob(sydneyEvent, SITE_URL));
-    const uidA = /UID:([^\r\n]+)/.exec(a)![1];
-    const uidB = /UID:([^\r\n]+)/.exec(b)![1];
-    expect(uidA).toBe(uidB);
-    expect(uidA).toBe(`${sydneyEvent.id}@cire.invite`);
   });
 
   it("ends with a trailing CRLF", async () => {

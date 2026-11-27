@@ -1,0 +1,188 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/cire-quote-currency",
+    "base_sha": "66bba6e95df7a232ebe9c093c21975beb76e6e87",
+    "head_sha": "362661a77b7725e020e9eacd14f9ea568de17713",
+    "generated_at": "2026-11-25T13:24:21.178Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2514,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:1"
+    ]
+  },
+  "complexity": {
+    "declared": 1,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-24T04:20:47.242Z",
+    "last_ts": "2026-11-25T13:24:19.011Z",
+    "span_seconds": 119012,
+    "active_seconds": 2706,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 17.548242400000003,
+    "tokens": {
+      "input": 422,
+      "output": 126596,
+      "thinking": 42621,
+      "cache_write_5m": 1016626,
+      "cache_write_1h": 0,
+      "cache_read": 24828761
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 422,
+          "output": 126596,
+          "thinking": 42621,
+          "cache_write_5m": 1016626,
+          "cache_write_1h": 0,
+          "cache_read": 24828761
+        },
+        "usd_equivalent": 17.548242400000003,
+        "messages": 203
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 422,
+          "output": 126596,
+          "thinking": 42621,
+          "cache_write_5m": 1016626,
+          "cache_write_1h": 0,
+          "cache_read": 24828761
+        },
+        "usd_equivalent": 17.548242400000003,
+        "messages": 205
+      }
+    },
+    "effort": {
+      "xhigh": 135,
+      "high": 68
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 1,
+      "docs": 2,
+      "config": 0,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 6,
+        "deleted": 0
+      },
+      "test": {
+        "added": 56,
+        "deleted": 7
+      },
+      "docs": {
+        "added": 6,
+        "deleted": 6
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 8,
+        "deleted": 15
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 174,
+      "Read": 16,
+      "Edit": 11,
+      "Skill": 7,
+      "Write": 6,
+      "Agent": 2,
+      "SubagentHandback": 2,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "new-feat": 1,
+      "review-tests": 1,
+      "review-docs": 2,
+      "review-security": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "reviewer": 2
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 203,
+      "with_tools": 201,
+      "with_one_tool": 183,
+      "context_median": 98432,
+      "context_p90": 236756
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 1,
+    "located": 1,
+    "acted_on": 1,
+    "paired": 1,
+    "acted_on_paired": 1,
+    "control_changed": 1,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

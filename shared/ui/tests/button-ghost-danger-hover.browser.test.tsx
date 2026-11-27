@@ -10,17 +10,13 @@
  * `tests/styles/ghost-danger-hover.browser.test.tsx`.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { Button } from "../src/ui/button";
 
 import "./test-support/tailwind.css";
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Jump every running transition to its end, so no value is read part-way. */
 function settle() {

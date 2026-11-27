@@ -64,24 +64,6 @@ describe("ProfileMenu", () => {
     }
   });
 
-  it("says a build made from no commit is local", async () => {
-    vi.stubEnv("PUBLIC_BUILD_SHA", "");
-    try {
-      render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
-      openMenu();
-      expect(await screen.findByText("Version local")).toBeTruthy();
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it("renders an initial from the display name when there is no avatar image", () => {
-    render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
-    const trigger = screen.getByRole("button", { name: /account menu/i });
-    expect(trigger.textContent).toBe("A");
-    expect(trigger.querySelector("img")).toBeNull();
-  });
-
   it("falls back to the initial when the avatar image fails to load", () => {
     // A host the CSP's `img-src` does not allow is blocked, and a blocked image
     // fires `error` like a dead link does. The failed URL is remembered for the
@@ -96,27 +78,6 @@ describe("ProfileMenu", () => {
     fireEvent.error(trigger.querySelector("img")!);
     expect(trigger.querySelector("img")).toBeNull();
     expect(trigger.textContent).toBe("A");
-  });
-
-  it("tries a new avatar URL even after an earlier one failed", () => {
-    const { unmount } = render(() => (
-      <ProfileMenu
-        session={{ ...SESSION, avatarUrl: "https://avatars.test/old.png" }}
-        onSignOut={() => {}}
-      />
-    ));
-    fireEvent.error(screen.getByRole("button", { name: /account menu/i }).querySelector("img")!);
-    unmount();
-    render(() => (
-      <ProfileMenu
-        session={{ ...SESSION, avatarUrl: "https://avatars.test/new.png" }}
-        onSignOut={() => {}}
-      />
-    ));
-    const img = screen
-      .getByRole("button", { name: /account menu/i })
-      .querySelector("img") as HTMLImageElement;
-    expect(img.src).toBe("https://avatars.test/new.png");
   });
 
   it("refuses a non-https avatar URL and falls back to the initial", () => {
@@ -183,6 +144,30 @@ describe("ProfileMenu", () => {
     expect(localStorage.getItem("cire.vendor.theme")).toBe("light");
   });
 
+  it("stays open when a theme is chosen, so the next can be compared", async () => {
+    render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+    openMenu();
+    await screen.findByRole("menuitemradio", { name: /dark/i });
+    // Kobalte closes a menu on select from a timer, so each choice runs the
+    // clock on before the menu's state is read off its trigger (outside the
+    // accessible tree while the modal menu is open).
+    const trigger = () => screen.getByRole("button", { name: /account menu/i, hidden: true });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (const name of [/dark/i, /light/i]) {
+        const row = screen.getByRole("menuitemradio", { name });
+        fireEvent.pointerDown(row, { button: 0 });
+        fireEvent.pointerUp(row, { button: 0 });
+        fireEvent.click(row);
+        vi.advanceTimersByTime(100);
+        expect(trigger()).toHaveAttribute("aria-expanded", "true");
+        expect(screen.getByRole("menuitemradio", { name })).toHaveAttribute("aria-checked", "true");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("links account management out to musubi in a new tab, without an opener", async () => {
     // Passkeys and recovery codes are bound to the musubi RP ID, so every
     // ceremony has to run on musubi's own origin — there is no in-portal
@@ -200,23 +185,16 @@ describe("ProfileMenu", () => {
 
   // ── Haptics ────────────────────────────────────────────────────────────────
 
-  it("offers a haptics switch at all, and defaults it on", async () => {
+  it("offers a haptics switch, on by default, and remembers it turned off", async () => {
     // Whether a *stored* preference is honoured is `readHapticsPreference`'s
     // contract and is covered in `lib/preferences.test.ts`, which re-imports the
     // module per case — the signal here is initialised once at module load, so
     // writing localStorage from this file could not affect it anyway.
     //
-    // What this pins is the part only the menu can break: that the row is
-    // rendered (it is gated on `hapticsAvailable()`, whose whole point is to
+    // What this pins first is the part only the menu can break: that the row
+    // is rendered (it is gated on `hapticsAvailable()`, whose whole point is to
     // stay true on iOS, where the Vibration API check says no and the
     // switch-element fallback says yes) and that the default is on.
-    render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
-    openMenu();
-    const row = await screen.findByRole("menuitemcheckbox", { name: /haptics/i });
-    expect(row).toHaveAttribute("aria-checked", "true");
-  });
-
-  it("remembers the switch being turned off", async () => {
     render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
     openMenu();
     const row = await screen.findByRole("menuitemcheckbox", { name: /haptics/i });
@@ -233,16 +211,32 @@ describe("ProfileMenu", () => {
   it("stays open when the switch is used, so it can be tried twice", async () => {
     render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
     openMenu();
-    const row = await screen.findByRole("menuitemcheckbox", { name: /haptics/i });
+    // A setting you feel is one you try, feel, and try again; closing the menu
+    // each time would make that a three-click job. Kobalte closes a menu on
+    // select from a timer, so each press runs the clock on before the menu's
+    // state is read off its trigger (outside the accessible tree while the
+    // modal menu is open).
+    const row = () => screen.getByRole("menuitemcheckbox", { name: /haptics/i });
+    const trigger = () => screen.getByRole("button", { name: /account menu/i, hidden: true });
+    const press = () => {
+      fireEvent.pointerDown(row(), { button: 0 });
+      fireEvent.pointerUp(row(), { button: 0 });
+      fireEvent.click(row());
+      vi.advanceTimersByTime(100);
+    };
+    await screen.findByRole("menuitemcheckbox", { name: /haptics/i });
+    const on = row().getAttribute("aria-checked") === "true";
 
-    fireEvent.pointerDown(row, { button: 0 });
-    fireEvent.pointerUp(row, { button: 0 });
-    fireEvent.click(row);
-
-    // `closeOnSelect={false}` — a setting you feel is one you try, feel, and
-    // try again; closing the menu each time makes that a three-click job.
-    await waitFor(() =>
-      expect(screen.getByRole("menuitemcheckbox", { name: /haptics/i })).toBeInTheDocument(),
-    );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      press();
+      expect(trigger()).toHaveAttribute("aria-expanded", "true");
+      expect(row()).toHaveAttribute("aria-checked", String(!on));
+      press();
+      expect(trigger()).toHaveAttribute("aria-expanded", "true");
+      expect(row()).toHaveAttribute("aria-checked", String(on));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

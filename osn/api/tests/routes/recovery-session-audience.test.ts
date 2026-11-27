@@ -343,9 +343,8 @@ describe("the osn-recovery audience at the route boundary", () => {
         body: JSON.stringify({}),
       }),
     );
-    // An exact status, and the ceremony options with it. `not.toBe(401)` also
-    // passes on 400, 429 and 500, so it never proved the ordinary token gets a
-    // working step-up ceremony — only that it failed differently.
+    // An exact status and the ceremony's options: a control that failed for
+    // another reason (400, 429, 500) must not pass.
     expect(allowed.status).toBe(200);
     const options = (await allowed.json()) as {
       options?: { challenge?: string; allowCredentials?: { id: string }[] };

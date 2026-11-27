@@ -17,6 +17,7 @@ import {
   registryClaims,
   registryContributions,
   registryItems,
+  registryRetiredAccounts,
   registrySettings,
   rsvpChanges,
   rsvps,
@@ -1785,6 +1786,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         published: true,
         cashGiftsEnabled: true,
         stripeAccountId: "acct_d1",
+        stripeConnectedByOsnProfileId: "usr_test",
         stripeChargesEnabled: true,
         stripeDefaultCurrency: "AUD",
         createdAt: now,
@@ -1865,6 +1867,33 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(await tag(registryGuestService.visibleImageKey("w", "registry-d1-fund", false))).toBe(
         "RegistryNotVisible",
       );
+
+      // Whether the account's holder holds an owner seat is read in the same
+      // statement, through the driver's positional mapping: held by nobody on
+      // record, the fund, its picture and the gift all go.
+      await db
+        .update(registrySettings)
+        .set({ stripeConnectedByOsnProfileId: null })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      expect(
+        (
+          await run(
+            registryGuestService.guestView({ slug: "w", familyId: FAMILY_ID, takesPayments: true }),
+          )
+        ).funds,
+      ).toEqual([]);
+      expect(await tag(registryGuestService.visibleImageKey("w", "registry-d1-fund", true))).toBe(
+        "RegistryNotVisible",
+      );
+      expect(
+        await tag(
+          registryService.contributionContext({
+            slug: "w",
+            familyId: FAMILY_ID,
+            itemId: "ritem_d1_fund",
+          }),
+        ),
+      ).toBe("CashGiftsUnavailable");
     },
     MF_TIMEOUT_MS,
   );
@@ -2173,6 +2202,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+  it(
+    "registry Stripe: a retire records the account and clears the row together or not at all, on D1",
+    async () => {
+      // The retire is one batch of an INSERT … SELECT and an UPDATE, each
+      // guarded alike. bun:sqlite runs them one at a time; on D1 they are one
+      // transaction, so an UPDATE that fails takes the record with it.
+      const now = new Date();
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        cashGiftsEnabled: true,
+        stripeAccountId: "acct_d1_retire",
+        stripeConnectedByOsnProfileId: "usr_test",
+        stripeAccountType: "standard",
+        stripeConnectedAt: new Date(1_700_000_000_000),
+        stripeChargesEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const retire = () =>
+        registryService.retireStripeAccount(
+          {
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_test",
+            handTo: null,
+            accountId: "acct_d1_retire",
+            generation: 0,
+          },
+          PAYING_SITE,
+        );
+      const stored = async () =>
+        (
+          await db
+            .select()
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        )[0];
+      const records = () => db.select().from(registryRetiredAccounts);
+
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_retire_clear BEFORE UPDATE OF stripe_account_id ON registry_settings BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await Effect.runPromiseExit(
+          retire().pipe(Effect.provideService(DbService, db)),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect((await stored())?.stripeAccountId).toBe("acct_d1_retire");
+        expect(await records()).toEqual([]);
+      } finally {
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_retire_clear").run();
+      }
+
+      // And with nothing in the way, both land, and the reason is the write's.
+      const done = await run(retire());
+      expect(done.reason).toBe("disconnected");
+      expect(done.settings.cashGiftsEnabled).toBe(true);
+      expect(await stored()).toMatchObject({
+        stripeAccountId: null,
+        stripeConnectedByOsnProfileId: null,
+        stripeAccountGeneration: 1,
+      });
+      expect(await records()).toMatchObject([
+        {
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          stripeAccountId: "acct_d1_retire",
+          stripeAccountType: "standard",
+          stripeConnectedAt: new Date(1_700_000_000_000),
+          reason: "disconnected",
+          releasedAt: null,
+        },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
   it(
     "registry Stripe: a wedding takes the account its owner connected on another, in one statement on D1",
     async () => {
@@ -2705,6 +2811,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         published: true,
         cashGiftsEnabled: true,
         stripeAccountId: "acct_d1_currency",
+        stripeConnectedByOsnProfileId: "usr_test",
         stripeChargesEnabled: true,
         stripeDefaultCurrency: "AUD",
         createdAt: stamp,
@@ -5407,12 +5514,29 @@ describe("cire/api over real D1 (Miniflare)", () => {
       }
       const reaped: string[] = [];
       const bucket = { delete: (keys: string | string[]) => void reaped.push(...[keys].flat()) };
+      // The purged wedding retired a Standard account cire still holds: the
+      // batch reads it before the cascade, and one read on D1 finds nothing
+      // else holding it.
+      await db.run(
+        sql`UPDATE registry_retired_accounts SET stripe_account_type = 'standard' WHERE wedding_id = ${gone}`,
+      );
+      const handedBack: string[] = [];
 
       const result = await run(
-        maintenanceSweeps.purgeDeletedWeddings(new Date(), { sheets: bucket, assets: bucket }),
+        maintenanceSweeps.purgeDeletedWeddings(
+          new Date(),
+          { sheets: bucket, assets: bucket },
+          {
+            deauthorize: (accountId) =>
+              Effect.sync(() => {
+                handedBack.push(accountId);
+              }),
+          },
+        ),
       );
       expect(result.purged).toBe(1);
       expect(result.errors).toBe(0);
+      expect(handedBack).toEqual([`acct_retired_${gone}`]);
 
       const keys = fullWeddingKeys(gone);
       expect(reaped.toSorted()).toEqual([...keys.sheets, ...keys.assets].toSorted());
@@ -5700,6 +5824,66 @@ describe("cire/api over real D1 (Miniflare)", () => {
   /** Run `effect` against D1 and keep its Exit, so two can race. */
   const exitOf = <E>(effect: Effect.Effect<unknown, E, DbService>) =>
     Effect.runPromiseExit(effect.pipe(Effect.asVoid, Effect.provideService(DbService, db)));
+
+  it(
+    "the payout account's holder keeps their owner seat and RSVP marker, in the batch on D1",
+    async () => {
+      // The holder's rule rides in the notice DELETE, the seat DELETE and the
+      // UPDATE beside the last-owner rule, and the read naming the refusal in
+      // the same batch: D1 runs all of it as one transaction.
+      await seatSecondOwner();
+      const now = new Date();
+      await db.insert(registrySettings).values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: "acct_d1_holder",
+        stripeConnectedByOsnProfileId: "usr_second",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await run(rsvpChangeService.setDigest(BOOTSTRAP_WEDDING_ID, "usr_second", false));
+      const refusal = async (effect: Effect.Effect<unknown, unknown, DbService>) => {
+        const exit = await exitOf(effect);
+        return Exit.isFailure(exit) && Cause.squash(exit.cause);
+      };
+
+      expect(
+        await refusal(
+          hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_second" }),
+        ),
+      ).toMatchObject({ _tag: "HoldsPayoutAccount" });
+      expect(
+        await refusal(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_second",
+            role: "editor",
+            actorOsnProfileId: "usr_test",
+          }),
+        ),
+      ).toMatchObject({ _tag: "HoldsPayoutAccount" });
+      expect((await ownerIds()).toSorted()).toEqual(["usr_second", "usr_test"]);
+      expect(
+        await db
+          .select()
+          .from(hostRsvpNotices)
+          .where(eq(hostRsvpNotices.osnProfileId, "usr_second")),
+      ).toHaveLength(1);
+
+      // The other owner, who holds nothing, may go.
+      expect(
+        await refusal(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_test",
+            role: "editor",
+            actorOsnProfileId: "usr_test",
+          }),
+        ),
+      ).toBe(false);
+      expect(await ownerIds()).toEqual(["usr_second"]);
+    },
+    MF_TIMEOUT_MS,
+  );
 
   // The last-owner guard sits inside each writing statement, so it must hold
   // when two owners act at the same moment, not only one after the other.

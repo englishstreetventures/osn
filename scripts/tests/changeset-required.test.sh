@@ -182,6 +182,24 @@ else
   echo "skip - $name (no python3 — cannot allocate a pseudo-terminal here)"
 fi
 
+# A workspace's Bend law sets and the shared Bend toolchain ship in no build.
+run_case "a law set alone" skip \
+  'osn/api/laws/account-deletion/LAWS.bend
+osn/api/laws/account-deletion/model.mjs
+cire/api/laws/account-deletion/weddings.bend'
+run_case "the Bend toolchain alone" skip \
+  'tools/bend/bend.env
+tools/bend/bend.sh'
+run_case "a law set beside the service's source" required \
+  'osn/api/laws/account-deletion/LAWS.bend
+osn/api/src/services/account-erasure.ts'
+run_case "a tests/laws file is a test, not a law set" required \
+  'osn/api/tests/laws/deletion-lifecycle.test.ts'
+run_case "laws/ deeper than a workspace's own" required \
+  'osn/api/src/laws/x/a.ts'
+run_case "a laws/ file outside a topic folder" required \
+  'osn/api/laws/README.ts'
+
 # A `*` glob spans `/`, so an allowlisted prefix followed by `..` would
 # otherwise escape it. Unreachable via `git diff --name-only`, guarded anyway.
 run_case "dot-dot escape from an allowed prefix" required \

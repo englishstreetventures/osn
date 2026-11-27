@@ -12,8 +12,8 @@
  * weight, is held apart in `badge-default.browser.test.tsx`.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
 
 import { Badge, type BadgeProps } from "../src/ui/badge";
@@ -37,10 +37,6 @@ const TREATMENTS = Object.keys({ default: 1, eyebrow: 1 } satisfies Record<
 const CASES = VARIANTS.flatMap((variant) =>
   TREATMENTS.map((treatment) => ({ variant, treatment })),
 );
-
-afterEach(() => {
-  cleanup();
-});
 
 /** Every variant in every treatment, each with a label, under one parent. */
 function AllBadges(props: { testId: string; style?: string }) {

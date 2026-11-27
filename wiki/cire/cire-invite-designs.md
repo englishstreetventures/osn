@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-26
 ---
 # Cire invite design selector
 
@@ -508,8 +508,11 @@ event and the panel to open on.
   tap, a held finger or a scroll lets the settle go on to where it was going,
   with that tap's click swallowed so it presses nothing on the moving panel.
   A catch reads the panels' place off their computed transform mid-transition.
-  The thresholds, the band and the curve are pure functions in
-  [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
+  The thresholds are pure functions in
+  [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts); the
+  band and the curve are `@shared/ui`'s, in
+  [`spring.ts`](../../shared/ui/src/lib/spring.ts), which the `Dialog`
+  sheet's drag settles on too.
   The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
   zoom stay the browser's. A mouse drag, a drag that starts in a text field,
   and a drag on a box that scrolls sideways of its own (the dietary chips, the
@@ -606,7 +609,8 @@ takes focus; the bar's two titles, one per panel; the badge's names, its
 place in the bar ahead of the panels, its double-tap guard and its states;
 the deadline), `AnimatedModal.test.tsx` (the bar's order — title, action,
 cross — as the scrollport's first child), `sheet-swipe.test.ts` (the swipe's
-thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
+thresholds; the band and the curve are held by `@shared/ui`'s
+`tests/lib/spring.test.ts`), `EventSheet.browser.test.tsx` (in Chromium, see
 [[browser-tests]]; the swipes are real touches sent through `cdp()`; the
 bar unmoved while the details scroll 200px under it at 390×844 and 320×568,
 frosted with its words held over black and white content on every scheme;
@@ -765,7 +769,8 @@ items; the policy's plus-one rule), `utils.test.ts` (the claim guard),
 `calendar.test.ts` (the venue in the Google link), `MapPreview.test.tsx` (the
 maps menu's items, the organiser's link in its app's place, the plain link
 when it is alone, the refused `javascript:` link), `AddToCalendar.test.tsx`
-(the menu opened by a key on its first item, by a pointer on the menu), and
+(the menu opened by a pointer on the menu), `LinkMenu.test.tsx` (the menu
+opened by a key on its first item), and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
 venue's name and its muted address, the policy, the run of show's times and
 names and Getting there included, and each swatch ring at 3:1 on the
@@ -800,7 +805,7 @@ differs. On the guest site each corner paints:
 | 16px, `rounded-ui-lg` | the event card, gala's code-entry card, both packs' hero title panel, the gift money panel and the gift item card, whose `overflow-hidden` clips its picture to the corner |
 | 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
 | 10px, `rounded-md` | the link menu |
-| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
+| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows, through `rounded-ui-menu-row`, which cire leaves to `sm`; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
 | 2px, `--radius-hair` | nothing on the guest site: a legal page's inline placeholder (`.placeholder`) draws no highlight, so no box to round |
 | round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross (`Button` `round`, the `pill` step), the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 

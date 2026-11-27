@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-20
 ---
 
 # Stripe webhooks (cire-api)
@@ -86,7 +86,7 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    | Event | What it does |
    |---|---|
    | `account.updated` | caches `charges_enabled` / `payouts_enabled` on every wedding naming the account |
-   | `account.application.deauthorized` | the couple revoked cire, or cire handed an account back; clears the account id from every wedding connected to it at or before the event (`stripe_connected_at`; a row connected later is a newer connection and stays) |
+   | `account.application.deauthorized` | the couple revoked cire, or cire handed an account back; clears the account id from every wedding connected to it at or before the event (`stripe_connected_at`; a row connected later is a newer connection and stays), and, by the same guard, releases every `registry_retired_accounts` row naming it that is not released yet |
    | `checkout.session.completed` | **writes the gift** — the only place a contribution settles |
    | `checkout.session.async_payment_succeeded` | a delayed debit (BECS, SEPA) that landed |
    | `checkout.session.async_payment_failed` | a delayed debit that bounced |
@@ -102,14 +102,19 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    and must arrive on the account that gift was paid into
    (`registry_contributions.stripe_account_id`), whether or not the wedding
    still names it; a gift with no recorded account must arrive on the
-   account its wedding names now.
+   account its wedding names now. So an account a wedding retired
+   ([[cire-registry#Retiring an account]]) stays connected, and refunds and
+   disputes on its gifts still reach them.
 
    A **Standard** account — the couple's own, connected through OAuth — is a
    working Stripe account, and this endpoint hears its own shop's events as
    well as gifts. A completed session whose id is not one of cire's (`rct_…`)
    is acknowledged before any read. A refund or dispute that matches no gift
    is counted (`cire.registry.stripe.unmatched`, `account: standard`) and
-   logged at info, since it is that account's own business and liability. A
+   logged at info, since it is that account's own business and liability.
+   The type is read from any settings row naming the account or any retired
+   row recording it, so a retired Standard account's own sales are not raised
+   as missing gifts. A
    session there settles or closes only the gift that stored its id: the
    holder has API keys and can write `client_reference_id`. Each event is
    still one Worker request, and its payload can carry that shop's customers'

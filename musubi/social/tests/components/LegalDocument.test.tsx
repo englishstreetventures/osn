@@ -7,7 +7,7 @@ import { TermsPage } from "../../src/pages/TermsPage";
 
 /**
  * The legal pages name the tab after their own heading, as every page in the
- * shell does. No e2e flow opens Musubi's legal pages, so the title is held
+ * shell does. No e2e flow reads a legal page's tab title, so the title is held
  * here.
  */
 

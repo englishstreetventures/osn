@@ -9,30 +9,15 @@
  * layout that a DOM shim does not have.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { commands, page, userEvent } from "vitest/browser";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
+import { page, userEvent } from "vitest/browser";
 
 import { Button, buttonVariants } from "../src/ui/button";
 
 import "./test-support/tailwind.css";
 
 const INLINE = buttonVariants({ variant: "link", size: "inline" });
-
-const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
-  (
-    commands as unknown as {
-      emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
-    }
-  ).emulateMedia(options);
-
-beforeAll(async () => {
-  await emulateMedia({ forcedColors: "none" });
-});
-
-afterEach(() => {
-  cleanup();
-});
 
 const shot = (name: string) => `__screenshots__/button-inline.browser.test.tsx/${name}.png`;
 

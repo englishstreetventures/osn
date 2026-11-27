@@ -560,6 +560,21 @@ CREATE TABLE IF NOT EXISTS registry_stripe_oauth_states (
   PRIMARY KEY (wedding_id, osn_profile_id)
 );
 CREATE INDEX IF NOT EXISTS registry_stripe_oauth_states_expires_idx ON registry_stripe_oauth_states(expires_at);
+CREATE TABLE IF NOT EXISTS registry_retired_accounts (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  stripe_account_id TEXT NOT NULL,
+  stripe_account_type TEXT,
+  stripe_connected_at INTEGER,
+  retired_at INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  released_at INTEGER,
+  last_hand_back_at INTEGER,
+  CONSTRAINT registry_retired_accounts_reason_ck CHECK (reason in ('handed_over','disconnected','replaced','holder_absent')),
+  CONSTRAINT registry_retired_accounts_type_ck CHECK (stripe_account_type IS NULL OR stripe_account_type in ('express','standard'))
+);
+CREATE INDEX IF NOT EXISTS registry_retired_accounts_account_idx ON registry_retired_accounts(stripe_account_id);
+CREATE INDEX IF NOT EXISTS registry_retired_accounts_wedding_idx ON registry_retired_accounts(wedding_id);
 CREATE TABLE IF NOT EXISTS registry_items (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -1034,6 +1049,12 @@ export function applyE2eRsvpDeadline(
 }
 
 /**
+ * The gift-list wedding's one owner, who connected its Stripe account. Never
+ * signs in: no flow acts as them.
+ */
+const E2E_GIFT_OWNER = "usr_e2e_gift_owner";
+
+/**
  * A second wedding for the E2E suite's gift-list flows: on Gold, with a
  * published list of three gifts and one cash fund, one household of one
  * invited to one event, and the wedding's host preview household. The values
@@ -1043,11 +1064,12 @@ export function applyE2eRsvpDeadline(
  *
  * The couple are taking money as far as their own settings go: money gifts
  * on, a connected account that can charge and settles in the wedding's
- * currency. The E2E stack also runs a second cire-api with this seed, a
- * placeholder Stripe key and no Connect webhook secret, which could open a
- * payment page but never record the gift, so its guest list must offer
- * neither the money form nor the fund. That is the deployment check the
- * claimed flow holds there.
+ * currency, held by the wedding's one owner ({@link E2E_GIFT_OWNER}), so no
+ * absent holder closes money gifts here. The E2E stack also runs a second
+ * cire-api with this seed, a placeholder Stripe key and no Connect webhook
+ * secret, which could open a payment page but never record the gift, so its
+ * guest list must offer neither the money form nor the fund. That is the
+ * deployment check the claimed flow holds there.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -1070,6 +1092,17 @@ function seedE2eGiftList(db: TestDb): void {
       tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
+    })
+    .run();
+  // The couple's one owner, who connected the account below.
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_gift_owner",
+      weddingId,
+      osnProfileId: E2E_GIFT_OWNER,
+      addedByOsnProfileId: E2E_GIFT_OWNER,
+      role: "owner",
+      createdAt: now,
     })
     .run();
   db.insert(schema.events)
@@ -1139,6 +1172,7 @@ function seedE2eGiftList(db: TestDb): void {
       message: "Your being there is the gift. This list is here if you would like it.",
       cashGiftsEnabled: true,
       stripeAccountId: "acct_e2e_gift_list",
+      stripeConnectedByOsnProfileId: E2E_GIFT_OWNER,
       stripeChargesEnabled: true,
       stripePayoutsEnabled: true,
       stripeDefaultCurrency: "AUD",
@@ -1272,6 +1306,11 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   invited to one event with no address. The owner adds a cash fund through
  *   the portal and the guest gives to it through the E2E suite's Stripe
  *   stand-in (`seedE2eFund`).
+ * - `wed_e2e_handover` and `wed_e2e_absent`: Handover Wedding, whose Stripe
+ *   account the dev profile connected and owns with Kit, and Absent Holder
+ *   Wedding, whose account Kit connected and where Kit is an editor now; for
+ *   handing money gifts over and replacing an account
+ *   (`seedE2ePayoutAccounts`).
  * - `wed_e2e_upgrade` and `wed_e2e_upgrade_refund`: two Ivory weddings the
  *   dev profile owns alone, for buying Gold through the Stripe stand-in. The
  *   first is granted Gold; the second is deleted while its checkout is open,
@@ -1867,11 +1906,94 @@ function seedE2eOrganiser(db: TestDb): void {
   seedE2eSeating(db, now);
   seedE2eSettings(db, now);
   seedE2eFund(db, now);
+  seedE2ePayoutAccounts(db, now);
   seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
   seedE2eCreationBound(db, now);
   seedE2eCache(db, now);
+}
+
+/**
+ * `wed_e2e_handover` and `wed_e2e_absent`, for {@link seedE2eOrganiser}: two
+ * Gold weddings whose Stripe account (Express, no `stripe_account_type`) can
+ * charge and pays out in AUD, for handing money gifts over and replacing an
+ * account in the Money gifts panel (`tests/support/cire-payout-account.ts` in
+ * `tools/e2e`).
+ *
+ * - Handover Wedding: the dev profile connected its account and owns it with
+ *   Kit (`usr_e2e_kit`), so the hosts panel refuses the dev profile's own
+ *   step-down and leave until it hands money gifts to Kit. Money gifts on.
+ * - Absent Holder Wedding: Kit connected its account and is an editor there
+ *   now, as a holder who left before the hosts writes refused it would be, so
+ *   money gifts are closed and the dev profile, its one owner, may replace the
+ *   account. Money gifts off, so the flow can ask to turn them on.
+ *
+ * The flow retires the first account before any other wedding of the dev
+ * profile asks which accounts it may reuse, and the second is Kit's, so
+ * neither is offered elsewhere. The values a flow checks are written out
+ * again as `CIRE_ORGANISER.handover` and `CIRE_ORGANISER.absent` in
+ * `tools/e2e/src/config.ts`.
+ */
+function seedE2ePayoutAccounts(db: TestDb, now: Date): void {
+  const seeded = [
+    {
+      id: "wed_e2e_handover",
+      slug: "handover-wedding",
+      displayName: "Handover Wedding",
+      account: "acct_e2e_handover",
+      holder: DEV_OWNER_PROFILE_ID,
+      kitRole: "owner",
+      cashGiftsEnabled: true,
+    },
+    {
+      id: "wed_e2e_absent",
+      slug: "absent-holder-wedding",
+      displayName: "Absent Holder Wedding",
+      account: "acct_e2e_absent",
+      holder: "usr_e2e_kit",
+      kitRole: "editor",
+      cashGiftsEnabled: false,
+    },
+  ] as const;
+  for (const w of seeded) {
+    db.insert(schema.weddings)
+      .values({
+        id: w.id,
+        slug: w.slug,
+        displayName: w.displayName,
+        tier: "gold",
+        tierSource: "comp",
+        tierGrantedBy: "script:e2e-seed",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    seatDevOwner(db, w.id, `whost_${w.id}_owner`, now);
+    db.insert(schema.weddingHosts)
+      .values({
+        id: `whost_${w.id}_kit`,
+        weddingId: w.id,
+        osnProfileId: "usr_e2e_kit",
+        addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+        role: w.kitRole,
+        createdAt: now,
+      })
+      .run();
+    db.insert(schema.registrySettings)
+      .values({
+        weddingId: w.id,
+        cashGiftsEnabled: w.cashGiftsEnabled,
+        stripeAccountId: w.account,
+        stripeConnectedByOsnProfileId: w.holder,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
 }
 
 /**

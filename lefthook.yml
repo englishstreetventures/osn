@@ -45,6 +45,16 @@ pre-commit:
         - ".agents/**"
       run: bun fmt --no-script {staged_files}
       stage_fixed: true
+    bend-proofs:
+      # Every Bend law set (`<workspace>/laws/<topic>/`, `bend.sh sets`): each
+      # `bend PROOF.bend` must print ALL PROOFS CHECK, and each model.mjs must
+      # be what its model.bend builds; the script rebuilds them and fails,
+      # asking for them to be staged, when one is not. It never stages
+      # anything itself, since `format` restages in parallel. With no pinned
+      # Bend here it prints one line and passes: CI's `bend-proofs` job is the
+      # gate.
+      glob: "*.bend"
+      run: bash tools/bend/bend.sh hook
     secrets:
       # Advisory on this machine: `--no-verify` skips it, and CI scans the same
       # commits. The script prints one line and passes when gitleaks is missing.

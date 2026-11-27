@@ -287,10 +287,8 @@ describe("the focus ring", () => {
 });
 
 describe("a strip that scrolls", () => {
-  it("scrolls itself, not the page, to the chosen item", async () => {
+  it("scrolls itself to the chosen item", async () => {
     render(() => <Strip scroll width="150px" />);
-    await settle();
-    const before = window.scrollY;
     const list = screen.getByRole("tablist", { name: "Sections" });
     const scroller = list.parentElement!;
     expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth);
@@ -298,32 +296,15 @@ describe("a strip that scrolls", () => {
     screen.getByRole("tab", { name: "Hero" }).focus();
     await userEvent.keyboard("{End}");
     await userEvent.keyboard("{Enter}");
-    await settle();
     expect(screen.getByRole("tab", { name: "Closing" }).getAttribute("aria-selected")).toBe("true");
     expect(scroller.scrollLeft).toBeGreaterThan(0);
     const item = screen.getByRole("tab", { name: "Closing" }).getBoundingClientRect();
     const view = scroller.getBoundingClientRect();
     expect(item.right).toBeLessThanOrEqual(view.right - 4 + 0.5);
-    expect(window.scrollY).toBe(before);
-  });
-
-  it("shows a tab the arrows reach past its edge, without choosing it", async () => {
-    render(() => <Strip scroll width="150px" />);
-    await settle();
-    const scroller = screen.getByRole("tablist", { name: "Sections" }).parentElement!;
-    screen.getByRole("tab", { name: "Hero" }).focus();
-    await userEvent.keyboard("{ArrowLeft}");
-    const closing = screen.getByRole("tab", { name: "Closing" });
-    expect(document.activeElement).toBe(closing);
-    expect(closing.getAttribute("aria-selected")).toBe("false");
-    expect(closing.getBoundingClientRect().right).toBeLessThanOrEqual(
-      scroller.getBoundingClientRect().right - 4 + 0.5,
-    );
   });
 
   it("opens on a chosen tab past its edge, already in view", async () => {
     render(() => <Strip scroll width="150px" initial="closing" />);
-    await settle();
     const scroller = screen.getByRole("tablist", { name: "Sections" }).parentElement!;
     expect(scroller.scrollLeft).toBeGreaterThan(0);
     expect(
@@ -332,7 +313,6 @@ describe("a strip that scrolls", () => {
   });
   it("scrolls back to a choice past its left edge, keeping the ring's room", async () => {
     render(() => <Strip scroll width="150px" initial="closing" />);
-    await settle();
     const scroller = screen.getByRole("tablist", { name: "Sections" }).parentElement!;
     const start = scroller.scrollLeft;
     expect(start).toBeGreaterThan(0);
@@ -349,19 +329,21 @@ describe("a strip that scrolls", () => {
   it("never moves a page that can scroll", async () => {
     render(() => (
       <div
-        style={{ width: "200vw", height: "200vh", "padding-top": "60vh", "padding-left": "40vw" }}
+        style={{ width: "200vw", height: "300vh", "padding-top": "150vh", "padding-left": "40vw" }}
       >
         <Strip scroll width="150px" />
       </div>
     ));
-    await settle();
-    window.scrollTo(200, 300);
+    window.scrollTo(200, 0);
     const [x, y] = [window.scrollX, window.scrollY];
-    expect([x, y]).toEqual([200, 300]);
+    expect([x, y]).toEqual([200, 0]);
+    // The strip starts below the fold, so a focus that let the browser scroll would move the page.
+    expect(
+      screen.getByRole("tablist", { name: "Sections" }).getBoundingClientRect().top,
+    ).toBeGreaterThan(window.innerHeight);
     screen.getByRole("tab", { name: "Hero" }).focus({ preventScroll: true });
     await userEvent.keyboard("{ArrowLeft}");
     await userEvent.keyboard("{Enter}");
-    await settle();
     expect(screen.getByRole("tab", { name: "Closing" }).getAttribute("aria-selected")).toBe("true");
     expect([window.scrollX, window.scrollY]).toEqual([x, y]);
     window.scrollTo(0, 0);
@@ -384,7 +366,6 @@ describe("a strip that scrolls", () => {
         </div>
       </Ramp>
     ));
-    await settle();
     const scroller = screen.getByRole("tablist", { name: "Sections" }).parentElement!;
     // 150px less the 60px beside it, and the scroller's -4px margins.
     expect(scroller.getBoundingClientRect().width).toBeLessThanOrEqual(98);

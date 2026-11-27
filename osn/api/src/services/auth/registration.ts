@@ -99,7 +99,7 @@ export function createRegistrationModule(
     registrationLinkLockoutStore,
     registrationFirstLinkCap,
   } = ctx;
-  const { issueTokens } = tokens;
+  const { issueSignUpSession } = tokens;
 
   /**
    * An `'email'` row if an account has `email`, and a `'handle'` row for each
@@ -625,8 +625,9 @@ export function createRegistrationModule(
     });
 
   /**
-   * Creates the account for a confirmed request and signs in the caller — the
-   * tab that holds the claim secret — or finishes a request an earlier poll
+   * Creates the account for a confirmed request and hands the caller — the
+   * tab that holds the claim secret — a restricted session to enrol its first
+   * passkey with, or finishes a request an earlier poll
    * claimed and could not finish.
    *
    *  - The first claim needs the pending entry to still name this request and
@@ -674,16 +675,16 @@ export function createRegistrationModule(
           yield* links.spend(requestId, claimed);
           return { kind: "conflict" } as const;
         }
-        // The account was created just now, so no deletion is pending.
-        const issued = yield* issueTokens(
+        // Restricted until the account has a passkey, so only enrolment
+        // takes this session (`issueSignUpSession`). The account was created
+        // just now, so no deletion is pending.
+        const issued = yield* issueSignUpSession(
           profileId,
           accountId,
           signUp.email,
           signUp.handle,
           signUp.displayName,
-          undefined,
           sessionMeta,
-          null,
         );
         if (!(yield* links.spend(requestId, claimed))) return { kind: "lost" } as const;
         return { kind: "complete", issued } as const;
@@ -729,10 +730,11 @@ export function createRegistrationModule(
    * handle was taken while the person waited. A poll that fails after the
    * claim leaves the request claimed, and the next one finishes it.
    *
-   * The UI then drives `/passkey/register/*` with the returned access token to
-   * enrol the first passkey, and refuses to dismiss until it does;
-   * `deletePasskey` refuses to drop below 1 — so every live account always has
-   * ≥1 passkey.
+   * The session is a restricted one until the account has a passkey
+   * (`issueSignUpSession`): its token reaches only `/passkey/register/*`, which
+   * the UI drives with it to enrol the first passkey, and its cookie signs the
+   * browser in to nothing else. Enrolling lifts the restriction;
+   * `deletePasskey` refuses to drop below 1.
    *
    * No attempts counter: a waiting tab polls every few seconds and would bury
    * the sign-up funnel. The span is `auth.register.status`; the finishing part

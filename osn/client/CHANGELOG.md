@@ -1,5 +1,49 @@
 # @osn/client
 
+## 4.8.0
+
+### Minor Changes
+
+- e393eb0: A sign-up's session is restricted until the new account has its first passkey. The completing status poll now issues a session whose access tokens carry `osn-recovery`, so only `/passkey/register/*` accepts them; its cookie is no signed-in session to `/authorize` or to a `/token` grant for anything but its own rotation, and it lives 15 minutes. Its row records `signup`, which takes nobody past the step-up gate and stamps the first passkey `webauthn`. Enrolling lifts the restriction in the batch that inserts the passkey, so the two commit together, and the sign-up funnel counts the first passkey as its `passkey_enroll` step. `/passkey/register/begin` and `/complete` answer 401 to a restricted token whose session a passkey has already lifted, so a tab that missed the answer renews into the ordinary session. Migration `20261126014432_end_passkeyless_sessions` ends the ordinary sessions of accounts made before this that never added a passkey, sparing restricted sessions and any account with a deletion job; those people come back through the emailed recovery link. Migration `20261126022912_sessions_restriction_known` adds two triggers that refuse a session row whose `restricted_amr` is not `webauthn`, `otp`, `totp` or `signup`, or is set while `restricted_until` is NULL. `@osn/client` exports `isRestrictedToken`, and its cold start publishes no session for a restricted cookie.
+
+## 4.7.0
+
+### Minor Changes
+
+- b8fc725: Musubi chooses profiles, draws avatars and offers organisation actions in one way each.
+
+  - `/authorize` is one layout. Every screen that decides leads with the app's client card, the picker included. Its heading is an `AuthHeader` `h2`. One notice slot sits directly above the actions. The actions are one full-width column, with Cancel `secondary` and last. The account screen and the picker choose a profile with the new `ProfileChoice`: radios in bordered rows, the chosen one edged in ink. The picker leaves only on Continue. Allow is offered only while the profile it would post is on screen, and a choice made for one account never stands for another.
+  - The account menu is the profile switcher. Each profile is a `menuitemradio` row, the active one checked. Choosing another switches to it, and every row is held while the switch runs. The "Switch profile" dialog is gone, and so is `ResponsiveDialogContent`'s `width` prop.
+  - `ProfileAvatar` and `OrgAvatar` draw every avatar. A person's is a circle and an organisation's a square with 8px corners. Each shows the picture or the initials, never both, and one rule makes the initials. The account menu's 20px circle shows the first initial alone, since two at 12px overflow it.
+  - `GET /organisations/:handle` answers the caller's own standing, `caller: { role, owner } | null`, and `@osn/client`'s `getOrg` types it. An organisation's page offers Edit to an admin and Delete to the owner. It offers Remove on a member's row to an admin, and on an admin's row too to the owner, never on the reader's own row. A reader whose standing is unknown is offered nothing. A read of the standing that fails, a defect included, is logged and answers `null`.
+  - `@osn/auth-ui`: comments and `DESIGN.md` name the account menu as Musubi's switcher, and `AuthHeader`'s comment gives what `/authorize` loads for its dialog module, measured from `vite build`.
+
+## 4.6.0
+
+### Minor Changes
+
+- c266b7f: Removing an app's data takes a passkey. `pulse_app_delete` and `zap_app_delete` at `/internal/step-up/verify`, and `cire_app_delete` at `POST /step-up/requests/:id/confirm`, now admit a passkey step-up alone (`appDeleteAllowedAmr`, fixed in `context.ts`), and a passkey added by an emailed link, an authenticator code or recovery only once it is 72 hours old. The confirm route answers a passkey inside that hold `403 { error: "passkey_held", hold_ends_at }`; `createAppStepUpClient().confirm` resolves it as `{ status: "held", holdEndsAt }`.
+
+  `StepUpDialog` offers the passkey alone for the three purposes. Musubi's confirm page always tells a person with no such passkey to add one in Settings and start again from the app in 3 days, and names the day and time a held passkey's hold ends.
+
+  Every passkey enrolled from a restricted recovery session is stamped `recovery`, and so is an account's first passkey enrolled within 72 hours of any recovery, so it waits out the same hold; a first passkey from sign-up stays `webauthn`.
+
+  `osn.auth.step_up.verified` gains a bounded `purpose` attribute, and `osn.auth.recovery.cooldown` an `app_delete_refused` outcome.
+
+  The lab's `osn/auth-ui/StepUpDialog/AppDataRemoval` story shows the sheet for removing an app's data, and the playground offers `cire_app_delete`.
+
+## 4.5.0
+
+### Minor Changes
+
+- 91b32ae: Musubi's Settings › Connected apps links an app's own screen for removing a person's data from it, as "Remove my data from <app>". `oauth_clients` gains a nullable `manage_data_url` that only an operator sets (migration `20261119150713_oauth_clients_manage_data_url`). `GET /oidc/connections` answers it as `manageDataUrl` only while it passes a read rule in `osn/api/src/services/auth/client-links.ts`: at most 512 characters, canonical, no user name or password, `https:` (or `http:` to localhost), on the origin of a registered redirect URI or of the app origin osn-api's deployment pins to the client (`CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID`), and never for a disabled client; a refused value counts on the new `osn.oidc.manage_data_link.refused`, and a client whose stored `redirect_uris` is no JSON list refuses only its own link. `@osn/client`'s `OidcConnection` carries `manageDataUrl`. Musubi draws the link on its own line in the app's row, through `followableLink`, in a new tab; the page cache records each Connected apps row's kind so the placeholder keeps each row's height. The musubi stack's dev seed sets cire's link to the organiser portal's `/#/remove-data`. Account erasure keeps the time an owner disabled their client, where it had one.
+
+## 4.4.1
+
+### Patch Changes
+
+- 80aa052: Tests only: 56 cases go that another `@osn/client` case was seen to fail for under a hand break of the source line each guarded, reached through the same method. The token grant's retry pauses run on a faked clock, so the suite takes about 0.65 s instead of 2.1 s, and the cases whose names claimed a check they could not make now make it. No source changes.
+
 ## 4.4.0
 
 ### Minor Changes

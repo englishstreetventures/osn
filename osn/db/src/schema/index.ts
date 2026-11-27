@@ -343,9 +343,10 @@ export const sessions = sqliteTable(
     /** Unix seconds. Updated on every successful refresh/verify hit. */
     lastUsedAt: integer("last_used_at"),
     /**
-     * Unix seconds, non-null only on a **restricted recovery session** — the
-     * session account recovery hands out, which may enrol a passkey and do
-     * nothing else.
+     * Unix seconds, non-null only on a **restricted session** — one that may
+     * enrol a passkey and do nothing else: the session account recovery hands
+     * out, and the one a sign-up hands the tab that began it before the new
+     * account has a passkey.
      *
      * It is the source of truth for **rotation**, not for request-time
      * authorisation. Request-time restriction is carried by the access token's
@@ -364,16 +365,21 @@ export const sessions = sqliteTable(
      */
     restrictedUntil: integer("restricted_until"),
     /**
-     * The RFC 8176 `amr` value of the factor that proved the user's identity
-     * before this restricted recovery session was minted — `otp`, `totp` or
-     * `webauthn`. NULL on every ordinary session, and cleared alongside
-     * `restrictedUntil` when the restriction lifts.
+     * What a restricted session records: on a recovery session, the RFC 8176
+     * `amr` value of the factor that proved the user's identity before it was
+     * minted — `otp`, `totp` or `webauthn`; on a sign-up's session before its
+     * first passkey, `signup`, which names no ceremony. NULL on every ordinary
+     * session, and cleared alongside `restrictedUntil` when the restriction
+     * lifts.
      *
-     * A restricted session enrols a passkey **past the step-up gate**, and this
+     * A recovery session enrols a passkey **past the step-up gate**, and this
      * column is what that bypass rests on: the enrolment path admits it only
      * when the recorded factor is one `passkeyRegisterAllowedAmr` accepts, so
      * the strength of the ceremony behind the session is checked rather than
-     * assumed. A restricted row with no recorded factor admits nothing.
+     * assumed. `signup` is never on that list, and a restricted row with no
+     * recorded value admits nothing. `signup` also stamps the new account's
+     * first passkey `webauthn`, its own root credential; every other restricted
+     * caller's first passkey is `recovery`.
      */
     restrictedAmr: text("restricted_amr"),
     /**
@@ -869,22 +875,28 @@ export const deletionJobs = sqliteTable(
 );
 
 /**
- * osn-api's outbound ARC public keys. Each isolate mints its own key pair the
- * first time it calls an app and writes the public half here before it signs
- * anything; `GET /.well-known/arc-jwks.json` serves the unexpired rows, and
- * apps verify osn-api's tokens against that set. Deleting a row revokes the
- * key within the apps' five-minute key cache.
+ * osn-api's outbound ARC public keys. Each isolate mints its own key pair and
+ * writes the public half here after its first request, whatever the route, and
+ * always before it signs anything; `GET /.well-known/arc-jwks.json` serves the
+ * newest unexpired rows, and apps verify osn-api's tokens against that set.
+ * Deleting a row revokes the key within the apps' five-minute key cache.
  */
 export const arcOutboundKeys = sqliteTable(
   "arc_outbound_keys",
   {
-    /** The key id, `<uuid>.<expiry>.<mac>`, as the token header carries it. */
+    /**
+     * The key id, `<uuid>.<expiry>` and one or two MACs
+     * (`@shared/crypto/arc-kid`), as the token header carries it.
+     */
     keyId: text("key_id").primaryKey(),
     /** The public key, as a JWK JSON string. */
     publicKeyJwk: text("public_key_jwk").notNull(),
     /** Unix seconds. */
     createdAt: integer("created_at").notNull(),
-    /** Unix seconds. osn-api signs nothing with the key from this time. */
+    /**
+     * Unix seconds. From this time the key is not served, and apps
+     * refuse it once their cached copy lapses.
+     */
     expiresAt: integer("expires_at").notNull(),
   },
   (t) => [index("arc_outbound_keys_expires_idx").on(t.expiresAt)],
@@ -1000,6 +1012,15 @@ export const oauthClients = sqliteTable(
     createdAt: integer("created_at").notNull(),
     /** Unix seconds. Non-null = client is disabled; every request is rejected. */
     disabledAt: integer("disabled_at"),
+    /**
+     * Where a person removes their data from this app: its own leave screen,
+     * which Musubi's Connected apps links as "Remove my data from <name>".
+     * Only an operator sets it (the seeds, or a hand step in production); no
+     * route writes it. osn-api returns it only while it passes the read rule in
+     * `osn/api/src/services/auth/client-links.ts`, so a value that fails the
+     * rule is absent, never shown. NULL: the app has no such screen.
+     */
+    manageDataUrl: text("manage_data_url"),
   },
   (t) => [
     index("oauth_clients_sector_idx").on(t.sectorIdentifier),
@@ -1091,3 +1112,71 @@ export const oauthConsents = sqliteTable(
 
 export type OauthConsent = typeof oauthConsents.$inferSelect;
 export type NewOauthConsent = typeof oauthConsents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Change-notice runs
+//
+// One row per change notice osn-api has started to send (`POST
+// /internal/change-notices/:noticeId/send`). The run walks `accounts` in id
+// order, one batch at a time, and this row is how a run that stopped half way
+// resumes without skipping anyone or mailing anyone twice: `cursor` is the
+// last account a confirmed batch covered, and the `pending_*` columns hold the
+// batch in hand under the idempotency key the mail provider dedupes on. No
+// address is stored. The finished row is kept as the record that the notice
+// went out. See [[change-notices]].
+// ---------------------------------------------------------------------------
+
+export const changeNoticeRuns = sqliteTable(
+  "change_notice_runs",
+  {
+    /** The notice's id in osn-api's change-notice registry. */
+    noticeId: text("notice_id").primaryKey(),
+    /** Unix seconds. The audience is the accounts created at or before it. */
+    startedAt: integer("started_at").notNull(),
+    /** The highest account id a confirmed batch covered. NULL before the first, and once finished. */
+    cursor: text("cursor"),
+    /** Addresses the provider accepted. */
+    sent: integer("sent").notNull().default(0),
+    /** Addresses the provider refused on their own (not deliverable). */
+    failed: integer("failed").notNull().default(0),
+    /** Unix seconds. Set once no account is left. */
+    finishedAt: integer("finished_at"),
+    /** Idempotency key of the batch in hand; NULL with every other `pending_*` when none is. */
+    pendingKey: text("pending_key"),
+    /** The highest account id in that batch. */
+    pendingLast: text("pending_last"),
+    /** Addresses in it when it was claimed. */
+    pendingCount: integer("pending_count"),
+    /** Unix seconds. When the key was made; the provider keeps a key 24 hours. */
+    pendingSince: integer("pending_since"),
+    /** Sends begun under the key. */
+    pendingAttempts: integer("pending_attempts"),
+    /** Of those, answered with a refusal that sent nothing. */
+    pendingRefused: integer("pending_refused"),
+    /** `open`, or `unconfirmed`: the outcome cannot be known, and an operator decides. */
+    pendingState: text("pending_state"),
+  },
+  () => [
+    // The batch in hand is written and cleared whole.
+    check(
+      "change_notice_runs_pending_ck",
+      sql`(pending_key IS NULL AND pending_last IS NULL AND pending_count IS NULL AND pending_since IS NULL AND pending_attempts IS NULL AND pending_refused IS NULL AND pending_state IS NULL) OR (pending_key IS NOT NULL AND pending_last IS NOT NULL AND pending_count IS NOT NULL AND pending_since IS NOT NULL AND pending_attempts IS NOT NULL AND pending_refused IS NOT NULL AND pending_state IS NOT NULL)`,
+    ),
+    check(
+      "change_notice_runs_state_ck",
+      sql`pending_state IS NULL OR pending_state IN ('open', 'unconfirmed')`,
+    ),
+    check(
+      "change_notice_runs_attempts_ck",
+      sql`pending_refused IS NULL OR (pending_refused >= 0 AND pending_refused <= pending_attempts)`,
+    ),
+    // A finished run holds no account id and no batch.
+    check(
+      "change_notice_runs_finished_ck",
+      sql`finished_at IS NULL OR (cursor IS NULL AND pending_key IS NULL)`,
+    ),
+  ],
+);
+
+export type ChangeNoticeRun = typeof changeNoticeRuns.$inferSelect;
+export type NewChangeNoticeRun = typeof changeNoticeRuns.$inferInsert;

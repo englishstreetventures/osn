@@ -88,6 +88,7 @@ interface Job {
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
   readonly "timeout-minutes"?: number;
+  readonly "continue-on-error"?: boolean | string;
   readonly strategy?: {
     readonly "fail-fast"?: boolean;
     readonly matrix?: { readonly include?: readonly Record<string, string | number>[] };
@@ -1016,12 +1017,78 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   const ci = load(".github/workflows/ci.yml");
   const needs = [ci.jobs.ci?.needs ?? []].flat();
 
-  // A job missing from `needs` can be red while the merge goes through.
-  test("the gate needs every job but E2E, which reports without gating", () => {
+  // A job missing from `needs` can be red while the merge goes through. Without
+  // `always()` a failed need skips the gate, and GitHub counts a skipped
+  // required check as passed.
+  test("the gate needs every job, E2E included, and runs whatever its needs did", () => {
     const gated = Object.keys(ci.jobs)
-      .filter((id) => id !== "ci" && id !== "e2e")
+      .filter((id) => id !== "ci")
       .toSorted();
     expect(needs.toSorted()).toEqual(gated);
+    expect(ci.jobs.ci?.if).toBe("always()");
+  });
+
+  /**
+   * Runs the gate's script as GitHub runs it, each
+   * `${{ contains(needs.*.result, '<result>') }}` replaced by its value when
+   * the needs ended as `results` says. Any other expression in the script
+   * throws, so a rewritten script fails here rather than passing unread.
+   */
+  const gate = (results: Readonly<Record<string, string>>) => {
+    const step = stepsOf(ci.jobs.ci).find((one) => one.name === "Check results");
+    const ended = Object.values(results);
+    const script = (step?.run ?? "exit 9").replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) => {
+      const match = /^\s*contains\(needs\.\*\.result, '([a-z]+)'\)\s*$/.exec(expression);
+      if (match === null) throw new Error(`the gate's script holds ${expression}`);
+      return String(ended.includes(match[1] ?? ""));
+    });
+    return Bun.spawnSync(["bash", "--noprofile", "--norc", "-e", "-c", script]).exitCode;
+  };
+
+  // A need is skipped in the merge queue and on a push to main (E2E), and on
+  // a prose-only change (every job that waits on the detection); a skip that
+  // failed the gate would hold every queue group and prose change for good.
+  // A need is cancelled when a newer push supersedes its run.
+  test("a skipped need passes the gate, and a failed or cancelled one fails it", () => {
+    const passed = Object.fromEntries(needs.map((id) => [id, "success"]));
+    const onProse = needs.filter((id) => needsOf(ci.jobs[id] ?? {}).includes("changes"));
+    expect(onProse).toContain("e2e");
+    expect(gate(passed)).toBe(0);
+    expect(gate({ ...passed, e2e: "skipped" })).toBe(0);
+    expect(gate({ ...passed, ...Object.fromEntries(onProse.map((id) => [id, "skipped"])) })).toBe(
+      0,
+    );
+    for (const id of needs) {
+      for (const result of ["failure", "cancelled"]) {
+        expect({ id, result, exit: gate({ ...passed, [id]: result }) }).toEqual({
+          id,
+          result,
+          exit: 1,
+        });
+      }
+    }
+  });
+
+  // `continue-on-error` reports a failed job, or a failed step, as passed to
+  // whatever reads its result, the gate included. A cache save is the one
+  // exception: it only writes a cache, and a save that hangs or fails must not
+  // turn a leg red.
+  test("no job the gate needs, and no step in one but a cache save, carries continue-on-error", () => {
+    for (const id of needs) {
+      const job = ci.jobs[id];
+      expect({ id, "continue-on-error": job?.["continue-on-error"] }).toEqual({
+        id,
+        "continue-on-error": undefined,
+      });
+      for (const step of stepsOf(job).filter((one) => one.uses !== "actions/cache/save@v4")) {
+        const name = step.name ?? step.uses;
+        expect({ id, name, "continue-on-error": step["continue-on-error"] }).toEqual({
+          id,
+          name,
+          "continue-on-error": undefined,
+        });
+      }
+    }
   });
 
   // A filter that names no package matches nothing, and turbo passes.
@@ -1038,10 +1105,11 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   });
 
   // A merge-queue group runs on a `gh-readonly-queue/*` ref that no later run
-  // can restore from, so a cache saved there is space and nothing else. A save
-  // may add conditions of its own after that one, joined by `&&`. This checks
-  // the separate save steps only; an `actions/cache` step saves in its post
-  // step, which no `if` here reaches.
+  // can restore from, so a cache saved there is space and nothing else. Each
+  // save names the event first, as not a queue group or as a push; it may add
+  // conditions of its own after that, joined by `&&`. This checks the separate
+  // save steps only; an `actions/cache` step saves in its post step, which no
+  // `if` here reaches.
   test("no actions/cache/save step runs on a merge-queue run", () => {
     const saves = Object.values(ci.jobs)
       .flatMap((job) => stepsOf(job))
@@ -1050,8 +1118,47 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     for (const step of saves) {
       expect({ path: step.with?.path, if: step.if }).toEqual({
         path: step.with?.path,
-        if: expect.stringMatching(/^github\.event_name != 'merge_group'( && [^|]+)?$/),
+        if: expect.stringMatching(/^github\.event_name (!= 'merge_group'|== 'push')( && [^|]+)?$/),
       });
+    }
+  });
+
+  // No E2E job runs on a push to main, so a browser leg saves main's copy of
+  // both Chromium caches there, the copy every pull request and queue group
+  // restores; without it each pull request's E2E saves a ~290 MB browser of its
+  // own. One leg saves, so three legs do not race for one key. Each save
+  // follows its install and comes before the tests, so a red leg still saves.
+  test("on a push to main, one browser leg saves each Chromium cache it restored, straight after its install and before the tests, and a failed save fails nothing", () => {
+    const steps = stepsOf(ci.jobs.browser);
+    const at = (found: (step: Step) => boolean) => steps.findIndex(found);
+    const tests = at((step) => step.name === "Browser tests");
+    for (const [path, id, install] of [
+      ["~/.cache/ms-playwright", "chromium", "Install Chromium for browser tests"],
+      ["~/.cache/chromium-apt", "chromium-apt", "Install Chromium's system libraries"],
+    ] as const) {
+      const restore = at(
+        (step) => step.uses === "actions/cache/restore@v4" && step.with?.path === path,
+      );
+      const save = at((step) => step.uses === "actions/cache/save@v4" && step.with?.path === path);
+      const installed = at((step) => step.name === install);
+      expect({
+        path,
+        restore: steps[restore]?.id,
+        if: steps[save]?.if,
+        key: steps[save]?.with?.key,
+        "timeout-minutes": steps[save]?.["timeout-minutes"],
+        "continue-on-error": steps[save]?.["continue-on-error"],
+      }).toEqual({
+        path,
+        restore: id,
+        if: `github.event_name == 'push' && strategy.job-index == 0 && steps.${id}.outputs.cache-hit != 'true'`,
+        key: `\${{ steps.${id}.outputs.cache-primary-key }}`,
+        "timeout-minutes": 5,
+        "continue-on-error": true,
+      });
+      expect(installed).toBeGreaterThan(restore);
+      expect(save).toBe(installed + 1);
+      expect(tests).toBeGreaterThan(save);
     }
   });
 
@@ -1066,7 +1173,7 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   // still moves into apt's archive only the packages the runner's own signed
   // index names (install-chromium-system-libraries.cli.test.ts), so a set
   // saved on another build changes how much apt downloads, never what it
-  // installs. The E2E job saves its own build's exact key.
+  // installs. Each job that saves writes its own build's exact key.
   test("Chromium's system packages are saved under the image build's own key and restored from any build of the same OS image, both keys built the same way by the browser legs and the E2E job", () => {
     const onCache = Object.entries(ci.jobs).flatMap(([id, job]) =>
       stepsOf(job)
@@ -1084,6 +1191,12 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         uses: "actions/cache/restore@v4",
         key: "${{ steps.chromium-apt-key.outputs.key }}",
         fallback: "${{ steps.chromium-apt-key.outputs.prefix }}",
+      },
+      {
+        id: "browser",
+        uses: "actions/cache/save@v4",
+        key: "${{ steps.chromium-apt.outputs.cache-primary-key }}",
+        fallback: undefined,
       },
       {
         id: "e2e",
@@ -1143,6 +1256,49 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
       line.slice(line.indexOf("=") + 1),
     );
     expect(key.startsWith(prefix)).toBe(true);
+  });
+
+  // scripts/install-chromium-system-libraries.sh at its longest: three
+  // attempts each cut at their limit, with retry.sh's grace and its wait for
+  // an attempt's processes to go, then the dry run with its own grace. Each
+  // wait for dpkg's lock sits inside an attempt, so it must be shorter than
+  // one; a longer one would always be cut before it gave up.
+  test("Chromium's system-library install, its waits for dpkg's lock included, ends inside the limit each job gives its step", () => {
+    const read = (path: string) => readFileSync(join(root, path), "utf8");
+    const numbers = (text: string, pattern: RegExp) =>
+      (pattern.exec(text)?.slice(1) ?? []).map(Number);
+    const script = read("scripts/install-chromium-system-libraries.sh");
+    // No `-k`: the attempts take retry.sh's default grace.
+    const [attempts = 0, seconds = 0] = numbers(script, /retry\.sh" (\d+) (\d+) \\$/m);
+    const [lockWait = Number.NaN] = numbers(script, /^lock_wait=(\d+)$/m);
+    const [dryGrace = 0, dryLimit = 0] = numbers(
+      script,
+      /timeout -k (\d+) (\d+) bunx --no-install playwright install-deps --dry-run chromium/,
+    );
+    const retry = read("scripts/retry.sh");
+    const [grace = Number.NaN] = numbers(retry, /^grace=(\d+)$/m);
+    // The wait for an attempt's processes: up to <polls> checks, <pause> s apart.
+    const [polls = Number.NaN, pause = Number.NaN] = numbers(
+      retry,
+      /for _ in \$\(seq 1 (\d+)\); do\n.*\n\s+sleep ([\d.]+)\n/,
+    );
+    expect(attempts).toBeGreaterThan(0);
+    expect(dryLimit).toBeGreaterThan(0);
+    expect(lockWait).toBeLessThan(seconds);
+    const longest = attempts * (seconds + grace + polls * pause) + dryLimit + dryGrace;
+    // The figure the script's header and wiki/conventions/browser-tests.md state.
+    expect(longest).toBeCloseTo(580);
+
+    const limits = Object.entries(ci.jobs).flatMap(([id, job]) =>
+      stepsOf(job)
+        .filter((step) => step.name === "Install Chromium's system libraries")
+        .map((step) => {
+          const minutes = /^timeout (\d+)m /.exec(step.run ?? "")?.[1];
+          return { id, seconds: 60 * Number(step["timeout-minutes"] ?? minutes ?? 0) };
+        }),
+    );
+    expect(limits.map((limit) => limit.id)).toEqual(["browser", "e2e"]);
+    for (const limit of limits) expect(longest, limit.id).toBeLessThanOrEqual(limit.seconds);
   });
 
   // The secret scan runs the gitleaks a cached tarball holds.
@@ -1227,16 +1383,20 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   // A job that waits on the detection and is not in the list can be skipped
   // with nothing here saying so; one in the list that does not wait runs
   // anyway. The lint, script and secret checks read prose too, so they never
-  // wait.
-  test("each build, test and E2E job runs unless the detection says prose only; lint, scripts and the secret scan always run", () => {
+  // wait. E2E runs on a pull request alone: the merge queue and the push to
+  // main skip it, so no change runs the suite twice.
+  test("each build, test and E2E job runs unless the detection says prose only, E2E on a pull request only; lint, scripts and the secret scan always run", () => {
     const waiting = Object.entries(ci.jobs)
       .filter(([, job]) => needsOf(job).includes("changes"))
       .map(([id]) => id);
-    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "ci"].toSorted());
+    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "bend-proofs", "ci"].toSorted());
+    // The Bend proofs read only their own files: the classifier's `bend`
+    // output, true for any change to them and whenever no diff was computed.
+    expect(ci.jobs["bend-proofs"]?.if).toBe("needs.changes.outputs.bend == 'true'");
     for (const id of SKIPPABLE) {
       expect({ id, if: ci.jobs[id]?.if }).toEqual({
         id,
-        if: id === "e2e" ? `github.event_name != 'merge_group' && ${SKIP}` : SKIP,
+        if: id === "e2e" ? `github.event_name == 'pull_request' && ${SKIP}` : SKIP,
       });
     }
     for (const id of ["lint", "script-tests", "secrets", "changes"]) {
@@ -1264,7 +1424,12 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
     commits: readonly (readonly Change[])[],
     event: (shas: readonly string[]) => Record<string, string>,
     { classifierOnBase = true } = {},
-  ): { readonly exitCode: number; readonly output: string; readonly verdict: string } {
+  ): {
+    readonly exitCode: number;
+    readonly output: string;
+    readonly verdict: string;
+    readonly bend: string;
+  } {
     const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
     const git = (...args: string[]) => {
       const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
@@ -1315,6 +1480,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
       exitCode: result.exitCode,
       output: result.stdout.toString() + result.stderr.toString(),
       verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
+      bend: /^bend=(.*)$/m.exec(written)?.[1] ?? "<none>",
     };
   }
 
@@ -1372,10 +1538,31 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   });
 
   test("a base with no classifier yet runs every job", () => {
-    const { exitCode, output, verdict } = classify([["wiki/a.md"]], pullRequest, {
+    const { exitCode, output, verdict, bend } = classify([["wiki/a.md"]], pullRequest, {
       classifierOnBase: false,
     });
-    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: "false" });
+    expect({ exitCode, verdict, bend }, output).toEqual({
+      exitCode: 0,
+      verdict: "false",
+      bend: "true",
+    });
+  });
+
+  // The Bend proofs read the law sets (`<workspace>/laws/<topic>/`), the
+  // toolchain in tools/bend/ and this workflow, and nothing else; a change to
+  // none of them skips the job.
+  test.each([
+    ["a change to osn-api's laws", "true", [["osn/api/laws/account-deletion/account.bend"]]],
+    ["a change to cire-api's model", "true", [["cire/api/laws/account-deletion/model.mjs"]]],
+    ["a change to a new set elsewhere", "true", [["zap/api/laws/messaging/LAWS.bend"]]],
+    ["a change to the toolchain", "true", [["tools/bend/install-bend.sh"]]],
+    ["a change to the agreement tests", "false", [["osn/api/tests/laws/model.ts"]]],
+    ["a change to this workflow", "true", [[".github/workflows/ci.yml"]]],
+    ["a change to a service the model describes", "false", [["osn/api/src/a.ts"]]],
+    ["a change of prose", "false", [["wiki/a.md"]]],
+  ] as const)("%s: the Bend proofs run is %s", (_, expected, commits) => {
+    const { exitCode, output, bend } = classify(commits, pullRequest);
+    expect({ exitCode, bend }, output).toEqual({ exitCode: 0, bend: expected });
   });
 });
 
@@ -1416,10 +1603,10 @@ describe("CI's E2E job runs the suite once and retries the whole run only when i
     ]);
   });
 
-  // The determinism check runs the whole suite twice. On a pull request or a
-  // push that is two runs more than the one CI's E2E job makes, so it runs on
-  // its daily schedule and by hand only; without the schedule nothing compares
-  // two runs at all.
+  // The determinism check runs the whole suite twice. On a pull request that
+  // is two runs more than the one CI's E2E job makes, so it runs on its daily
+  // schedule and by hand only; without the schedule nothing compares two runs,
+  // and nothing runs the suite on main.
   test("the determinism job runs test:e2e:repro daily and by hand only: never on a pull request, a push or a merge-queue group", () => {
     expect(Object.keys(repro.on).toSorted()).toEqual(["schedule", "workflow_dispatch"]);
     expect(repro.on.schedule).toEqual([{ cron: "17 5 * * *" }]);
@@ -1433,10 +1620,11 @@ describe("CI's E2E job runs the suite once and retries the whole run only when i
     ).toEqual(["bun run test:e2e:repro"]);
   });
 
-  // A pull request, a push or a merge-queue group runs the suite in one step
-  // of one job, CI's E2E, and never twice by design: a second run happens only
-  // when e2e-with-retry.sh retries a failed one.
-  test("on a pull request, a push or a merge-queue group, only CI's E2E step runs the suite, and nothing runs test:e2e:repro", () => {
+  // Of the workflows a pull request, a push or a merge-queue group starts, one
+  // step of one job runs the suite: CI's E2E, which runs on a pull request
+  // alone. A second run happens only when e2e-with-retry.sh retries a failed
+  // one.
+  test("of the workflows a pull request, a push or a merge-queue group starts, only CI's E2E step runs the suite, and nothing runs test:e2e:repro", () => {
     const CHANGE_EVENTS = new Set(["pull_request", "pull_request_target", "push", "merge_group"]);
     const workflows = Array.from(
       new Bun.Glob(".github/workflows/*.{yml,yaml}").scanSync({ cwd: root }),

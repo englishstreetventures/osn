@@ -90,6 +90,7 @@ token or identifier takes.
 |           | `--ui-radius-control`                                        | a role, not a size — defaults to `md`           |
 |           | `--ui-radius-field`                                          | a role — defaults to `control`, then `md`       |
 |           | `--ui-radius-sheet`                                          | a role — defaults to `lg`                       |
+|           | `--ui-radius-menu-row`                                       | a role — defaults to `sm`                       |
 | Type      | `--ui-font-body\|display\|mono`                              | —                                               |
 |           | `--ui-weight-title`                                          | a role, not a step — defaults to 600            |
 | Motion    | `--ui-dur-fast\|base\|slow\|exit`, `--ui-ease-out\|in-out\|exit` | by job, never by the nearest number         |

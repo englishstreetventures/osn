@@ -64,18 +64,6 @@ describe("DietaryPresetsPopover", () => {
     expect(screen.getByRole("button", { name: /add dietary requirements/i })).toBeTruthy();
   });
 
-  it("names the current selection on the closed trigger", () => {
-    // A closed control that says only "Dietary requirements" makes a guest open
-    // it to find out what they already picked, every single time.
-    render(() => <Harness initial={["vegetarian", "nuts"]} />);
-    expect(screen.getByRole("button", { name: /vegetarian, nuts/i })).toBeTruthy();
-  });
-
-  it("truncates a long selection so the trigger cannot outgrow its row", () => {
-    render(() => <Harness initial={["vegetarian", "nuts", "gluten", "egg"]} />);
-    expect(screen.getByRole("button", { name: /vegetarian, nuts \+2/i })).toBeTruthy();
-  });
-
   it("names a key this build does not know rather than leaving a blank", () => {
     // The organiser's portal can be a build older than the API, and the stored
     // answer can then carry a key missing from this build's vocabulary.

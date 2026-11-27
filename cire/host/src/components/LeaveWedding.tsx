@@ -2,10 +2,15 @@ import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Modal } from "@shared/ui/ui/modal";
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import type { InAppLink } from "../lib/link-click";
 import { haptic } from "../lib/touch-feedback";
+import PayoutHolderNote, { payoutHolderSentence } from "./PayoutHolderNote";
+
+/** The id of the note under the button when the caller holds the payout account. */
+const HOLDER_NOTE_ID = "leave-payout-holder-note";
 
 interface LeaveWeddingProps {
   weddingId: string;
@@ -13,6 +18,16 @@ interface LeaveWeddingProps {
    *  parent drops the wedding from the organiser's list, which unmounts this
    *  control and releases the wedding's cached rows. */
   onLeft?: () => void;
+  /** The list's read says the caller holds the wedding's payout account, so
+   *  the API will refuse their leave until it is handed over: a note under the
+   *  button says why. The button still asks and sends, since the read can be
+   *  stale; the API's refusal decides. */
+  payoutHolder?: boolean;
+  /** Money gifts, where the account is handed over, when the reader can open it. */
+  moneyGifts?: InAppLink;
+  /** The API refused the leave for the payout account: the caller's seat is
+   *  marked, so the page says why from now on. */
+  onHoldsPayoutAccount?: () => void;
 }
 
 /**
@@ -20,7 +35,8 @@ interface LeaveWeddingProps {
  * Offered to every seat holder — the co-host panel shows it to owners, editors
  * and viewers, the run-sheet screen to helpers. An owner may leave while
  * another owner remains; the API refuses the last one (409 `last_owner`), and
- * the message says what would let them go.
+ * an owner holding the wedding's Stripe account (409 `holds_payout_account`),
+ * and each message says what would let them go.
  */
 export default function LeaveWedding(props: LeaveWeddingProps) {
   const { authFetch } = useAuth();
@@ -48,8 +64,20 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
       }
       if (!res.ok) {
         haptic("reject");
-        toast.error(
+        const error =
           res.status === 409
+            ? ((await res.json().catch(() => null)) as { error?: unknown } | null)?.error
+            : null;
+        if (error === "holds_payout_account") {
+          // The caller holds the account: the leave cannot happen here, so the
+          // dialog goes and the seat says why.
+          setConfirming(false);
+          toast.error(payoutHolderSentence(null));
+          props.onHoldsPayoutAccount?.();
+          return;
+        }
+        toast.error(
+          error === "last_owner"
             ? "You're this wedding's only owner. Make someone else an owner first, or delete the wedding."
             : "Could not leave this wedding. Please try again.",
         );
@@ -86,10 +114,20 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
           variant="danger"
           size="sm"
           type="button"
+          aria-describedby={props.payoutHolder ? HOLDER_NOTE_ID : undefined}
           onClick={() => setConfirming(true)}
         >
           Leave this wedding
         </Button>
+        <Show when={props.payoutHolder}>
+          <PayoutHolderNote
+            id={HOLDER_NOTE_ID}
+            testId={HOLDER_NOTE_ID}
+            name={null}
+            moneyGifts={props.moneyGifts}
+            class="max-w-prose"
+          />
+        </Show>
       </section>
 
       <Modal

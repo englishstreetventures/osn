@@ -184,6 +184,101 @@ describe("SignIn component", () => {
     });
   });
 
+  // A sign-in replaces the browser's session, so a sign-up kept in this
+  // browser has nothing left to resume: what was typed on its form and the
+  // account its passkey step was for both go, on every host, the `/authorize`
+  // page included.
+  describe("a sign-in under a kept sign-up", () => {
+    const DRAFT = "osn.signup.draft";
+    const ENROLLING = "osn.signup.enrolling";
+
+    beforeEach(() => {
+      sessionStorage.setItem(
+        DRAFT,
+        JSON.stringify({
+          email: "ada@example.com",
+          handle: "ada",
+          birthdate: "1990-01-01",
+          displayName: "Ada",
+        }),
+      );
+      localStorage.setItem(
+        ENROLLING,
+        JSON.stringify({ profileId: "usr_ada", handle: "ada", expiresAt: Date.now() + 600_000 }),
+      );
+    });
+
+    afterEach(() => {
+      sessionStorage.clear();
+      localStorage.clear();
+    });
+
+    const mountOnPage = () =>
+      render(() => (
+        <SignIn
+          host="page"
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
+
+    it("removes both once a passkey sign-in's session is published", async () => {
+      login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
+      hoisted.startAuthentication.mockResolvedValue({ id: "cred", rawId: "raw" });
+      login.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
+      let published = false;
+      hoisted.adoptSession.mockImplementation(async () => {
+        // Still there while the session is being published.
+        expect(sessionStorage.getItem(DRAFT)).not.toBeNull();
+        expect(localStorage.getItem(ENROLLING)).not.toBeNull();
+        published = true;
+      });
+      mountOnPage();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+
+      await waitFor(() => expect(sessionStorage.getItem(DRAFT)).toBeNull());
+      expect(published).toBe(true);
+      expect(localStorage.getItem(ENROLLING)).toBeNull();
+    });
+
+    it("removes both once a recovery code's session is published", async () => {
+      recovery.loginWithRecoveryCode.mockResolvedValue({
+        session: sampleSession,
+        profile: sampleUser,
+      });
+      hoisted.adoptSession.mockResolvedValue(undefined);
+      mountOnPage();
+      fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Use a recovery code/i }));
+      fireEvent.input(screen.getByLabelText(/Email or @handle/i), {
+        target: { value: "alice@example.com" },
+      });
+      fireEvent.input(screen.getByLabelText(/Recovery code/i), {
+        target: { value: "abcd-1234-5678-ef00" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
+
+      await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession));
+      await waitFor(() => expect(sessionStorage.getItem(DRAFT)).toBeNull());
+      expect(localStorage.getItem(ENROLLING)).toBeNull();
+    });
+
+    it("keeps both when the sign-in fails", async () => {
+      login.passkeyBegin.mockResolvedValue({ options: {} });
+      hoisted.startAuthentication.mockResolvedValue({ id: "cred" });
+      login.passkeyComplete.mockRejectedValue(apiError("PLANTED-signin-complete"));
+      mountOnPage();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+
+      await screen.findByRole("alert");
+      expect(sessionStorage.getItem(DRAFT)).not.toBeNull();
+      expect(localStorage.getItem(ENROLLING)).not.toBeNull();
+    });
+  });
+
   describe("error line", () => {
     function mount() {
       render(() => (
@@ -271,17 +366,27 @@ describe("SignIn component", () => {
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
     });
 
-    it("leaves no sign-in error under the recovery form", async () => {
+    it("drops the sign-in error on the way to recovery, so it is gone on the way back", async () => {
       await submitAndFail(apiError("PLANTED-signin-switch"));
       // The standalone link below Continue.
       const links = screen.getAllByRole("button", { name: /Lost your passkey/i });
       fireEvent.click(links[links.length - 1]!);
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
       expect(screen.queryByRole("alert")).toBeNull();
+      // The error's own view unmounts on the way, so only the way back shows it.
+      fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
+      const field = await screen.findByLabelText(/Email or @handle/);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(field.getAttribute("aria-invalid")).toBeNull();
     });
   });
 
   describe("conditional-UI / discoverable login on mount", () => {
+    afterEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
+      delete (window as any).PublicKeyCredential;
+    });
+
     it("kicks off passkeyBegin() (no identifier) → passkeyComplete({ challengeId, assertion })", async () => {
       const isAvail = vi.fn(async () => true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
@@ -322,9 +427,15 @@ describe("SignIn component", () => {
       delete (window as any).PublicKeyCredential;
     });
 
-    it("does nothing when isConditionalMediationAvailable is missing", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
-      delete (window as any).PublicKeyCredential;
+    it.each([
+      ["has no isConditionalMediationAvailable", {}],
+      [
+        "says conditional mediation is unavailable",
+        { isConditionalMediationAvailable: async () => false },
+      ],
+    ])("starts no passkey sign-in when the browser %s", async (_, credential) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
+      (window as any).PublicKeyCredential = credential;
 
       render(() => (
         <SignIn
@@ -335,7 +446,7 @@ describe("SignIn component", () => {
         />
       ));
 
-      await new Promise((r) => setTimeout(r, 10));
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
       expect(login.passkeyBegin).not.toHaveBeenCalled();
       expect(login.passkeyComplete).not.toHaveBeenCalled();
     });
@@ -581,23 +692,6 @@ describe("SignIn component", () => {
         vi.useRealTimers();
         sessionStorage.clear();
       }
-    });
-
-    it("surfaces the recovery form when the user clicks it", async () => {
-      render(() => (
-        <SignIn
-          host="page"
-          client={asLogin(login)}
-          recoveryClient={asRecovery(recovery)}
-          productName="Musubi"
-        />
-      ));
-      fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
-      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
-      fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
-      await waitFor(() => {
-        expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
-      });
     });
   });
 

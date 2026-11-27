@@ -1,14 +1,20 @@
-import { Effect } from "effect";
+import { accounts } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import type { RateLimiterBackend } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
+import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
+import { createGraphRoutes } from "../src/routes/graph";
 import { createAuthService } from "../src/services/auth";
+import { toPublicProfile } from "../src/services/auth/types";
 import { makeTestAuthConfig } from "./helpers/auth-config";
 import { createTestLayer } from "./helpers/db";
 // Wrapped factories (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes, createProfileRoutes } from "./helpers/routes";
 
 /**
- * Privacy invariant tests for multi-account P6.
+ * Privacy invariant tests.
  *
  * Core invariant: no external observer can correlate two profiles as belonging
  * to the same account. These tests verify that `accountId` never leaks in API
@@ -43,7 +49,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(parts[1]!, "base64url").toString());
 }
 
-describe("privacy invariants (P6)", () => {
+describe("privacy invariants", () => {
   let authApp: ReturnType<typeof createAuthRoutes>;
   let profileApp: ReturnType<typeof createProfileRoutes>;
   let layer: ReturnType<typeof createTestLayer>;
@@ -81,23 +87,12 @@ describe("privacy invariants (P6)", () => {
 
   describe("accountId never in API response bodies", () => {
     it("service-layer register does not expose accountId in its public shape", async () => {
-      // The HTTP /register route was removed; the privacy invariant is now
-      // asserted directly on the service-level payload that every caller
-      // (including the sign-up status poll's wire path) ultimately reads from.
       const profile = await Effect.runPromise(
         auth.registerProfile("priv1@test.com", "priv1").pipe(Effect.provide(layer)),
       );
-      // `ProfileWithEmail` exposes `accountId` on purpose (it's the service
-      // boundary, not the wire boundary). What we care about here is that
-      // the public / wire shape — the `profile` object the HTTP layer
-      // actually returns — never reflects it. Strip via the same mapper
-      // the routes use (`toPublicProfile`) and assert.
-      const wirePayload = {
-        profileId: profile.id,
-        handle: profile.handle,
-        email: profile.email,
-        displayName: profile.displayName,
-      };
+      // `ProfileWithEmail` carries `accountId` (the service boundary); the
+      // mapper the routes answer with must drop it.
+      const wirePayload = toPublicProfile(profile, profile.email);
       assertNoAccountId(wirePayload);
     });
 
@@ -168,14 +163,35 @@ describe("privacy invariants (P6)", () => {
 
   describe("WebAuthn userID isolation", () => {
     it("passkeyUserId is generated on account creation", async () => {
-      const _reg = await registerAccount("priv6@test.com", "priv6");
-      // Verify via service layer that the account has a passkeyUserId
+      const { profile } = await registerAccount("priv6@test.com", "priv6");
       const result = await Effect.runPromise(
         auth.findProfileByEmail("priv6@test.com").pipe(Effect.provide(layer)),
       );
       expect(result).not.toBeNull();
       // The profile row itself should not carry passkeyUserId (it's on accounts)
       expect(result).not.toHaveProperty("passkeyUserId");
+
+      // The account row holds a user handle of its own, not its id.
+      const [account] = await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.promise(() =>
+            db.select().from(accounts).where(eq(accounts.id, profile.accountId)),
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+      expect(typeof account?.passkeyUserId).toBe("string");
+      expect(account!.passkeyUserId.length).toBeGreaterThan(0);
+      expect(account!.passkeyUserId).not.toBe(profile.accountId);
+
+      // The authenticator is given that handle, which names no account.
+      const { options } = await Effect.runPromise(
+        auth.beginPasskeyRegistration(profile.accountId).pipe(Effect.provide(layer)),
+      );
+      const userHandle = Buffer.from(options.user.id, "base64url").toString("utf8");
+      expect(userHandle).toBe(account!.passkeyUserId);
+      expect(userHandle).not.toContain(profile.accountId);
+      expect(userHandle).not.toMatch(/acc_/);
     });
 
     it("two profiles on same account cannot be correlated via profile data", async () => {
@@ -207,7 +223,7 @@ describe("privacy invariants (P6)", () => {
   // ---------------------------------------------------------------------------
 
   describe("rate limiting isolation", () => {
-    it("access tokens for different profiles have different sub claims", async () => {
+    it("access tokens for different profiles have different sub claims, and the graph limiter keys on each", async () => {
       const { profile: p1, tokens: t1 } = await registerAccount("priv8@test.com", "priv8");
 
       // Create second profile and switch to it
@@ -255,6 +271,28 @@ describe("privacy invariants (P6)", () => {
       expect(claims1.sub).toBe(p1.id);
       expect(claims2.sub).toBe(altProfile.id);
       expect(claims1.sub).not.toBe(claims2.sub);
+
+      // A graph write from each profile spends that profile's own budget: the
+      // limiter is keyed on the profile, never on the account they share.
+      const keys: string[] = [];
+      const recording: RateLimiterBackend = {
+        check: (key) => {
+          keys.push(key);
+          return true;
+        },
+      };
+      const graphApp = createGraphRoutes(config, layer, Layer.empty, recording);
+      for (const token of [t1.accessToken, altAccessToken]) {
+        // eslint-disable-next-line no-await-in-loop -- one write per profile, in order
+        await graphApp.handle(
+          new Request("http://localhost/graph/blocks/nobody", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        );
+      }
+      expect(keys).toEqual([p1.id, altProfile.id]);
+      expect(keys.some((key) => key.includes(p1.accountId))).toBe(false);
     });
   });
 });

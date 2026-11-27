@@ -14,6 +14,7 @@ tags:
   - observability
 status: current
 related:
+  - "[[change-notices]]"
   - "[[cire-rsvp-changes]]"
   - "[[identity-model]]"
   - "[[step-up]]"
@@ -24,7 +25,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-26
 ---
 
 # Email Transport
@@ -32,9 +33,9 @@ last-reviewed: 2026-11-16
 OSN's transactional-email surface. Dispatches OTP codes (registration,
 step-up, email-change) and security-event notifications (recovery codes,
 passkeys, TOTP, cross-device sign-in, account recovery, email change) to
-users. No
-marketing mail, no product updates — only auth-critical transactional
-email.
+users, and the change notice that tells every account holder a privacy
+notice or the terms are changing ([[change-notices]]). No marketing mail, no
+product updates.
 
 ## Architecture
 
@@ -59,7 +60,7 @@ Email Service transport. The Cloudflare transport
 (`https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`)
 stays as a legacy fallback. Both render the **same** templates
 in-process and DKIM-sign via the verified sender domain
-(`cireweddings.com` in prod) — no intermediate Worker, no ARC tokens.
+(`musubi.social` for osn-api) — no intermediate Worker, no ARC tokens.
 
 ## Packages
 
@@ -109,6 +110,7 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 | `account-deleted` | `{ instanceName, handles, handlesHeldUntil, kept: [{ app, what, erasedOn, requestUrl }], organisations: [{ handle, newOwnerHandle }] }` — names each organisation by handle only | the hard-delete sweep, once its batch removed the account, to the address it had |
 | `organisation-ownership-received` | `{ instanceName, organisationHandle, declineUrl, declineUntil, cause }` — names the organisation by handle only | the hard-delete sweep for each organisation passed on, and `POST /organisations/:handle/decline-ownership` for the next owner |
 | `account-data-link` | `{ instanceName, url }` — a link to the download page, never the data | `POST /account/data-link` |
+| `change-notice` | `{ instanceName, document, changes, takesEffect, url }` — the page that changes, what changes, the UTC day it takes effect, the page's link; the same message for every recipient; no unsubscribe link or header | the operator's change-notice run, `POST /internal/change-notices/:noticeId/send`, through `sendKeyedBatch` — see [[change-notices]] |
 
 cire-api sends from the same catalogue:
 
@@ -120,6 +122,7 @@ cire-api sends from the same catalogue:
 | `rsvp-change-digest` | `{ weddingName, households, counts, rsvpUrl }` — counts per kind of change, no guest name | the daily RSVP digest cron — see [[cire-rsvp-changes]] |
 | `wedding-owner-change` | `WeddingOwnerChangeData` — wedding name, who acted, whose seat changed, the change (`added`, `promoted`, `removed`, `demoted`), the new role, which copy this is (`subject`, `actor`, `owner`) | a change of owner, to the actor and every other owner, and for a removal or demotion to the person affected — see [[cire-auth]] |
 | `wedding-delete-started` | `WeddingDeleteStartedData` — wedding name, who deleted it, the restore deadline, which copy this is (`actor`, `owner`) | an owner deleting a wedding, to every owner — see [[cire-auth]] |
+| `registry-payout-retired` | `RegistryPayoutRetiredData` — wedding name, who acted, whom the holder asked to connect the next account or whose account was replaced, the reason (`handed_over`, `disconnected`, `replaced`, `holder_absent`), which copy this is (`actor`, `named`, `holder`, `owner`), the link to the registry's Settings tab, which holds Money gifts; no account detail | an owner retiring the wedding's Stripe account, to every owner but one the actor seated in the last day (the replaced holder always) — see [[cire-registry#Retiring an account]] |
 | `upgrade-refund` | `UpgradeRefundData` — wedding name, the tier, the amount refunded (formatted by cire), cire's contact address, the portal link; no reason and no name | an upgrade payment cire could not grant, refunded, to every owner once after Stripe accepts the refund — see [[cire-upgrades]] |
 | `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
 | `r2-reconcile-alert` | `R2ReconcileAlertData` — one of `held` (bucket name, both row counts, runs held and left), `released`, `stopped` (bucket name, days stopped) or `disabled`, plus the tier; counts and commands only, no object key or guest data | the daily cron's R2 orphan reconcilers, to the operator address in `CIRE_OPS_EMAIL` — see [[backup-dr]] |
@@ -164,7 +167,7 @@ POST https://api.resend.com/emails
 Authorization: Bearer <RESEND_API_KEY>
 Content-Type: application/json
 {
-  "from":    "hello@cireweddings.com",
+  "from":    "Musubi <hello@musubi.social>",
   "to":      ["user@example.com"],
   "subject": "Confirm your Musubi email",
   "html":    "...",
@@ -223,6 +226,18 @@ Content-Type: application/json
   nothing; the other transports leave it out and callers loop over `send`.
   cire's RSVP digest uses it so a cron run mails up to 100 organisers for one
   outbound request ([[cire-rsvp-changes]]).
+- `EmailService.sendKeyedBatch` (optional) — one batch of at most 100 in one
+  call, under an idempotency key, in permissive validation. Resend implements
+  it as `POST /emails/batch` with `Idempotency-Key` and `x-batch-validation:
+  permissive`: it sends nothing twice under one key for 24 hours, queues the
+  valid emails and lists the ones it refused by index in `errors`. It answers
+  `{ accepted, refused }`; more than 100 fails before any request. The other
+  transports leave it out. The change-notice run uses it
+  ([[change-notices]]).
+- **Refusals.** When Resend answered, `EmailError` carries `status` and, when
+  the body named one in lower case, Resend's error name as `providerError`
+  (`invalid_idempotent_request`, `daily_quota_exceeded`, …). Neither ever holds
+  an address, message text or key.
 - **Headers.** A renderer may return `headers` beside the subject and bodies;
   the Resend transport sends them on `send` and `sendBatch`, and the
   Cloudflare and log transports drop them. The RSVP digest uses this for
@@ -294,14 +309,17 @@ future degraded deploy. See [[production-deploy]] §1.1 for the Resend
 setup steps.
 
 > **Email is live via Resend** — confirmed delivering from
-> `hello@cireweddings.com` on 2026-06-18. `RESEND_API_KEY` on the
+> `hello@cireweddings.com` on 2026-06-18; the production release after
+> 2026-11-24 moves osn-api to `Musubi <hello@musubi.social>`, and a code sent to a
+> test inbox then confirms the From line, SPF and DKIM
+> (englishstreetventures/osn#1548). `RESEND_API_KEY` on the
 > deployed osn-api Worker (`id.musubi.social` since the 2026-07-27 identity
 > move — [[musubi-identity-migration]]) carries the full
-> transactional surface: OTP step-up codes, email-change OTPs, and
-> security-notice emails (every security notice in the template table
+> transactional surface: step-up and email-change links
+> (`link-step-up`, `link-email-change`), and security-notice emails (every security notice in the template table
 > above) are all delivered again. This **supersedes** the
 > earlier degraded-mode note. Direct consequence for **cire**: organiser
-> step-up can use the **OTP factor** again (a code mailed via Resend now
+> step-up can use the **OTP factor** again (the emailed step-up link now
 > arrives), though **passkey step-up remains preferred** — `StepUpDialog`'s
 > `passkeyOnly` flag and the `PasskeysView` Security panel (#155) are the
 > primary UX. Cire **guests** are unaffected — their auth is the opaque
@@ -317,7 +335,7 @@ Environment variables for `@osn/api`:
 | `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
-| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `hello@cireweddings.com`) |
+| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `Musubi <hello@musubi.social>`) |
 | `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
@@ -326,37 +344,38 @@ a refused override leaves no Resend transport and logs `email disabled: Resend
 misconfigured` with the reason, and the Worker keeps serving. Its production
 deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
-> **Dev sends from `musubi.social`; production still sends from `cireweddings.com`.**
-> Resend refuses to send from a domain it cannot authenticate, so dev's
-> `Musubi <hello@musubi.social>` works only once `musubi.social` is verified in
-> Resend; until then every dev OTP and security email fails. A failed send takes
-> **OTP step-up** with it, which is the way back into an account after a
-> recovery-code login. Production moves to the same sender only after dev mail
-> from `musubi.social` is seen to arrive. The steps are on
-> englishstreetventures/osn#1548. See [[musubi-identity-migration]].
+> **Dev and production both send from `musubi.social`.**
+> Resend refuses to send from a domain it cannot authenticate, so
+> `Musubi <hello@musubi.social>` works only while `musubi.social` stays verified in
+> Resend. A failed send takes **OTP step-up** with it, which is the way back into
+> an account after a recovery-code login. See [[musubi-identity-migration]].
 >
-> Dev shares the address production will move to, by the owner's choice on
-> that issue. Neither the address nor the display name marks a message as dev,
+> Dev shares production's address. Neither the address nor the display name marks a message as dev,
 > and spam complaints about dev mail count against that address. A separate
 > `Musubi (dev) <dev@musubi.social>` would keep both apart, with no extra Resend
 > setup, since Resend verifies a whole domain.
 
 Before you deploy (Resend — the live path):
 
-1. Resend dashboard → **Domains → Add Domain** → `cireweddings.com`. Add
+1. Resend dashboard → **Domains → Add Domain** → the sender's domain
+   (`musubi.social` for osn-api). Add
    the SPF/DKIM/return-path DNS records Resend displays into the Cloudflare
    DNS zone (the zone is in-account, so this is quick). Wait for
    verification.
 2. Create a Resend API key (Sending access).
 3. `wrangler secret put RESEND_API_KEY --env production` on osn-api, and set
-   `OSN_EMAIL_FROM=hello@cireweddings.com`.
+   `OSN_EMAIL_FROM: "Musubi <hello@musubi.social>"` in `musubiProductionApis`
+   (`musubi/infra/src/declaration.ts`) and its mirror in `osn/api/wrangler.toml`
+   `[env.production.vars]`, which the `PA1` parity test holds equal.
 4. Once you have confirmed delivery, remove `OSN_EMAIL_OPTIONAL` so email is
    required/fail-closed again. Done for production in #160. See
    [[production-deploy]] §1.1.
 
 The Cloudflare Email Service path remains available as a fallback (onboard
 the sender domain in Cloudflare Email Sending, create an Email-Send token,
-set the `CLOUDFLARE_*` vars) but is no longer the live transport.
+set the `CLOUDFLARE_*` vars) but is no longer the live transport. It takes a
+bare address only (`shared/email/src/cloudflare.ts`): set `OSN_EMAIL_FROM` to
+`hello@musubi.social` before relying on it.
 
 ## Local emulation
 
@@ -418,11 +437,10 @@ through Resend itself whenever the key is set.
   a wrong answer from receiving the key. The deny-list in `@shared/observability`
   carries `apiKey` and `apiToken`, so a logged transport config shows neither.
   `cireweddings.com` carries Resend's SPF and DKIM records and a DMARC policy.
-  `musubi.social` carries Resend's DKIM record (`resend._domainkey`) and a
-  `send` record, and no `_dmarc` record; whether Resend counts it verified is
-  for the Resend dashboard to say (englishstreetventures/osn#1548).
+  `musubi.social` carries Resend's DKIM record (`resend._domainkey`), a `send`
+  return path, and a report-only DMARC record (`p=none`).
 
-  *Checked 2026-10-26 — `dig +short TXT resend._domainkey.musubi.social`, `dig +short CNAME send.musubi.social`, `dig +short TXT _dmarc.musubi.social` against `lou.ns.cloudflare.com`*
+  *Checked 2026-11-24 — `dig +short TXT resend._domainkey.musubi.social`, `dig +short MX send.musubi.social`, `dig +short TXT _dmarc.musubi.social`*
 - **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
   Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
 - **OTP bodies**: the rendered `text` / `html` contains the OTP digit
@@ -485,7 +503,7 @@ exactly as before this transport landed):
 1. **Local / tests**: no key → `LogEmailLive`. Zero behavioural change.
    `bun run test` stays offline (selection ignores a key when local, unless
    `RESEND_API_URL` names a local emulator — [[#Local emulation]]).
-2. **Staging / production**: verify the `cireweddings.com` sender domain in
+2. **Staging / production**: verify the sender domain (`musubi.social` for osn-api) in
    Resend (SPF/DKIM/return-path records into the Cloudflare DNS zone), create
    a Resend API key, `wrangler secret put RESEND_API_KEY`. Send real mail to a
    synthetic inbox. Watch `osn.email.send.attempts{outcome="sent"}` by

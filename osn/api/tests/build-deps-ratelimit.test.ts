@@ -3,17 +3,40 @@ import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { exportJWK } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
-import { buildAppDeps, type BuildParts, type EnvVars } from "../src/build-deps";
+import { buildAppDeps, type BuildParts, type BuiltDeps, type EnvVars } from "../src/build-deps";
 import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
+import type { AuthRateLimiters } from "../src/routes/auth/limiters";
+import type { AccountCapLimiter } from "../src/services/auth/stores";
 import { createTestLayer } from "./helpers/db";
 
 /**
- * Part 1 (client-IP trust) + Part 2 (native rate-limit binding selection) wiring
- * through `buildAppDeps`. Asserts the composition root threads the new
- * `trustCloudflare` / `rateLimitBindings` BuildParts into the deps it hands to
- * `createApp`.
+ * buildAppDeps threads the trustCloudflare and rateLimitBindings parts into
+ * the deps it hands to createApp.
  */
+
+type Deps = BuiltDeps["deps"];
+
+/** Every per-account cap the deps carry. */
+type CapField = {
+  [K in keyof Deps]-?: Deps[K] extends AccountCapLimiter ? K : never;
+}[keyof Deps];
+
+/**
+ * The key each cap is checked with. Keyed by every cap of the deps, so the
+ * type checker refuses a cap left out.
+ */
+const CAP_KEYS: Record<CapField, string> = {
+  profileSwitchCap: "acc_1",
+  emailChangeBeginCap: "acc_1",
+  recoveryLinkAddressCap: "rsk_1",
+  recoveryResendCap: "acc_1",
+  recoveryLinkCeiling: "prb_1",
+  registrationSendCap: "prb_1",
+  registrationFirstLinkCap: "prb_1",
+  stepUpLinkCeiling: "acc_1",
+  linkResendCap: "prb_1",
+};
 
 let privB64 = "";
 let pubB64 = "";
@@ -59,11 +82,11 @@ const allowBinding = (record: string[]): WorkersRateLimitBinding => ({
   },
 });
 
-describe("Part 1 — buildAppDeps client-IP trust", () => {
+describe("buildAppDeps client-IP trust", () => {
   it("trustCloudflare=true → clientIpConfig trusts cf-connecting-ip exclusively", async () => {
     const built = await buildAppDeps(nonLocalEnv(), parts({ trustCloudflare: true }));
     expect(built.deps.clientIpConfig).toEqual({ trustCloudflare: true });
-    // The W3.3 proxy-count warning is irrelevant under Cloudflare — suppressed.
+    // The unconfigured proxy-count warning does not apply under Cloudflare.
     expect(built.trustedProxyCountUnconfigured).toBe(false);
   });
 
@@ -85,13 +108,17 @@ describe("Part 1 — buildAppDeps client-IP trust", () => {
   });
 });
 
-describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
-  it("no bindings → all auth limiters stay on the coordination store (keyed by raw IP)", async () => {
-    const built = await buildAppDeps(nonLocalEnv(), parts());
-    // The store-backed registerBegin keys by the raw IP; no native-binding
-    // namespace prefix is involved.
+describe("buildAppDeps native rate-limit binding selection", () => {
+  it("no bindings → all auth limiters stay on the coordination store", async () => {
+    const bundle = createInMemoryCoordination();
+    const built = await buildAppDeps(nonLocalEnv(), parts({ coordination: () => bundle }));
     expect(typeof built.deps.authRateLimiters.registerBegin.check).toBe("function");
     expect(await built.deps.authRateLimiters.registerBegin.check("1.2.3.4")).toBe(true);
+    // Each limiter is the bundle's own, so its budget is the one every isolate
+    // shares.
+    for (const key of Object.keys(bundle.authRateLimiters) as (keyof AuthRateLimiters)[]) {
+      expect(built.deps.authRateLimiters[key]).toBe(bundle.authRateLimiters[key]);
+    }
   });
 
   it("bindings present → 60s per-IP auth limiters route to the native binding", async () => {
@@ -172,12 +199,10 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     // The caps and the export / erasure limiters are hour- or day-windowed and
     // stay on the coordination store.
     seen.length = 0;
-    await built.deps.profileSwitchCap.check("acc_1");
-    await built.deps.emailChangeBeginCap.check("acc_1");
-    await built.deps.recoveryLinkAddressCap.check("rsk_1");
-    await built.deps.recoveryResendCap.check("acc_1");
-    await built.deps.recoveryLinkCeiling.check("prb_1");
-    await built.deps.registrationSendCap.check("prb_1");
+    for (const [field, key] of Object.entries(CAP_KEYS) as [CapField, string][]) {
+      // eslint-disable-next-line no-await-in-loop -- one cap at a time
+      await built.deps[field].check(key);
+    }
     await built.deps.accountExportLimiter.check("acc_1");
     await built.deps.accountErasureRateLimiters.accountDelete.check("acc_1");
     expect(seen).toEqual([]);

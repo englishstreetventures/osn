@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import { createSchemaSql } from "@osn/db/testing";
 import type { CoordinationStub } from "@shared/coordination";
+import { mintArcKid } from "@shared/crypto/arc-kid";
+import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 import {
   Miniflare,
   Response as MiniflareResponse,
@@ -15,6 +17,7 @@ import { RECOVERY_LOCKOUT_THRESHOLD } from "../../src/lib/recovery-lockout-store
 import { DEV_PRINCIPAL } from "../../src/routes/auth/dev-login";
 import { AUTH_RATE_LIMITS } from "../../src/routes/auth/limiters";
 import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
+import { KEY_BY_ID_SQL } from "../helpers/arc-key-sql";
 
 /**
  * osn-api end to end on workerd: the bundle `wrangler deploy` uploads, with
@@ -27,8 +30,8 @@ import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
  * restart, a recovery-code lockout and refresh-token reuse detection.
  *
  * It ends by writing `e2e-artifacts/osn-api-workerd/results.json`: each
- * request's step, method, path, status and error code, and the counts read
- * off the store. No token, code, timestamp or IP goes in it, so a rerun
+ * request's step, method, path, status and error code, the counts read off
+ * the store, and the query plan and rows read of one key's read by kid. No token, code, timestamp or IP goes in it, so a rerun
  * writes the same bytes.
  */
 
@@ -93,8 +96,14 @@ let mf: Miniflare;
 const steps: Step[] = [];
 /** What the test read off store objects, by object (never the key's IP or id). */
 const store: Record<string, number | string | null> = {};
+/** How many outbound ARC keys D1 and the published set held, by moment (never a kid). */
+const outboundKeys: Record<string, number> = {};
+/** How the read of one key by kid ran on D1 with a thousand keys published (never a kid). */
+const keyById: Record<string, number | string> = {};
 const mail: Mail[] = [];
 const strayOutbound: string[] = [];
+/** Called once each, and cleared, when the next mail arrives. */
+const mailWaiters: Array<() => void> = [];
 
 async function capture(request: MiniflareRequest): Promise<MiniflareResponse> {
   const url = new URL(request.url);
@@ -102,6 +111,7 @@ async function capture(request: MiniflareRequest): Promise<MiniflareResponse> {
     const payload = (await request.json()) as { to?: string | string[]; text?: string };
     const to = typeof payload.to === "string" ? [payload.to] : [...(payload.to ?? [])];
     mail.push({ to, text: payload.text ?? "" });
+    for (const wake of mailWaiters.splice(0)) wake();
     return MiniflareResponse.json({ id: `mail-${mail.length}` });
   }
   strayOutbound.push(`${request.method} ${url.origin}${url.pathname}`);
@@ -224,13 +234,14 @@ function sessionCookie(answer: Answer): string {
 /**
  * The newest emailed link (sign-up or step-up) mailed to `to` after `after`
  * mails. The link goes out after the answer, through the request's
- * `waitUntil`, so this waits for it.
+ * `waitUntil`, so this waits for each mail that arrives, for 2 s at most.
  */
 async function linkMailedTo(
   to: string,
   after: number,
 ): Promise<{ requestId: string; linkSecret: string }> {
-  for (let i = 0; i < 200; i++) {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
     const sent = mail.slice(after).filter((m) => m.to.includes(to));
     const text = sent.at(-1)?.text ?? "";
     const match = text.match(/\/verify\/((?:signup|stepup)_[a-f0-9]{12})#([a-f0-9]{64})/);
@@ -239,10 +250,17 @@ async function linkMailedTo(
       expect(text).toContain(`https://musubi.example/verify/${match[1]}#`);
       return { requestId: match[1]!, linkSecret: match[2]! };
     }
-    // eslint-disable-next-line no-await-in-loop -- polling for a send that runs after the answer
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`no emailed link mailed to ${to}`);
+    // eslint-disable-next-line no-await-in-loop -- waits for the next mail, then reads again
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, remaining);
+      mailWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
-  throw new Error(`no emailed link mailed to ${to}`);
 }
 
 /** A store object, reached through the binding the Worker uses. */
@@ -251,6 +269,25 @@ async function storeObject(objectName: string): Promise<Pick<CoordinationStub, "
   // SAFETY: the binding's class is `CoordinationStore`, whose RPC surface is
   // `CoordinationStub`; Miniflare types the stub without its methods.
   return ns.get(ns.idFromName(objectName)) as unknown as Pick<CoordinationStub, "count" | "read">;
+}
+
+/**
+ * The kids of the outbound ARC keys in D1, once there are `count` of them.
+ * An isolate writes its key after its first answer, through `waitUntil`, so
+ * this waits for it, for 10 s at most.
+ */
+async function outboundKeyIds(count: number): Promise<string[]> {
+  const db = await mf.getD1Database("DB");
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- polling for a write that runs after the answer
+    const { results } = await db
+      .prepare("SELECT key_id FROM arc_outbound_keys ORDER BY created_at, key_id")
+      .all<{ key_id: string }>();
+    if (results.length >= count || Date.now() > deadline) return results.map((row) => row.key_id);
+    // eslint-disable-next-line no-await-in-loop -- as above
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 /** The `jti` claim of a JWT, read without verifying it. */
@@ -283,7 +320,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await mkdir(ARTIFACT_DIR, { recursive: true });
-  const results = { steps, coordinationStore: store, strayOutbound };
+  const results = { steps, coordinationStore: store, outboundKeys, keyById, strayOutbound };
   await writeFile(join(ARTIFACT_DIR, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
   await mf?.dispose();
   await Promise.all(
@@ -305,6 +342,103 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     });
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ ok: true });
+  });
+
+  it("publishes the isolate's outbound ARC key after its first request, and serves it", async () => {
+    // The request above called no app; the key is there all the same.
+    const kids = await outboundKeyIds(1);
+    outboundKeys["in D1, after the first request"] = kids.length;
+    expect(kids).toHaveLength(1);
+
+    const res = await call("published outbound keys", "GET", "/.well-known/arc-jwks.json", {
+      ip: MAIN_IP,
+    });
+    expect(res.status).toBe(200);
+    const served = (res.json["keys"] as { kid: string }[]).map((key) => key.kid);
+    outboundKeys["served, after the first request"] = served.length;
+    expect(served).toEqual(kids);
+  });
+
+  it("answers an ask for one key by kid, reading it down the primary key", async () => {
+    const [kid = ""] = await outboundKeyIds(1);
+    const [, expiry = ""] = kid.split(".");
+    const served = async (step: string, asked: string) => {
+      const res = await call(step, "GET", "/.well-known/arc-jwks.json", {
+        ip: MAIN_IP,
+        query: `?kid=${encodeURIComponent(asked)}`,
+      });
+      expect(res.status).toBe(200);
+      return (res.json["keys"] as { kid: string }[]).map((key) => key.kid);
+    };
+    expect(await served("one key by kid", kid)).toEqual([kid]);
+    // A MAC this isolate cannot verify: read by the uuid and expiry all the same.
+    const parts = kid.split(".");
+    parts[2] = "Z".repeat(22);
+    expect(await served("one key by kid, its MAC replaced", parts.join("."))).toEqual([kid]);
+    const madeUp = `${crypto.randomUUID()}.${expiry}`;
+    expect(await served("one key by a made-up kid", `${madeUp}.${"Z".repeat(22)}`)).toEqual([]);
+
+    // A key the Worker can verify with the secret it was deployed with is
+    // answered from memory: deleting its row a moment after the first ask
+    // leaves it answered, where a kid it could not verify is read every time.
+    const db = await mf.getD1Database("DB");
+    const pair = await generateArcKeyPair();
+    const remembered = await mintArcKid(
+      { kidSecret: undefined, serviceSecret: INTERNAL_SERVICE_SECRET },
+      Number(expiry),
+    );
+    await db
+      .prepare(
+        "INSERT INTO arc_outbound_keys (key_id, public_key_jwk, created_at, expires_at) VALUES (?, ?, 0, ?)",
+      )
+      .bind(remembered, await exportKeyToJwk(pair.publicKey), Number(expiry))
+      .run();
+    expect(await served("one key by kid, first ask", remembered)).toEqual([remembered]);
+    await db.prepare("DELETE FROM arc_outbound_keys WHERE key_id = ?").bind(remembered).run();
+    expect(await served("one key by kid, asked again a moment later", remembered)).toEqual([
+      remembered,
+    ]);
+
+    // With a thousand more keys published, the read is one seek down the
+    // primary key's index, never a walk of the expiry index.
+    const seeded = Array.from(
+      { length: 1_000 },
+      () => `${crypto.randomUUID()}.${expiry}.${"S".repeat(22)}`,
+    );
+    for (let i = 0; i < seeded.length; i += 100) {
+      // eslint-disable-next-line no-await-in-loop -- one batch at a time
+      await db.batch(
+        seeded
+          .slice(i, i + 100)
+          .map((id) =>
+            db
+              .prepare(
+                "INSERT INTO arc_outbound_keys (key_id, public_key_jwk, created_at, expires_at) VALUES (?, '{}', 0, ?)",
+              )
+              .bind(id, Number(expiry)),
+          ),
+      );
+    }
+    try {
+      const sql = KEY_BY_ID_SQL;
+      const id = `${parts[0]}.${expiry}`;
+      const plan = await db
+        .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+        .bind(id, `${id}/`, 2)
+        .all<{ detail: string }>();
+      keyById["query plan"] = plan.results.map((row) => row.detail).join("; ");
+      expect(keyById["query plan"]).toContain("sqlite_autoindex_arc_outbound_keys_1");
+      const hit = await db.prepare(sql).bind(id, `${id}/`, 2).all();
+      const miss = await db.prepare(sql).bind(madeUp, `${madeUp}/`, 2).all();
+      expect(hit.results).toHaveLength(1);
+      expect(miss.results).toHaveLength(0);
+      keyById["rows read, a key that is there"] = hit.meta.rows_read;
+      keyById["rows read, a key that is not"] = miss.meta.rows_read;
+      expect(hit.meta.rows_read).toBeLessThanOrEqual(2);
+      expect(miss.meta.rows_read).toBeLessThanOrEqual(2);
+    } finally {
+      await db.prepare("DELETE FROM arc_outbound_keys WHERE public_key_jwk = '{}'").run();
+    }
   });
 
   it("signs in as the dev principal", async () => {
@@ -438,6 +572,13 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     );
   });
 
+  it("publishes a key of the new isolate's own after its first request", async () => {
+    // The refused request above was the restarted Worker's first.
+    const kids = await outboundKeyIds(2);
+    outboundKeys["in D1, after the restart's first request"] = kids.length;
+    expect(kids).toHaveLength(2);
+  });
+
   it("refuses the right recovery code once wrong ones from other IPs lock the account", async () => {
     for (let n = 1; n <= RECOVERY_LOCKOUT_THRESHOLD; n++) {
       // eslint-disable-next-line no-await-in-loop -- each failure counts in order
@@ -554,6 +695,11 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     });
     expect(done.status).toBe(201);
     expect(sessionCookie(done)).toContain("osn_session=");
+    // This tier is local (no Secure), so the flags are these three.
+    const sessionHeader = done.setCookies.find((cookie) => cookie.startsWith("osn_session="));
+    expect(sessionHeader).toMatch(/;\s*HttpOnly(;|$)/i);
+    expect(sessionHeader).toMatch(/;\s*SameSite=Lax(;|$)/i);
+    expect(sessionHeader).toMatch(/;\s*Path=\/(;|$)/);
 
     const again = await call("sign-up claimed again", "POST", `/register/${requestId}/status`, {
       ip: MAIN_IP,

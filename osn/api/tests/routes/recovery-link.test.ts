@@ -22,6 +22,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { withBackgroundSink } from "../../src/lib/background";
 import {
   createInMemoryRecoveryLockoutStore,
   type LockoutReading,
@@ -678,6 +679,9 @@ describe("a poll whose finish fails after the claim", () => {
 });
 
 describe("a request belongs to its own flow", () => {
+  /** What a status route answers for an id of the other flow: its params pattern refuses it. */
+  const REQUEST_ID_REFUSED = { type: "validation", on: "params", property: "/requestId" };
+
   it("a recovery request polled as a sign-up, and a sign-up polled as a recovery, are unknown", async () => {
     const h = harness();
     await h.seed("rl-cross@example.com", "rlcross");
@@ -689,7 +693,8 @@ describe("a request belongs to its own flow", () => {
     );
     const signUpLink = latestLinkTo(h.recorded(), "rl-signup@example.com")!;
 
-    // Both confirmed, so only the flow check stands between each and a session.
+    // Both confirmed. The route's id pattern refuses each first; the service
+    // calls below pin the flow check itself.
     await confirm(h, recovery.requestId, recovery.link.linkSecret, recovery.pairingCode, 1);
     await confirm(h, signUp.requestId, signUpLink.linkSecret, signUp.pairingCode, 2);
 
@@ -709,6 +714,8 @@ describe("a request belongs to its own flow", () => {
       }),
     );
     expect(asSignUp.status).toBeGreaterThanOrEqual(400);
+    expect(asSignUp.status).toBe(422);
+    expect(await asSignUp.json()).toMatchObject(REQUEST_ID_REFUSED);
     expect(asSignUp.headers.getSetCookie()).toEqual([]);
     const asRecovery = await recoveryStatusThroughRoutes(
       h.app,
@@ -717,6 +724,8 @@ describe("a request belongs to its own flow", () => {
       from(2),
     );
     expect(asRecovery.status).toBeGreaterThanOrEqual(400);
+    expect(asRecovery.status).toBe(422);
+    expect(await asRecovery.json()).toMatchObject(REQUEST_ID_REFUSED);
     expect(asRecovery.headers.getSetCookie()).toEqual([]);
 
     // Neither poll spent the other flow's request: each finishes its own.
@@ -802,20 +811,29 @@ describe("completion", () => {
       const h = harness({}, hanging);
       await h.seed("rl-hang@example.com", "rlhang");
 
-      const res = await h.app.handle(
-        new Request("http://localhost/login/recovery/email/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...from(1) },
-          body: JSON.stringify({ identifier: "rl-hang@example.com" }),
-        }),
+      // The request's background work is collected rather than awaited, so
+      // the answer cannot wait on the held send.
+      const pending: Promise<unknown>[] = [];
+      const res = await withBackgroundSink(
+        {
+          waitUntil: (work) => {
+            pending.push(work);
+          },
+        },
+        () =>
+          h.app.handle(
+            new Request("http://localhost/login/recovery/email/begin", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...from(1) },
+              body: JSON.stringify({ identifier: "rl-hang@example.com" }),
+            }),
+          ),
       );
       expect(res.status).toBe(202);
       expect(sent).toHaveLength(0);
 
       release();
-      for (let i = 0; i < 100 && sent.length === 0; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 2));
-      }
+      await Promise.all(pending);
       expect(sent.map((s) => [s.template, s.to])).toEqual([
         ["link-recovery", "rl-hang@example.com"],
       ]);

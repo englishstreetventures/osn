@@ -27,18 +27,18 @@ import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
  * Each case sends the cap plus three wrong guesses at the same moment, then
  * the right code — which must be refused, because the entry is spent — then
  * begins again and shows the new code works at once. Where a right code
- * consumes the entry, a second case sends it twice at once: the slowed reads
+ * consumes the entry, a second case sends it twice at once: the held reads
  * let both past the entry check, so only the claim can refuse the second.
  *
  * Run on both bundles: the in-memory one and the Durable Object one over a
- * stand-in namespace. Every call that reads an entry answers a few
- * milliseconds late, as a Durable Object round trip does, so the guesses'
- * reads overlap however the rest of each ceremony is scheduled; without that,
- * a test here could pass on code that counts guesses with a read and a write.
+ * stand-in namespace. Once a case sends its guesses, each one's first call
+ * that reads an entry runs as it arrives, and none answers until every guess
+ * has made its own, as round trips in flight at once do. So the guesses'
+ * reads overlap on every run; without that, a test here could pass on code
+ * that counts guesses with a read and a write.
  */
 
 const BURST = 3;
-const READ_DELAY_MS = 10;
 
 let base: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -46,12 +46,26 @@ beforeAll(async () => {
   base = await makeTestAuthConfig();
 });
 
-/** `run`'s answer, delivered `READ_DELAY_MS` after the store gave it. */
-const late = <A>(run: Promise<A>): Promise<A> =>
-  run.then((value) => new Promise((resolve) => setTimeout(() => resolve(value), READ_DELAY_MS)));
-
-/** `stores` with every call that reads an entry answering `READ_DELAY_MS` late. */
-function slowReads(stores: CeremonyStores): CeremonyStores {
+/**
+ * `stores`, and `together(n)`: the next `n` calls that read an entry
+ * (`get`, `guess`, `take`) each run as they arrive, and none answers until
+ * all `n` have arrived; then they answer in the order they were sent. Every
+ * other call goes straight through.
+ */
+function heldTogether(stores: CeremonyStores) {
+  let batch: { readonly size: number; readonly waiting: (() => void)[] } | null = null;
+  const answer = async <A>(run: Promise<A>): Promise<A> => {
+    const value = await run;
+    const current = batch;
+    if (!current) return value;
+    await new Promise<void>((resolve) => {
+      current.waiting.push(resolve);
+      if (current.waiting.length < current.size) return;
+      batch = null;
+      for (const release of current.waiting) release();
+    });
+    return value;
+  };
   const out = {} as Record<keyof CeremonyStores, unknown>;
   for (const [name, store] of Object.entries(stores) as [
     keyof CeremonyStores,
@@ -59,23 +73,23 @@ function slowReads(stores: CeremonyStores): CeremonyStores {
   ][]) {
     out[name] = {
       ...store,
-      // Read now, answer later: the answer is what the store held when the
-      // call arrived, delivered after the round trip.
-      get: (key: string) => late(store.get(key)),
-      guess: (key: string) => late(store.guess(key)),
-      take: (key: string) => late(store.take(key)),
+      get: (key: string) => answer(store.get(key)),
+      guess: (key: string) => answer(store.guess(key)),
+      take: (key: string) => answer(store.take(key)),
     };
   }
-  return out as CeremonyStores;
+  return {
+    ceremonyStores: out as CeremonyStores,
+    together: (size: number) => {
+      batch = { size, waiting: [] };
+    },
+  };
 }
 
 const bundles = {
-  memory: () => ({ ceremonyStores: slowReads(createDefaultCeremonyStores()) }),
-  durable_object: () => ({
-    ceremonyStores: slowReads(
-      createDurableCoordination(createFakeNamespace().ns, () => {}).ceremonyStores,
-    ),
-  }),
+  memory: () => heldTogether(createDefaultCeremonyStores()),
+  durable_object: () =>
+    heldTogether(createDurableCoordination(createFakeNamespace().ns, () => {}).ceremonyStores),
 } as const;
 
 /** A database and a mail recorder. */
@@ -101,8 +115,8 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     "emailed recovery link: of two polls of a confirmed request at once, exactly one gets the session",
     () => {
       const mail = capture();
-      const stores = bundle();
-      const auth = createAuthService({ ...base, ...stores });
+      const { ceremonyStores, together } = bundle();
+      const auth = createAuthService({ ...base, ceremonyStores });
       return Effect.gen(function* () {
         yield* auth.registerProfile("att-rec2@example.com", "attrec2");
         const begun = yield* settle(auth.beginEmailRecovery("att-rec2@example.com"));
@@ -113,6 +127,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
             pairingPick: begun.pairingCode,
           }),
         ).toBe("confirmed");
+        together(2);
         const polls = yield* Effect.all(
           [0, 1].map(() => auth.emailRecoveryStatus(begun.requestId, begun.claimSecret)),
           { concurrency: "unbounded" },
@@ -122,7 +137,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         // The claim took the request: the cooldown alone would also refuse the
         // second poll, so the spent entry is what shows the claim did it.
         expect(
-          yield* Effect.promise(() => stores.ceremonyStores.emailLinks.get(begun.requestId)),
+          yield* Effect.promise(() => ceremonyStores.emailLinks.get(begun.requestId)),
         ).toBeNull();
       }).pipe(Effect.provide(mail.layer));
     },
@@ -130,13 +145,15 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
 
   it.live("TOTP enrolment: a burst of wrong codes spends the secret; a new one works", () => {
     const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
+    const { ceremonyStores, together } = bundle();
+    const auth = createAuthService({ ...base, ceremonyStores });
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("att-totp@example.com", "atttotp");
       const token = () => mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
       const first = yield* auth.beginTotpEnrollment(profile.accountId, yield* token());
       const right = yield* codeFor(first.totpSecret);
 
+      together(TOTP_MAX_ENROLL_ATTEMPTS + BURST);
       yield* Effect.all(
         Array.from({ length: TOTP_MAX_ENROLL_ATTEMPTS + BURST }, () =>
           Effect.flip(auth.completeTotpEnrollment(profile.accountId, wrongFor(right), null)),
@@ -161,12 +178,14 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
 
   it.live("TOTP enrolment: of two right codes sent at once, exactly one enrols", () => {
     const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
+    const { ceremonyStores, together } = bundle();
+    const auth = createAuthService({ ...base, ceremonyStores });
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("att-totp2@example.com", "atttotp2");
       const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
       const begun = yield* auth.beginTotpEnrollment(profile.accountId, token);
       const right = yield* codeFor(begun.totpSecret);
+      together(2);
       const results = yield* Effect.all(
         [0, 1].map(() =>
           Effect.result(auth.completeTotpEnrollment(profile.accountId, right, null)),
@@ -188,7 +207,8 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     "email change: of two completes of one confirmed request at once, each with its own token, exactly one commits",
     () => {
       const mail = capture();
-      const auth = createAuthService({ ...base, ...bundle() });
+      const { ceremonyStores, together } = bundle();
+      const auth = createAuthService({ ...base, ceremonyStores });
       return Effect.gen(function* () {
         const profile = yield* auth.registerProfile("att-ec2@example.com", "attec2");
         // Both tokens are the caller's device's, which the change spares: the
@@ -204,6 +224,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
           "att-ec2-new@example.com",
           mail.recorded,
         );
+        together(2);
         const results = yield* Effect.all(
           tokens.map((token) =>
             Effect.result(
@@ -234,13 +255,15 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
 
   it.live("registration: a burst of wrong link secrets spends the link; a restart works", () => {
     const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
+    const { ceremonyStores, together } = bundle();
+    const auth = createAuthService({ ...base, ceremonyStores });
     const address = "att-reg@example.com";
     return Effect.gen(function* () {
       const begun = yield* settle(auth.beginRegistration(address, "attreg", "1990-01-01"));
       const link = latestLinkTo(mail.recorded(), address)!;
       const wrong = { linkSecret: "0".repeat(64), pairingPick: begun.pairingCode };
 
+      together(MAX_OTP_ATTEMPTS + BURST);
       yield* Effect.all(
         Array.from({ length: MAX_OTP_ATTEMPTS + BURST }, () =>
           auth.confirmEmailLink(link.requestId, wrong),

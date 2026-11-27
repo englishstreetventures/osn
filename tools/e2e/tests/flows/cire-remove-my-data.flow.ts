@@ -9,12 +9,20 @@
  * `CIRE_REMOVAL_ADDRESS`, so its grants and step-ups spend their own windows.
  * It enrols the account's first passkey through osn-api, as Settings would;
  * the one step-up is that passkey, in the same page, which holds the virtual
- * authenticator.
+ * authenticator. Removing an app's data takes a passkey, so the sheet offers
+ * no other factor, and the confirm card says where to add one.
  *
  * First, Musubi's account deletion: cire's open action for the wedding the
  * person alone owns links its download page; the flow follows that link and
  * downloads the wedding (the archive is the artifact), and the page offers
  * to add another owner. The deletion is left unconfirmed.
+ *
+ * Then Musubi's Settings › Connected apps lists cire, whose row links cire's
+ * removal screen ("Remove my data from Cire", a tab of its own, no opener or
+ * referrer); following it lands on that screen. The link is the one the seed
+ * gave cire's client, which osn-api answers because the stack pins cire's
+ * portal origin to that client (`CIRE_ORGANISER_ORIGIN`). The screenshot of
+ * Connected apps is an artifact.
  *
  * Then cire's "Remove my Cire data": the screen lists the wedding to be
  * deleted and the one they leave; they answer, go to Musubi in the same tab,
@@ -28,12 +36,15 @@
  */
 
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 import {
+  CIRE_OIDC,
   CIRE_REMOVAL_ADDRESS,
   CIRE_REMOVAL_PERSON as P,
   DB_FILES,
   ORIGINS,
+  SCREENSHOT_DIR,
 } from "../../src/config";
 import {
   addVirtualAuthenticator,
@@ -202,11 +213,59 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
     true,
     await page.getByRole("link", { name: "add another owner" }).isVisible(),
   );
+  // Read without waiting, so a link that is missing records nothing at once.
+  flow.check(
+    "the link to add another owner opens the wedding's co-hosts",
+    `#/w/${P.alone.id}/settings/hosts`,
+    (
+      await page
+        .getByRole("link", { name: "add another owner" })
+        .evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""))
+    ).join(" "),
+  );
+
+  // -------------------------------------------------------------------------
+  // Musubi's Connected apps links cire's removal screen.
+  // -------------------------------------------------------------------------
+  const answer = page.getByRole("checkbox", { name: `Delete this wedding: ${P.alone.name}` });
+  const removalLink = await flow.step(
+    "find the link to cire's removal screen in Musubi's Connected apps",
+    async () => {
+      await page.goto(`${ORIGINS.musubi}/settings#apps`);
+      const link = page.getByRole("link", { name: "Remove my data from Cire" });
+      await expect(link).toHaveCount(1);
+      await page.screenshot({
+        path: resolve(SCREENSHOT_DIR, "cire-remove-my-data", "connected-apps.png"),
+        animations: "disabled",
+      });
+      return {
+        href: await link.getAttribute("href"),
+        target: await link.getAttribute("target"),
+        rel: await link.getAttribute("rel"),
+      };
+    },
+  );
+  flow.check(
+    "the link is cire's removal screen",
+    CIRE_OIDC.manageDataUrl,
+    removalLink.href ?? "no link",
+  );
+  flow.check("it opens a tab of its own", "_blank", removalLink.target ?? "none");
+  flow.check("it sends no opener or referrer", "noopener noreferrer", removalLink.rel ?? "none");
+
+  await flow.step("follow it to cire's removal screen", async () => {
+    // The link opens a new tab; the same page holds the authenticator, so it goes there.
+    if (removalLink.href === null) throw new Error("Connected apps drew no removal link");
+    await page.goto(removalLink.href);
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Remove your Cire data" }),
+    ).toBeVisible();
+    await expect(answer).toBeVisible();
+  });
 
   // -------------------------------------------------------------------------
   // Remove my Cire data.
   // -------------------------------------------------------------------------
-  const answer = page.getByRole("checkbox", { name: `Delete this wedding: ${P.alone.name}` });
   await flow.step("open Remove my Cire data from the account menu", async () => {
     await page.goto(`${ORIGINS.cireHost}/`);
     await page.getByRole("button", { name: "Account menu" }).click();
@@ -224,7 +283,10 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
   flow.check(
     "the wedding they share is listed to leave",
     true,
-    await page.getByText(P.shared.name).first().isVisible(),
+    await page
+      .getByRole("list", { name: /^You leave these/ })
+      .getByText(P.shared.name, { exact: true })
+      .isVisible(),
   );
   flow.check(
     "the keeper's own wedding is not listed",
@@ -232,7 +294,7 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
     await page.getByText(P.keeper.theirs.name).count(),
   );
 
-  const { code, confirmPage } = await flow.step(
+  const { code, confirmPage, settingsLink, emailedLinks } = await flow.step(
     "answer, and confirm it's them on Musubi",
     async () => {
       await answer.check();
@@ -240,16 +302,35 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
       await page.waitForURL(`${ORIGINS.musubi}/confirm/**`);
       const confirmUrl = page.url();
       await expect(page.getByRole("heading", { name: "Remove your Cire data" })).toBeVisible();
+      // The card says where a person with no passkey adds one; the shell's own
+      // Settings links are outside it.
+      const link = await page
+        .locator("[data-request-card]")
+        .getByRole("link", { name: "Settings" })
+        .getAttribute("href");
       await page.getByRole("button", { name: "Confirm it's you" }).click();
-      await page.getByRole("button", { name: "Use passkey" }).click();
+      // The sheet draws every factor it offers in one pass, so once "Use
+      // passkey" shows, an emailed link it offered would show too.
+      const usePasskey = page.getByRole("button", { name: "Use passkey" });
+      await expect(usePasskey).toBeVisible();
+      const emailed = await page.getByRole("button", { name: "Email me a link" }).count();
+      await usePasskey.click();
       await page.waitForURL(`${ORIGINS.cireHost}/**`);
       await expect(page.getByText("Confirmed on Musubi.", { exact: false })).toBeVisible();
       return {
         code: await page.evaluate(() => window.sessionStorage.getItem("cire.removal.code")),
         confirmPage: confirmUrl,
+        settingsLink: link,
+        emailedLinks: emailed,
       };
     },
   );
+  flow.check(
+    "the confirm card links a person with no passkey to add one",
+    "/settings#security",
+    settingsLink ?? "no link",
+  );
+  flow.check("the sheet offers no emailed link: removing data takes a passkey", 0, emailedLinks);
   flow.check("the code came back to the portal", true, typeof code === "string" && code.length > 0);
   flow.check("the code is gone from the address", false, page.url().includes("code="));
   flow.check("the answer was kept across the trip", true, await answer.isChecked());

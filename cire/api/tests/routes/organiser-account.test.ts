@@ -6,6 +6,7 @@ import {
   guestAccountLinks,
   organiserSessions,
   ownerNoticeBudget,
+  registrySettings,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -21,7 +22,8 @@ import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { MAX_OWNED_WEDDINGS_PER_CALL } from "../../src/services/account-erasure";
 import type { OsnRemovalBridge } from "../../src/services/osn-bridge";
-import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { fullWeddingStatements } from "../test-helpers/full-wedding";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
@@ -418,6 +420,179 @@ describe("a host's removal of their Cire data: refusals", () => {
   });
 });
 
+/**
+ * The person who connected a wedding's Stripe account holds it in their own
+ * name. While they sit there as an owner beside another owner, removing their
+ * Cire data would leave the couple's money gifts paid into the account of
+ * someone who no longer runs the wedding, so the removal is refused until they
+ * hand the account over or disconnect it. The owner weighed that this holds
+ * up a request to erase data, and chose it.
+ */
+describe("a host's removal of their Cire data: the holder of a payout account", () => {
+  /** `weddingId`'s settings name a Stripe account `profile` connected. */
+  function holds(db: TestDb, weddingId: string, profile: string) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId,
+        stripeAccountId: `acct_${weddingId}`,
+        stripeConnectedByOsnProfileId: profile,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const connectorOf = (db: TestDb, weddingId: string) =>
+    db
+      .select({ connector: registrySettings.stripeConnectedByOsnProfileId })
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, weddingId))
+      .get()?.connector;
+
+  it("H1: refuses while the person holds a shared wedding's account as an owner, saying how to go on, and removes nothing", async () => {
+    const h = await setup();
+    holds(h.db, "w_shared", P);
+    const cookie = await confirmation(h);
+    const before = await counterValue(CIRE_METRICS.accountRemovalRequests, {
+      result: "holds_payout_account",
+    });
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await remove(h, cookie, ANSWERS);
+    });
+
+    expect(res!.status).toBe(409);
+    const body = (await jsonBody(res!)) as {
+      error: string;
+      message: string;
+      weddings: { weddingId: string; name: string }[];
+    };
+    // Exactly these keys: the wedding by its id and name, which the person
+    // sees as one of its owners, and nothing about anyone else.
+    expect(Object.keys(body).toSorted()).toEqual(["error", "message", "weddings"]);
+    expect(body.error).toBe("holds_payout_account");
+    expect(body.weddings).toEqual([{ weddingId: "w_shared", name: "Shared" }]);
+    expect(body.message).toContain("hand money gifts to another owner");
+    expect(body.message).toContain("disconnect");
+    expect(body.message).toContain("Money gifts");
+    untouched(h.db);
+    expect(connectorOf(h.db, "w_shared")).toBe(P);
+    expect(seatsOf(h.db, "w_alone")).toEqual([{ profile: P, role: "owner" }]);
+
+    expect(
+      await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "holds_payout_account" }),
+    ).toBe(before + 1);
+    expect(logs).toContain("account removal refused: holds payout account");
+    for (const named of ["w_shared", "Shared", P, P2, O, ACCOUNT]) {
+      expect(logs).not.toContain(named);
+    }
+  });
+
+  it("H1b: refuses when the account's other profile holds it", async () => {
+    const h = await setup();
+    seat(h.db, "w_theirs", P2, "owner");
+    holds(h.db, "w_theirs", P2);
+    const cookie = await confirmation(h);
+    const res = await remove(h, cookie, ANSWERS);
+    expect(res.status).toBe(409);
+    expect(((await jsonBody(res)) as { weddings: unknown }).weddings).toEqual([
+      { weddingId: "w_theirs", name: "Theirs" },
+    ]);
+    untouched(h.db);
+  });
+
+  it("H1c: the preview marks the wedding whose account the person holds, as it marks one they alone own", async () => {
+    const h = await setup();
+    holds(h.db, "w_shared", P);
+    holds(h.db, "w_theirs", O);
+    const res = await call(h, "POST", "/account/removal/preview", { body: {} });
+    expect(res.status).toBe(200);
+    const listed = (
+      (await jsonBody(res)) as {
+        weddings: { weddingId: string; payoutHolder: boolean }[];
+      }
+    ).weddings;
+    expect(Object.fromEntries(listed.map((w) => [w.weddingId, w.payoutHolder]))).toEqual({
+      w_alone: false,
+      w_shared: true,
+      w_theirs_edit: false,
+    });
+  });
+
+  it("H1d: an account connected after the route's read keeps the holder's seat; the portal's next call is refused", async () => {
+    const h = await setup();
+    // The account's other profile has a lower seat on the shared wedding,
+    // which goes in that wedding's batch.
+    seat(h.db, "w_shared", P2, "viewer");
+    const cookie = await confirmation(h);
+    // The route's read finds nothing held; the person connects the shared
+    // wedding's account before its batch runs.
+    beforeStatement(h.db, /^update "weddings" set "deleted_at"/i, () => holds(h.db, "w_shared", P));
+
+    const first = await remove(h, cookie, ANSWERS);
+    expect(first.status).toBe(202);
+    expect(seatsOf(h.db, "w_shared")).toEqual([
+      { profile: O, role: "owner" },
+      { profile: P, role: "owner" },
+    ]);
+    expect(connectorOf(h.db, "w_shared")).toBe(P);
+    // The shared wedding's tabs re-read its members, and the holder, who
+    // keeps a seat there, keeps listening.
+    expect(h.signalled.find((sig) => sig.topic === "cire:wedding:w_shared")?.revoked).toEqual([]);
+    // Only the weddings this call took a seat from are signalled.
+    expect(h.signalled.map((sig) => sig.topic).toSorted()).toEqual(
+      ["w_alone", "w_shared", "w_sibling"].map((id) => `cire:wedding:${id}`),
+    );
+    // The account's clean-up never ran: the person is still signed in.
+    expect(sessionsOf(h.db, P)).toBe(1);
+    expect(sessionsOf(h.db, O)).toBe(1);
+    expect(seatsOf(h.db, "w_theirs")).toEqual([{ profile: O, role: "owner" }]);
+
+    const next = await remove(h, cookie, ANSWERS);
+    expect(next.status).toBe(409);
+    expect(((await jsonBody(next)) as { weddings: unknown }).weddings).toEqual([
+      { weddingId: "w_shared", name: "Shared" },
+    ]);
+  });
+
+  it("H2: asks for the confirmation first, and names the holder ahead of unanswered weddings", async () => {
+    const h = await setup();
+    holds(h.db, "w_shared", P);
+    // No confirmation cookie: refused before anything is read.
+    expect((await remove(h, null, ANSWERS)).status).toBe(403);
+
+    const cookie = await confirmation(h);
+    const res = await remove(h, cookie, {});
+    expect(res.status).toBe(409);
+    expect(((await jsonBody(res)) as { error: string }).error).toBe("holds_payout_account");
+    untouched(h.db);
+  });
+
+  it("H3: refuses no one who holds no account there as an owner beside another", async () => {
+    // Someone else holds the shared wedding's account.
+    const theirs = await setup();
+    holds(theirs.db, "w_shared", O);
+    expect((await remove(theirs, await confirmation(theirs), ANSWERS)).status).toBe(200);
+    expect(seatsOf(theirs.db, "w_shared")).toEqual([{ profile: O, role: "owner" }]);
+    expect(connectorOf(theirs.db, "w_shared")).toBe(O);
+
+    // The person holds the account of a wedding they alone own, which goes
+    // with the removal; of one they sit below owner on, already closed to
+    // money; and of a deleted one.
+    const own = await setup();
+    holds(own.db, "w_alone", P);
+    holds(own.db, "w_theirs_edit", P);
+    holds(own.db, "w_shared", P);
+    own.db.update(weddings).set({ deletedAt: new Date() }).where(eq(weddings.id, "w_shared")).run();
+    expect((await remove(own, await confirmation(own), ANSWERS)).status).toBe(200);
+    expect(seatsOf(own.db, "w_alone")).toEqual([]);
+    expect(deletedAt(own.db, "w_alone")).not.toBeNull();
+    expect(seatsOf(own.db, "w_theirs_edit")).toEqual([{ profile: O, role: "owner" }]);
+    expect(seatsOf(own.db, "w_shared")).toEqual([{ profile: O, role: "owner" }]);
+  });
+});
+
 describe("a host's removal of their Cire data: what it removes", () => {
   it("C6: removes every seat of both profiles, deletes the weddings left with no owner, ends the person's sessions, and touches no one else's", async () => {
     const h = await setup();
@@ -587,6 +762,24 @@ describe("a host's removal of their Cire data: what it removes", () => {
     const res = await remove(h, cookie, {});
     expect(res.status).toBe(200);
     expect(h.mail.recorded()).toHaveLength(3);
+    expect(statements.length).toBeLessThanOrEqual(50);
+  });
+
+  it("C13b: three owned weddings each owned by both of the account's profiles, so six notices, stays inside 50 D1 statements", async () => {
+    const h = await setup();
+    h.db.delete(weddingHosts).where(eq(weddingHosts.weddingId, "w_alone")).run();
+    h.db.delete(weddingHosts).where(eq(weddingHosts.weddingId, "w_sibling")).run();
+    h.db.delete(weddingHosts).where(eq(weddingHosts.weddingId, "w_shared")).run();
+    for (const id of ["w_alone", "w_sibling", "w_shared"]) {
+      seat(h.db, id, O, "owner");
+      seat(h.db, id, P, "owner");
+      seat(h.db, id, P2, "owner");
+    }
+    const cookie = await confirmation(h);
+    const statements = recordStatements(h.db);
+    const res = await remove(h, cookie, {});
+    expect(res.status).toBe(200);
+    expect(h.mail.recorded()).toHaveLength(6);
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 });

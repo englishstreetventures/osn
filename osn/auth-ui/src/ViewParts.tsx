@@ -111,3 +111,32 @@ export function StepLink(props: {
     </Button>
   );
 }
+
+/**
+ * A sentence ending in the way across to the other view of the pair, sign-in
+ * or create-account: "No account yet? Create one", "Already have an account?
+ * Sign in". Body copy with Button's `link` at `inline` for the action, since a
+ * link inside a sentence is underlined at rest; centred at the foot of the
+ * step's body, with the step's other links.
+ */
+export function SwitchLine(props: {
+  lead: string;
+  action: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary self-center text-center">
+      {props.lead}{" "}
+      <Button
+        type="button"
+        variant="link"
+        size="inline"
+        onClick={() => props.onClick()}
+        disabled={props.disabled}
+      >
+        {props.action}
+      </Button>
+    </p>
+  );
+}

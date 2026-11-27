@@ -38,6 +38,7 @@ import {
   type EnquiryCursor,
   type EnquiryPageRequest,
 } from "../lib/enquiry-page";
+import { formatMinor } from "../lib/money";
 import type { ServiceCategory } from "../lib/service-categories";
 import { budgetService } from "./budget";
 import type { DirectoryVendorRow } from "./directory";
@@ -184,15 +185,6 @@ interface AddToBudgetInput {
   enquiry: EnquiryRow;
   vendorName: string;
   category: ServiceCategory;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Format a minor-unit integer as a currency string for emails / chat bodies. */
-function formatMinor(minor: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
 }
 
 // ---------------------------------------------------------------------------

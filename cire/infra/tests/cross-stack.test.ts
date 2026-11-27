@@ -42,6 +42,7 @@ describe("the cire and musubi stacks together", () => {
       const { kty, crv, x, y } = await crypto.subtle.exportKey("jwk", pair.publicKey);
       const seed = osnSeedSql({
         cireApiOrigin: origin(hosts.cireApi),
+        cireOrganiserOrigin: origin(hosts.cireHost),
         // SHA-256("abc"): a hash of the shape the cire_seed step writes.
         clientSecretSha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         arcKeyId: "0b6f8f5e-2d1c-4c7a-9f3e-5a4b3c2d1e0f",

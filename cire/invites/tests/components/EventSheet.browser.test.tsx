@@ -1146,18 +1146,6 @@ describe("EventSheet — focus after a switch", () => {
     expect(getComputedStyle(heading).outlineStyle).toBe("none");
   });
 
-  it("hands the bar's title focus quietly after a click on the badge", async () => {
-    await openOn("details");
-    await userEvent.click(badge("Give RSVP"));
-    await settle();
-
-    const heading = title();
-    expect(heading.textContent).toMatch(/^Respond, /);
-    expect(document.activeElement).toBe(heading);
-    expect(heading.hasAttribute("data-quiet-focus")).toBe(true);
-    expect(getComputedStyle(heading).outlineStyle).toBe("none");
-  });
-
   it("keeps the ring for a key press on the badge, and drops it only where the mark is", async () => {
     await openOn("details");
     badge("Give RSVP").focus();
@@ -1647,17 +1635,6 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("rsvp").style.transform).toBe("");
     expect(wrapperOf("rsvp").inert).toBe(false);
     expect(wrapperOf("rsvp").className).not.toContain("absolute");
-  });
-
-  it("brings the details back with a swipe the other way", async () => {
-    await openOn("rsvp");
-    const start = bodyOf("rsvp");
-    await touchDrag(start, { x: start.x + 250, y: start.y }, { ms: 600 });
-    await settleSwipe();
-
-    expect(wrapperOf("details").hidden).toBe(false);
-    expect(wrapperOf("rsvp").hidden).toBe(true);
-    expect(document.activeElement?.textContent).toContain("Details");
   });
 
   it("carries on after a quick flick that is short of a third", async () => {

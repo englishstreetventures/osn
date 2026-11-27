@@ -8,7 +8,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-26
 ---
 
 # Step-up (sudo) tokens
@@ -17,10 +17,10 @@ The most sensitive endpoints require short-lived, high-assurance tokens. A stole
 
 ## When step-up is required
 
-There are **four** allow-lists, not three, and only three of them are config
-knobs. `recoveryGenerateAllowedAmr` is read by six separate verifiers despite
-its name, so widening it widens all six — the table below is by gate rather
-than by knob for exactly that reason.
+There are **five** allow-lists, and only three of them are config knobs.
+`recoveryGenerateAllowedAmr` is read by several gates despite its name, so
+widening it widens every one of them — the table below is by gate rather than
+by knob for exactly that reason.
 
 | Gate | Allow-list | `webauthn` | `otp` | `totp` |
 |---|---|---|---|---|
@@ -29,20 +29,20 @@ than by knob for exactly that reason.
 | `GET /account/export` (DSAR) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /account/restore` (cancel a pending deletion) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /account/security-events/:id/ack` + `/ack-all` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
-| `/internal/step-up/verify` (Pulse / Zap app delete) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
-| `POST /step-up/requests/:id/confirm` (an app's step-up request: cire's removal of a host's data) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
+| `/internal/step-up/verify` (Pulse / Zap app delete) | `appDeleteAllowedAmr` (`context.ts`), with the provenance hold | yes | **no** | **no** |
+| `POST /step-up/requests/:id/confirm` (an app's step-up request: cire's removal of a host's data) | `appDeleteAllowedAmr`, with the provenance hold | yes | **no** | **no** |
 | `POST /passkey/register/{begin,complete}` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `POST /totp/enroll/begin` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /totp` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /passkeys/:id` and `PATCH /passkeys/:id` (rename) | `passkeyDeleteAllowedAmr` | yes | **no** | **no** |
-| `POST /account/email/:requestId/complete` | `emailChangeAllowedAmr` (`context.ts`) — the one set with no `AuthConfig` field | yes | yes | **no** |
+| `POST /account/email/:requestId/complete` | `emailChangeAllowedAmr` (`context.ts`), no `AuthConfig` field | yes | yes | **no** |
 
 The `otp` column is the emailed factor: a link to the account's own address
 ([[email-links#Step-up]]). The AMR value keeps the name `otp` because
 `passkeys.provenance_amr` rows store it (see Credential provenance below);
 renaming it would need a data migration for no change in meaning.
 
-Two rows are deliberately narrower than the rest, and both would be easy to
+Three rows are deliberately narrower than the rest, and each would be easy to
 widen by accident:
 
 - **`passkeyDeleteAllowedAmr` stays `["webauthn"]`.** By construction the caller
@@ -52,15 +52,24 @@ widen by accident:
   proves control of the **current** mailbox; a TOTP seed does not. Email change
   is the pivot to permanent takeover, so it is the one gate where the two
   factors are not interchangeable — and the one a deployment may not widen. It
-  lives in `context.ts` beside its three siblings rather than inline at the
-  verifier, so all four sets are read in one place.
+  lives in `context.ts` beside its siblings rather than inline at the
+  verifier, so all five sets are read in one place.
+- **Removing an app's data takes a passkey, and `appDeleteAllowedAmr` is
+  `["webauthn"]` with no knob** (the owner's call, 2026-11-19 and 2026-11-25:
+  "Passkey, 72-hour hold, no skip"). It gates Pulse's and Zap's purposes at
+  `/internal/step-up/verify` and cire's at the confirm of an app's step-up
+  request. Both gates also apply the provenance hold (below): a passkey added
+  by an emailed link, an authenticator code or recovery cannot be used there
+  until it is 72 hours old, and no other factor skips the hold. A person with
+  no passkey they can use adds one — from Settings with an emailed link or an
+  authenticator code, or through "Lost your passkey?" — and waits out the hold.
 
-> [!caution] Both narrow rows narrow the **direct** path only
-> Both admit `webauthn`, and a passkey registered a minute ago mints a
+> [!caution] The narrow rows narrow the **direct** path only
+> Each admits `webauthn`, and a passkey registered a minute ago mints a
 > `webauthn` AMR exactly like one the user has held for a year. So any factor
-> admitted at `passkeyRegisterAllowedAmr` reaches both gates in two hops: step
+> admitted at `passkeyRegisterAllowedAmr` reaches each gate in two hops: step
 > up with that factor, register a credential of your own, assert **that**
-> credential for the purpose you want, and you hold a token either list accepts.
+> credential for the purpose you want, and you hold a token the list accepts.
 >
 > At `passkey_delete` the rest of the account's passkeys then go; the
 > last-passkey guard needs only one survivor and the new credential is one. At
@@ -70,11 +79,15 @@ widen by accident:
 > written for is not proof of the *current* mailbox once the AMR arrived this
 > way.
 >
-> This is open to `otp` as much as to `totp`, and predates both TOTP and this
-> table. Closing it needs credential provenance — the AMR a passkey was
-> registered under, and a cool-down on `passkey_delete` and `email_change` for
-> one enrolled under a weaker factor. That is `englishstreetventures/osn#952`; the
-> walk-through is in [[totp#Threat model]].
+> Credential provenance closes the second hop at all three: a passkey enrolled
+> under a weaker factor waits 72 hours before it can remove an older passkey,
+> change the email or remove an app's data (§Credential provenance). The walk-through
+> is in [[totp#Threat model]].
+>
+> Two gates near an app's data still admit `otp` and `totp`, by the owner's
+> scope: `DELETE /account`, whose erasure at the end of the 7-day window
+> reaches every app ([[account-deletion]]), and the security-event acknowledge
+> paths, which can dismiss the banner a new passkey raises during its hold.
 
 Everywhere else, `totp` is admitted precisely where the emailed link already is.
 
@@ -130,8 +143,9 @@ the `jti` is claimed: an app holds no account ids, so only OSN can tell that a
 token minted on one account is being spent against another's profile. Each
 app spends only its own deletion purpose — `pulse_app_delete` for `pulse-api`,
 `zap_app_delete` for `zap-api`, `cire_app_delete` for `cire-api` — and a
-refusal answers `{ ok: false, reason: "invalid" }`. cire's purpose is spent
-through an app step-up request only, never a token (below).
+refusal answers `{ ok: false, reason: "invalid" }`, a passkey inside its hold
+included. cire's purpose is spent through an app step-up request only, never a
+token (below).
 
 The emailed link signs nobody in: the page it opens confirms the request, and
 only the tab that began, signed in as the same account and holding the claim
@@ -221,7 +235,7 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 | `account_delete` | account deletion |
 | `account_export` | account export |
 | `account_restore` | `POST /account/restore`, which cancels a pending deletion |
-| `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |
+| `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` (a passkey, past its hold) |
 | `cire_app_delete` | a host removing their Cire data, through an app step-up request (below) |
 | `passkey_register` | `POST /passkey/register/{begin,complete}` past the first credential |
 | `passkey_delete` | `DELETE /passkeys/:id` **and** `PATCH /passkeys/:id` — rename shares the claim |
@@ -248,7 +262,7 @@ its state is the `app_step_up` ceremony store, holding ids and hashes only.
 |---|---|---|---|
 | Begin | `POST /internal/step-up/requests` | the app, over ARC (`step-up:verify`, issuer pinned per purpose: `cire-api` for `cire_app_delete`) | `{ profile_id, purpose, binding, return_to }`: `binding` is the hex SHA-256 of a secret only the app's cookie in the asking browser holds; `return_to` must be on the app's configured portal origin (`CIRE_ORGANISER_ORIGIN`, which the musubi stack sets; on a local run with none, any loopback origin; on a deployed tier with none, 503). Refused for a profile whose account is unknown or pending deletion. Kept 10 minutes, pending |
 | Read | `GET /step-up/requests/:id` | Musubi's `/confirm/:requestId` page, Bearer | `{ purpose, return_host }` for a pending request of the caller's account; 404 otherwise, and to any session of an account whose deletion is pending |
-| Confirm | `POST /step-up/requests/:id/confirm` | the same page, Bearer, a live session | spends a step-up token for the request's purpose; the request becomes confirmed for 5 minutes with the hash of a fresh code and the confirming session's family; answers `return_to` with `code=<code>` on its fragment's query |
+| Confirm | `POST /step-up/requests/:id/confirm` | the same page, Bearer, a live session | spends a passkey's step-up token for the request's purpose; the request becomes confirmed for 5 minutes with the hash of a fresh code and the confirming session's family; answers `return_to` with `code=<code>` on its fragment's query. A passkey inside its hold answers `403 { error: "passkey_held", hold_ends_at }` (unix seconds) and leaves the request pending and the token unspent; any other token it refuses, `403 step_up_required` |
 | Verify | `POST /internal/step-up/verify` with `request: { id, binding, code }` and no `token` | the app, over ARC | ok while the request is confirmed, the binding and the code match (constant-time), the profile's owner is the request's account and not pending deletion, and the confirming family still has a live session: answers `account_id` and every profile id of the account. Spends nothing |
 
 Why it holds against a stolen app session: someone holding a host's cire
@@ -309,7 +323,8 @@ verifies, whatever the verifying isolate's clock or the store's says.
 
 `amr: ["webauthn"]` says a WebAuthn ceremony happened. It does not say whether
 the credential behind it was one the user has held for a year or one registered
-a minute ago under an emailed link — and for two gates that difference is the
+a minute ago under an emailed link — and for three kinds of gate (removing a
+passkey, changing the email, removing an app's data) that difference is the
 whole question, because a caller who can register a credential can assert it.
 
 So `passkeys.provenance_amr` records the **effective** strength of the ceremony
@@ -318,11 +333,11 @@ token:
 
 | How the row was created | Stamp |
 |---|---|
-| Bootstrap — the account had **zero** passkeys | `webauthn` |
+| Bootstrap — the account had **zero** passkeys and no recovery in the last 72 hours | `webauthn` |
 | `passkey_register` step-up with `amr: ["otp"]` | `otp` |
 | `passkey_register` step-up with `amr: ["totp"]` | `totp` |
 | `passkey_register` step-up with `amr: ["webauthn"]` | the asserting credential's own provenance |
-| The restricted recovery session's enrolment bypass | `recovery` |
+| Any enrolment from a restricted recovery session, and an account's first passkey within 72 hours of any recovery (a recovery code signs in with an ordinary session) | `recovery` |
 | Rows predating the column | `NULL`, read as `webauthn` |
 
 Two rows carry the design and are worth reading twice.
@@ -341,20 +356,30 @@ reason a user adds a device by email is that the first one is hard to reach.
 **Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
 proved by an emailed link, so a literal reading would stamp it `otp` — and through
 inheritance that would restrict every credential the account ever derived from
-it. It is the account's root of trust.
+it. It is the account's root of trust. The sign-up's own session is a
+restricted one until then, and its row records `signup`: that value, read
+positively, is what makes the first passkey `webauthn` rather than the
+`recovery` every other restricted caller's gets ([[sessions#A sign-up's session before its first passkey]]).
+A first passkey enrolled after a
+recovery is not a bootstrap: whether a restricted recovery session enrols it or
+the ordinary session a recovery code opened does, within the 72 hours the
+recovery stamped (`accounts.last_recovered_at`), it is `recovery` and waits out
+its hold like any other.
 
 ### The two windows
 
 `verifyStepUpToken` takes an optional provenance check from the gate and applies
 it **before** the `jti` is consumed, so a refusal does not spend the caller's
 single-use token, and exactly one outcome reaches
-`osn.auth.step_up.verified{result}`.
+`osn.auth.step_up.verified{result}`. At the app-data gates a refusal names
+when the passkey's hold ends (`PasskeyHeldError`), and Musubi's confirm page
+shows that day and time.
 
 Either window refuses; both are 72 hours (`RECOVERY_COOLDOWN_MS`).
 
 | Window | Source of truth | Refuses |
 |---|---|---|
-| Registration provenance | `passkeys.provenance_amr` + that row's `created_at` | a credential stamped `otp`, `totp` or `recovery`, inside its own window, acting on a credential **older than or the same age as** itself, or changing the email |
+| Registration provenance | `passkeys.provenance_amr` + that row's `created_at` | a credential stamped `otp`, `totp` or `recovery`, inside its own window, acting on a credential **older than or the same age as** itself, changing the email, or removing an app's data (the `app_delete` gate, where this window is the whole rule) |
 | Recovery | `accounts.last_recovered_at` | an `otp`-factor step-up changing the email, and any post-recovery credential removing a pre-recovery one |
 
 Four details that are load-bearing rather than incidental:
@@ -451,7 +476,8 @@ Each outcome increments `osn.auth.step_up.verified{result}` with a distinct boun
 ## Observability
 
 - `osn.auth.step_up.issued{factor}` — one per successful `/complete`; `factor` includes `totp`
-- `osn.auth.step_up.verified{result}` — one per gated-endpoint check
+- `osn.auth.step_up.verified{result, purpose}` — one per gated-endpoint check; `purpose` is the one the gate names, or `none`
+- `osn.auth.recovery.cooldown{outcome}` — a provenance refusal: `passkey_mutation_refused`, `email_change_refused`, `app_delete_refused`, and `second_recovery_refused` from recovery
 - Spans: `auth.step_up.begin`, `auth.step_up.resend`, `auth.step_up.complete`, `auth.step_up.email_status`, `auth.step_up.link_send`
 - `osn.auth.email_link.sends{flow="step_up", result}` — step-up links sent, held back or failed
 - `osn.auth.step_up.lockout{result}` — wrong typed numbers on step-up links: `recorded`, `locked` (the count at or past five, or a right number refused while it holds), `unavailable` (the counter could not be read or written)

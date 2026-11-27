@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-20
 ---
 
 # DSAR Runbook
@@ -108,7 +108,9 @@ How the flows work — the screens, the soft delete, the seven-day window and it
 - **What is kept, and why.** `security_events` (12 months) and `email_changes` (90 days), with the account id they name, as security records (Art. 6(1)(c)+(f), [[data-map]]); handle holds, keyed hashes with no account id, for 30 days; and what each app reports keeping, which the `account-deleted` email repeats ([[account-deletion#What is kept after the deletion]]). The periods are in [[retention]].
 - **When.** Seven days after the request, the fan-out reaches every app, and the hard delete follows once every app has finished. On a deployed tier that is 6 to 12 hours after the window ends (englishstreetventures/osn#2386), later while an app has not answered. So the person is shown the day the window ends on, never a clock time: the window screen and the scheduled email say the account is deleted "on or shortly after" that day, in the reader's own zone on the screen and in UTC, named, in the email ([[account-deletion#The end of the window]]). Musubi's privacy notice ([`PrivacyPage.tsx`](../../musubi/social/src/pages/PrivacyPage.tsx)) says "usually within a day of the date we show you".
 - **Cancelling.** Until the window ends the person can keep the account: they sign in to Musubi by passkey or email and choose "Keep my account". osn-api refuses a keep from the moment the window ends (`hard_delete_at`), which can fall early in the day shown, so the screen and the email offer it before that day. Mailbox access alone is enough ([[account-deletion#What happens, in order]]).
-- Backups remain until next rotation cycle (document in privacy notice).
+- Backups: every production database is Cloudflare D1, whose Time Travel can restore it to any minute of the last 30 days on Workers Paid, the production account's plan, so erased rows stay restorable for up to 30 days ([[backup-dr]]). Musubi's privacy notice and Cire's host, guest and vendor notices say so.
+
+  *Quoted 2026-11-19 from Cloudflare's [D1 Time Travel documentation](https://developers.cloudflare.com/d1/reference/time-travel/): "up to 30 days in the past (Workers Paid plan)".*
 - Logs: the redacting logger keeps personal data out of log lines at write time ([[shared/observability/overview]]); Workers Logs and traces age out on Cloudflare's own retention ([[retention]]).
 
 #### Cire (wedding-invite) data
@@ -261,7 +263,10 @@ owners, each with an `owner` seat. Two consequences:
   `20261118180052`), so a refund or dispute on it still reaches the gift. An
   erasure leaves that column, as it leaves the account on the settings row:
   it is the couple's record of where each gift's money went, and it goes with
-  the gift when the guest-data sweep deletes it ([[retention]]).
+  the gift when the guest-data sweep deletes it ([[retention]]). A retired
+  account's record (`registry_retired_accounts`, migration `20261119132712`)
+  holds no profile id, so no access or erasure request reaches it; it goes
+  with the wedding.
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the responsibility of the wedding's owners as **joint
   controllers** (cire is their processor — see [[data-map]]). Route guest

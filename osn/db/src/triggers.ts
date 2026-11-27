@@ -8,8 +8,9 @@
  * migration chain. It compares SQL without case, so the exact text of each
  * trigger is held by the Miniflare D1 test that runs its migration itself:
  * `osn/api/tests/d1/organisation-member-role.test.ts`,
- * `osn/api/tests/d1/account-email-lower-case.test.ts` and
- * `osn/api/tests/d1/deletion-job-delete-everything.test.ts`.
+ * `osn/api/tests/d1/account-email-lower-case.test.ts`,
+ * `osn/api/tests/d1/deletion-job-delete-everything.test.ts` and
+ * `osn/api/tests/d1/sessions-restriction-known.test.ts`.
  *
  * Each trigger is created only if absent, so every statement runs again
  * safely. Kept out of `./schema` so the Worker, which imports `./schema` and
@@ -48,5 +49,18 @@ END;`,
 WHEN NEW.\`delete_everything\` = 1 AND NEW.\`choices\` IS NOT NULL
 BEGIN
 	SELECT RAISE(ABORT, 'a deletion job that deletes everything holds no choices');
+END;`,
+  // A session's restriction record is a known one, and only beside a deadline.
+  `CREATE TRIGGER IF NOT EXISTS \`sessions_restriction_known\` BEFORE INSERT ON \`sessions\`
+WHEN NEW.\`restricted_amr\` IS NOT NULL
+  AND (NEW.\`restricted_until\` IS NULL OR NEW.\`restricted_amr\` NOT IN ('webauthn', 'otp', 'totp', 'signup'))
+BEGIN
+	SELECT RAISE(ABORT, 'session restriction record is not known or has no deadline');
+END;`,
+  `CREATE TRIGGER IF NOT EXISTS \`sessions_restriction_known_update\` BEFORE UPDATE OF \`restricted_until\`, \`restricted_amr\` ON \`sessions\`
+WHEN NEW.\`restricted_amr\` IS NOT NULL
+  AND (NEW.\`restricted_until\` IS NULL OR NEW.\`restricted_amr\` NOT IN ('webauthn', 'otp', 'totp', 'signup'))
+BEGIN
+	SELECT RAISE(ABORT, 'session restriction record is not known or has no deadline');
 END;`,
 ]);

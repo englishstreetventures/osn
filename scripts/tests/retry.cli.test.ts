@@ -2,8 +2,11 @@
 // failure comes from the network or the runner, not the change —
 // `playwright install-deps`, whose apt mirror can stall — so a wrong exit
 // code turns a red step green or a passing one red, and a process it leaves
-// running holds apt's lock against the next attempt. Each command here is a
-// small bash script that counts its runs in a file of the test's own.
+// running holds apt's lock against the next attempt. Only the attempt's
+// process group is in reach: the dpkg apt-get starts in a session of its own
+// is not, and install-chromium-system-libraries.cli.test.ts holds the wait for
+// its lock. Each command here is a small bash script that counts its runs in a
+// file of the test's own.
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";

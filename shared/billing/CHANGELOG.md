@@ -1,5 +1,26 @@
 # @shared/billing
 
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [c266b7f]
+  - @shared/observability@0.26.6
+
+## 0.1.23
+
+### Patch Changes
+
+- Updated dependencies [89d6af2]
+  - @shared/db-utils@0.10.0
+
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [9b7ecdc]
+  - @shared/observability@0.26.5
+
 ## 0.1.21
 
 ### Patch Changes

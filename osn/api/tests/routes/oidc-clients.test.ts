@@ -20,7 +20,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
-import { registeredResponse } from "../helpers/registration";
+import { registerThroughRoutes } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 const REDIRECT_URI = "https://newrp.example.com/callback";
@@ -59,10 +59,12 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  const res = await registeredResponse(h.app, h.recorded, email, handle);
-  const body = (await res.json()) as { session: { access_token: string } };
-  const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0]!;
-  return { cookie, accessToken: body.session.access_token };
+  // With its first passkey, so the session is an ordinary one.
+  const done = await registerThroughRoutes(h.app, h.recorded, email, handle);
+  const cookie = done.cookies
+    .map((c) => c.split(";")[0]!)
+    .find((c) => c.startsWith("osn_session="))!;
+  return { cookie, accessToken: done.accessToken };
 }
 
 function createClient(

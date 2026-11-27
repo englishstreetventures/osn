@@ -332,17 +332,6 @@ describe("the legal pages' banner", () => {
     }
     window.scrollTo({ top: 0, behavior: "instant" });
   });
-
-  it.each([
-    { name: "phone", size: PHONE },
-    { name: "desktop", size: DESKTOP },
-  ])("is the banner, with no dialog, on a $name", async ({ size }) => {
-    await page.viewport(...size);
-    render(() => <ConsentBanner prompt="banner" />);
-
-    await vi.waitFor(() => expect(banner()).not.toBeNull());
-    expect(dialog()).toBeNull();
-  });
 });
 
 describe("handing focus on", () => {

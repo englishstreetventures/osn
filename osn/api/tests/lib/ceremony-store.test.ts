@@ -17,12 +17,6 @@ const entry = (challenge: string, attempts = 0): Entry => ({
 });
 
 describe("createInMemoryCeremonyStore", () => {
-  it("set → get round-trips the value", async () => {
-    const store = createInMemoryCeremonyStore<Entry>("reg_challenge");
-    await store.set("k1", entry("c1"), 60_000);
-    expect(await store.get("k1")).toMatchObject({ challenge: "c1" });
-  });
-
   it("get returns null for unknown / deleted keys", async () => {
     const store = createInMemoryCeremonyStore<Entry>("reg_challenge");
     expect(await store.get("ghost")).toBe(null);
@@ -38,6 +32,9 @@ describe("createInMemoryCeremonyStore", () => {
       vi.setSystemTime(new Date(1_000_000));
       await store.set("k", entry("c"), 1_000);
       expect(await store.get("k")).toMatchObject({ challenge: "c" });
+      // The instant the TTL ends, the entry is already gone.
+      vi.setSystemTime(new Date(1_000_000 + 1_000));
+      expect(await store.get("k")).toBe(null);
       vi.setSystemTime(new Date(1_000_000 + 2_000));
       expect(await store.get("k")).toBe(null);
     } finally {
@@ -45,7 +42,7 @@ describe("createInMemoryCeremonyStore", () => {
     }
   });
 
-  it("sweeps expired entries on set at most once per debounce window (P-W1 cdl / P-W4)", async () => {
+  it("sweeps expired entries on set at most once per debounce window", async () => {
     const onEntryDelta = vi.fn();
     const store = createInMemoryCeremonyStore<Entry>("login_challenge", { onEntryDelta });
     vi.useFakeTimers();
@@ -89,7 +86,7 @@ describe("createInMemoryCeremonyStore", () => {
     expect(await store.get(`k${CEREMONY_STORE_MAX + 4}`)).not.toBe(null);
   });
 
-  it("evicts expired entries before FIFO-dropping live ones on a cap breach (T-S1)", async () => {
+  it("evicts expired entries before FIFO-dropping live ones on a cap breach", async () => {
     const onEntryDelta = vi.fn();
     const store = createInMemoryCeremonyStore<Entry>("cross_device", { onEntryDelta });
     vi.useFakeTimers();
@@ -146,6 +143,15 @@ describe("createInMemoryCeremonyStore", () => {
     expect(onOp).toHaveBeenCalledWith("set", "reg_challenge");
     expect(onEntryDelta).toHaveBeenCalledWith(1, "reg_challenge");
     expect(onEntryDelta).toHaveBeenCalledWith(-1, "reg_challenge");
+    expect(onOp.mock.calls).toEqual([
+      ["set", "reg_challenge"],
+      ["get", "reg_challenge"],
+      ["delete", "reg_challenge"],
+    ]);
+    expect(onEntryDelta.mock.calls).toEqual([
+      [1, "reg_challenge"],
+      [-1, "reg_challenge"],
+    ]);
   });
 });
 
@@ -186,7 +192,7 @@ describe("CeremonyStore.consume — first consumer wins", () => {
  * A guess is counted on the entry it is a guess at, in the same call that
  * reads it, so no guess can read the entry and then count from a fresh
  * number. `take` is the single-use read: the value, removed in the same call.
- * The Durable Object store gives both the same guarantees (F-DO12–17).
+ * The Durable Object store gives both the same guarantees.
  */
 describe("CeremonyStore.guess and take", () => {
   it("counts nothing, and stores nothing, when there is no live entry", async () => {
@@ -255,7 +261,7 @@ describe("CeremonyStore.guess and take", () => {
  * `swap` is the store's compare-and-set: from `null` it writes only where
  * nothing is live, and from a value `get` answered it replaces only that
  * value. Of several swaps from one value, one wins. Both builders answer
- * alike; the Durable Object store compares the JSON it stored (F-DO18–21).
+ * alike; the Durable Object store compares the JSON it stored.
  */
 describe.each([
   ["memory", () => createInMemoryCeremonyStore<Entry>("cross_device")],

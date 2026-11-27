@@ -1,0 +1,1 @@
+ALTER TABLE `oauth_clients` ADD `manage_data_url` text;

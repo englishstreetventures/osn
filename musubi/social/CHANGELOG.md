@@ -1,5 +1,125 @@
 # @osn/social
 
+## 0.28.3
+
+### Patch Changes
+
+- 065e215: Musubi maps the contract's menu-row corner, `--ui-radius-menu-row`, to its 8px `--radius-md`, so the rows of the account menu and the theme menu take the 8px corner `DESIGN.md` §Radii gives list rows and nav items, while `@shared/ui`'s drawn Checkbox, which reads `--ui-radius-sm`, keeps its 6px box. `DESIGN.md` names the mapping and drops menu rows from its list of known breaks.
+- Updated dependencies [b378067]
+  - @shared/design-tokens@0.12.0
+  - @shared/ui@0.20.2
+  - @osn/auth-ui@6.6.1
+
+## 0.28.2
+
+### Patch Changes
+
+- e393eb0: Musubi's sign-up keeps what was typed across a closed dialog or a reload, says under the handle what typing does to it, refuses a date of birth in the future or more than 120 years ago with a line saying so, and holds Send for a minute after a rate limit, counting down. The passkey step names the handle the account was made under, comes back after a reload or a closed tab while the account's session lasts, and ends on a screen with a heading, a line and one action when that session has gone: Sign in, or Sign in with your new passkey once the passkey is in. `Register` takes `onSignIn` and `SignIn` takes `onCreateAccount`, and Musubi's dialogs link to each other with them, the second opening once the first has closed. `CreateProfileForm`'s handle field shows the same hint and too-long line as `Register`'s, from `@osn/auth-ui/handle-copy`. `SignIn` removes the sign-up draft and the passkey-step marker once its session is published, on every host, and `forgetEnrolling(profileId)` removes the marker only when it names that account.
+- Updated dependencies [e393eb0]
+- Updated dependencies [e393eb0]
+  - @osn/auth-ui@6.6.0
+  - @osn/client@4.8.0
+
+## 0.28.1
+
+### Patch Changes
+
+- cd4349b: `ProfileOnboarding`'s "Create a new profile" sheet no longer closes on Escape, a press outside or a drag down while its create request runs; once the request ends, they close it as before. `CreateProfileForm` takes an optional `onBusyChange(busy)`, called with `true` when the request starts and `false` once it ends. Musubi's `DESIGN.md` lists the sheet among those that give on the rubber band while their call runs.
+- Updated dependencies [cd4349b]
+  - @osn/auth-ui@6.5.11
+
+## 0.28.0
+
+### Minor Changes
+
+- b8fc725: Musubi chooses profiles, draws avatars and offers organisation actions in one way each.
+
+  - `/authorize` is one layout. Every screen that decides leads with the app's client card, the picker included. Its heading is an `AuthHeader` `h2`. One notice slot sits directly above the actions. The actions are one full-width column, with Cancel `secondary` and last. The account screen and the picker choose a profile with the new `ProfileChoice`: radios in bordered rows, the chosen one edged in ink. The picker leaves only on Continue. Allow is offered only while the profile it would post is on screen, and a choice made for one account never stands for another.
+  - The account menu is the profile switcher. Each profile is a `menuitemradio` row, the active one checked. Choosing another switches to it, and every row is held while the switch runs. The "Switch profile" dialog is gone, and so is `ResponsiveDialogContent`'s `width` prop.
+  - `ProfileAvatar` and `OrgAvatar` draw every avatar. A person's is a circle and an organisation's a square with 8px corners. Each shows the picture or the initials, never both, and one rule makes the initials. The account menu's 20px circle shows the first initial alone, since two at 12px overflow it.
+  - `GET /organisations/:handle` answers the caller's own standing, `caller: { role, owner } | null`, and `@osn/client`'s `getOrg` types it. An organisation's page offers Edit to an admin and Delete to the owner. It offers Remove on a member's row to an admin, and on an admin's row too to the owner, never on the reader's own row. A reader whose standing is unknown is offered nothing. A read of the standing that fails, a defect included, is logged and answers `null`.
+  - `@osn/auth-ui`: comments and `DESIGN.md` name the account menu as Musubi's switcher, and `AuthHeader`'s comment gives what `/authorize` loads for its dialog module, measured from `vite build`.
+
+### Patch Changes
+
+- Updated dependencies [b8fc725]
+  - @osn/client@4.7.0
+  - @osn/auth-ui@6.5.10
+
+## 0.27.4
+
+### Patch Changes
+
+- Updated dependencies [9aab460]
+  - @shared/ui@0.20.1
+  - @osn/auth-ui@6.5.9
+
+## 0.27.3
+
+### Patch Changes
+
+- 7dc3d8e: Musubi's privacy notice says deleted data can stay in the database provider's restore copies for up to 30 days, and that each security record, not each session, keeps a device label and a keyed hash of the IP address. The privacy notice and terms say a change shows as a new date at the top of the page.
+
+## 0.27.2
+
+### Patch Changes
+
+- ca94e62: A `Dialog` sheet below `md` can be dragged down by its title row, or by its body once scrolled to the top, to close it. It follows the finger, its scrim fading with it; let go past a quarter of its height or after a flick it closes through `onOpenChange(false)` on a no-bounce spring started at the finger's speed, and otherwise springs back. Under reduced motion it still follows the finger and fades once let go. `DialogContent` takes `dismissible`, which refuses the drag, Escape and a press outside while false; the step-up sheet, the profile switcher and the delete-organisation confirmation pass it while their call runs. The rubber band and the spring move to `@shared/ui/lib/spring`. The lab gains a `DialogSheetDrag` story.
+- Updated dependencies [ca94e62]
+  - @shared/ui@0.20.0
+  - @osn/auth-ui@6.5.8
+
+## 0.27.1
+
+### Patch Changes
+
+- c266b7f: Removing an app's data takes a passkey. `pulse_app_delete` and `zap_app_delete` at `/internal/step-up/verify`, and `cire_app_delete` at `POST /step-up/requests/:id/confirm`, now admit a passkey step-up alone (`appDeleteAllowedAmr`, fixed in `context.ts`), and a passkey added by an emailed link, an authenticator code or recovery only once it is 72 hours old. The confirm route answers a passkey inside that hold `403 { error: "passkey_held", hold_ends_at }`; `createAppStepUpClient().confirm` resolves it as `{ status: "held", holdEndsAt }`.
+
+  `StepUpDialog` offers the passkey alone for the three purposes. Musubi's confirm page always tells a person with no such passkey to add one in Settings and start again from the app in 3 days, and names the day and time a held passkey's hold ends.
+
+  Every passkey enrolled from a restricted recovery session is stamped `recovery`, and so is an account's first passkey enrolled within 72 hours of any recovery, so it waits out the same hold; a first passkey from sign-up stays `webauthn`.
+
+  `osn.auth.step_up.verified` gains a bounded `purpose` attribute, and `osn.auth.recovery.cooldown` an `app_delete_refused` outcome.
+
+  The lab's `osn/auth-ui/StepUpDialog/AppDataRemoval` story shows the sheet for removing an app's data, and the playground offers `cire_app_delete`.
+
+- Updated dependencies [c266b7f]
+  - @osn/client@4.6.0
+  - @osn/auth-ui@6.5.7
+
+## 0.27.0
+
+### Minor Changes
+
+- 91b32ae: Musubi's Settings › Connected apps links an app's own screen for removing a person's data from it, as "Remove my data from <app>". `oauth_clients` gains a nullable `manage_data_url` that only an operator sets (migration `20261119150713_oauth_clients_manage_data_url`). `GET /oidc/connections` answers it as `manageDataUrl` only while it passes a read rule in `osn/api/src/services/auth/client-links.ts`: at most 512 characters, canonical, no user name or password, `https:` (or `http:` to localhost), on the origin of a registered redirect URI or of the app origin osn-api's deployment pins to the client (`CIRE_ORGANISER_ORIGIN` for `CIRE_OIDC_CLIENT_ID`), and never for a disabled client; a refused value counts on the new `osn.oidc.manage_data_link.refused`, and a client whose stored `redirect_uris` is no JSON list refuses only its own link. `@osn/client`'s `OidcConnection` carries `manageDataUrl`. Musubi draws the link on its own line in the app's row, through `followableLink`, in a new tab; the page cache records each Connected apps row's kind so the placeholder keeps each row's height. The musubi stack's dev seed sets cire's link to the organiser portal's `/#/remove-data`. Account erasure keeps the time an owner disabled their client, where it had one.
+
+### Patch Changes
+
+- Updated dependencies [91b32ae]
+  - @osn/client@4.5.0
+  - @osn/auth-ui@6.5.6
+
+## 0.26.5
+
+### Patch Changes
+
+- Updated dependencies [80aa052]
+  - @osn/client@4.4.1
+  - @osn/auth-ui@6.5.5
+
+## 0.26.4
+
+### Patch Changes
+
+- 6983b72: Tests only: drop 26 cases that another test or an E2E step already checks, and tighten those that could pass on broken code.
+
+## 0.26.3
+
+### Patch Changes
+
+- Updated dependencies [0edd50f]
+  - @osn/auth-ui@6.5.4
+
 ## 0.26.2
 
 ### Patch Changes

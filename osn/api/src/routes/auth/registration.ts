@@ -195,8 +195,10 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
       // `pending` until the emailed link is confirmed; then the poll creates
       // the account and answers 201 with the session, once. Every refusal —
       // unknown or expired request, wrong claim secret, a poll that lost the
-      // claim — is `expired`. The UI then enrols the first passkey with the
-      // returned access token and refuses to dismiss until it has.
+      // claim — is `expired`. The session is a restricted one until the
+      // account has a passkey: its token reaches only `/passkey/register/*`
+      // and its cookie nothing but its own rotation. The UI enrols the first
+      // passkey with it, which lifts the restriction.
       // -------------------------------------------------------------------------
       .post(
         "/register/:requestId/status",

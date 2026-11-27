@@ -183,6 +183,11 @@ export interface HostPanelRow {
   /** How far into the run sheet a helper sees, as the API sent it: on helper
    *  rows only. Read through `scopeOf`, which takes anything else as `own`. */
   runSheetScope?: string;
+  /** This owner seat's holder holds the Stripe account the wedding's money
+   *  gifts are paid into, so it cannot leave, be removed or stop being an
+   *  owner until the account is handed over. Sent to an owner reading the list
+   *  alone; absent on every other row. */
+  payoutHolder?: boolean;
 }
 
 /** What the co-host panel opened on. */

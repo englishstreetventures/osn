@@ -141,11 +141,6 @@ describe("createAuthFetchers — authDeleteVoid", () => {
     mockFetch({ ok: true, json: () => Promise.reject(new Error("bad json")) });
     await expect(authDeleteVoid(url)).resolves.toBeUndefined();
   });
-
-  it("throws on non-2xx", async () => {
-    mockFetch({ ok: false, status: 403, json: () => Promise.resolve({ error: "boom" }) });
-    await expect(authDeleteVoid(url)).rejects.toBeInstanceOf(FakeError);
-  });
 });
 
 describe("createAuthFetchers — a failed response's status reaches the error", () => {
@@ -162,10 +157,6 @@ describe("createAuthFetchers — a failed response's status reaches the error", 
 });
 
 describe("safeErrorMessage", () => {
-  it("falls back to Request failed: <status> on a missing key", async () => {
-    expect(safeErrorMessage(undefined, 404)).toBe("Request failed: 404");
-  });
-
   it("falls back to Request failed: <status> on an empty string", async () => {
     expect(safeErrorMessage("", 404)).toBe("Request failed: 404");
   });

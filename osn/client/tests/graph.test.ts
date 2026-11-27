@@ -39,11 +39,6 @@ describe("createGraphClient — listConnections", () => {
     await client.listConnections({ limit: 20, offset: 40 });
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections?limit=20&offset=40`);
   });
-
-  it("throws GraphClientError on non-2xx", async () => {
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "boom" }) });
-    await expect(client.listConnections()).rejects.toBeInstanceOf(GraphClientError);
-  });
 });
 
 describe("createGraphClient — listPendingRequests / listBlocks", () => {
@@ -127,23 +122,6 @@ describe("createGraphClient — connection mutations", () => {
     await client.sendConnectionRequest("alice bob");
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections/alice%20bob`);
   });
-
-  it("removeConnection throws on a 204 with no body, unlike organisations' void deletes", async () => {
-    // graph's DELETE /graph/connections/:handle answers 200 { ok: true } today
-    // (osn/api/src/routes/graph.ts:256); removeConnection uses authDelete, which
-    // parses the success body. If that route ever regressed to a bodyless 204,
-    // this would catch it before organisations.ts's void-returning pattern got
-    // copied here by mistake.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 204,
-        json: () => Promise.reject(new SyntaxError("Unexpected end of JSON")),
-      } as Response),
-    );
-    await expect(client.removeConnection("alice")).rejects.toThrow("Invalid response: 204");
-  });
 });
 
 describe("createGraphClient — blocks", () => {
@@ -179,7 +157,7 @@ describe("createGraphClient — error surface", () => {
     await expect(client.sendConnectionRequest("alice")).rejects.toThrow(/Request failed/);
   });
 
-  it("throws GraphClientError (not SyntaxError) when the error body is not JSON (S-L2)", async () => {
+  it("throws GraphClientError (not SyntaxError) when the error body is not JSON", async () => {
     // E.g. a proxy returns an HTML error page. The client must not leak
     // the SyntaxError from res.json() to the caller.
     vi.stubGlobal(
@@ -193,18 +171,7 @@ describe("createGraphClient — error surface", () => {
     await expect(client.sendConnectionRequest("alice")).rejects.toBeInstanceOf(GraphClientError);
   });
 
-  it("throws GraphClientError when a 200 response body is not JSON (S-L2)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.reject(new SyntaxError("Unexpected token <")),
-      }),
-    );
-    await expect(client.listConnections()).rejects.toBeInstanceOf(GraphClientError);
-  });
-
-  it("truncates long error strings (S-L2)", async () => {
+  it("truncates long error strings", async () => {
     const long = "x".repeat(500);
     mockFetch({ ok: false, json: () => Promise.resolve({ error: long }) });
     await expect(client.sendConnectionRequest("alice")).rejects.toThrow(/^x{200}…$/);

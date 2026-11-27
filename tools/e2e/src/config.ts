@@ -216,6 +216,26 @@ export const DB_FILES = {
 export const INTERNAL_SERVICE_SECRET = "e2e-internal-service-secret-not-a-real-secret";
 
 /**
+ * Shared by osn-api, pulse-api and cire-api: the MAC on osn-api's ARC key ids
+ * held for that alone, so the deletion and export flows run with every app
+ * checking it. Local only.
+ */
+export const OSN_ARC_KID_SECRET = "e2e-osn-arc-kid-secret-not-a-real-secret";
+
+/**
+ * osn-api's change-notice bearer (`musubi-change-notice`): at least 32
+ * characters, as osn-api requires. Local only.
+ */
+export const CHANGE_NOTICE_SECRET = "e2e-change-notice-secret-not-a-real-secret";
+
+/**
+ * The registry the stack's osn-api sends change notices from, in place of the
+ * one it ships, which holds only notices the owner approved
+ * (`OSN_CHANGE_NOTICES_FILE`, read by osn-api's local entry alone).
+ */
+export const CHANGE_NOTICES_FILE = resolve(import.meta.dirname, "change-notices.json");
+
+/**
  * Shared by osn-api and cire-api: what osn-api presents to end an account's
  * cire organiser sessions (`cire-registry-money`). Local only.
  */
@@ -239,6 +259,13 @@ export const CIRE_OIDC = {
   clientId: "cid_cire_e2e",
   secret: "e2e-cire-client-secret-not-a-real-secret",
   redirectUri: `${ORIGINS.cireApi}/api/auth/oidc/callback`,
+  /**
+   * Where Musubi's Connected apps links to remove one's cire data: the
+   * organiser portal's removal screen, as the musubi stack's dev seed builds
+   * it (`cireManageDataUrl`, musubi/infra/src/seeds.ts). osn-api answers it
+   * because the stack gives its osn-api `CIRE_ORGANISER_ORIGIN`, the portal.
+   */
+  manageDataUrl: `${ORIGINS.cireHost}/#/remove-data`,
 } as const;
 
 /**
@@ -397,6 +424,28 @@ export const CIRE_ORGANISER = {
     accountId: "acct_e2e_fund",
     connector: { hostId: "whost_e2e_fund_kit", profileId: "usr_e2e_kit" },
     household: { familyId: "fam_e2e_fund", code: "PARKES-E2E-FD01", guestName: "Pia" },
+  },
+  /**
+   * A Gold wedding whose Stripe account, which can charge and pays out in AUD,
+   * the dev profile connected; it owns the wedding with Kit. The hosts panel
+   * refuses its step-down and leave until it hands money gifts to Kit
+   * (`tests/support/cire-payout-account.ts`).
+   */
+  handover: {
+    weddingId: "wed_e2e_handover",
+    accountId: "acct_e2e_handover",
+    kit: { hostId: "whost_wed_e2e_handover_kit", profileId: "usr_e2e_kit" },
+  },
+  /**
+   * A Gold wedding whose Stripe account Kit connected while an owner; Kit is
+   * an editor now, so money gifts are closed and the dev profile, its one
+   * owner, replaces the account with a new one through the Stripe stand-in.
+   * Money gifts off.
+   */
+  absent: {
+    weddingId: "wed_e2e_absent",
+    accountId: "acct_e2e_absent",
+    kit: { hostId: "whost_wed_e2e_absent_kit", profileId: "usr_e2e_kit" },
   },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
@@ -669,6 +718,13 @@ export const PEOPLE = {
     name: "Joan E2E",
   },
 } as const;
+
+/**
+ * The second profile `musubi-passkey` adds to `PEOPLE.musubi`'s account
+ * through Settings' "Create a new profile" sheet. Neither value contains the
+ * first profile's handle or name, so a locator for one never finds the other.
+ */
+export const MUSUBI_SECOND_PROFILE = { handle: "e2e_lovelace", name: "Lovelace E2E" } as const;
 
 /**
  * The issuer stand-in (`src/issuer.ts`): the mail domain whose

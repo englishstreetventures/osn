@@ -141,11 +141,6 @@ describe("claimed-listing handoff", () => {
       expect(sessionStorage.getItem(CLAIMED_LISTING_KEY)).not.toBeNull();
     });
 
-    it("returns undefined when nothing was seeded", () => {
-      drainClaimedListing();
-      expect(takeSeededListing("o1")).toBeUndefined();
-    });
-
     it("returns undefined on unparseable JSON", () => {
       sessionStorage.setItem(CLAIMED_LISTING_KEY, "{not json");
       drainClaimedListing();

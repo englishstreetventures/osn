@@ -412,11 +412,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           # osn-api's dev Worker secrets; CIRE_INTERNAL_REVOKE_SECRET (shared
-          # with cire-api) and OSN_TOTP_ENCRYPTION_KEY_PREVIOUS are declared
-          # only while they hold a value.
+          # with cire-api), OSN_ARC_KID_SECRET (shared with cire-api and
+          # zap-api) and OSN_TOTP_ENCRYPTION_KEY_PREVIOUS are declared only
+          # while they hold a value.
           CIRE_INTERNAL_REVOKE_SECRET: ${{ secrets.CIRE_INTERNAL_REVOKE_SECRET }}
           DEV_LOGIN_SECRET: ${{ secrets.DEV_LOGIN_SECRET }}
           INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+          OSN_ARC_KID_SECRET: ${{ secrets.OSN_ARC_KID_SECRET }}
           OSN_JWT_PRIVATE_KEY: ${{ secrets.OSN_JWT_PRIVATE_KEY }}
           OSN_JWT_PUBLIC_KEY: ${{ secrets.OSN_JWT_PUBLIC_KEY }}
           OSN_PAIRWISE_SALT: ${{ secrets.OSN_PAIRWISE_SALT }}
@@ -803,7 +805,8 @@ jobs:
           # The profile given the seeded weddings' owner seat; empty seeds none.
           CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}
           # cire-api's dev Worker secrets; CIRE_INTERNAL_REVOKE_SECRET (shared
-          # with osn-api), CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS and
+          # with osn-api), CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS,
+          # OSN_ARC_KID_SECRET (shared with osn-api and zap-api) and
           # STRIPE_CONNECT_CLIENT_ID are declared only while they hold a value.
           # The guest site holds none.
           CIRE_API_ARC_KEY_ID: ${{ secrets.CIRE_API_ARC_KEY_ID }}
@@ -811,6 +814,7 @@ jobs:
           CIRE_INTERNAL_REVOKE_SECRET: ${{ secrets.CIRE_INTERNAL_REVOKE_SECRET }}
           CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: ${{ secrets.CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS }}
           CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
+          OSN_ARC_KID_SECRET: ${{ secrets.OSN_ARC_KID_SECRET }}
           STRIPE_CONNECT_CLIENT_ID: ${{ secrets.STRIPE_CONNECT_CLIENT_ID }}
           STRIPE_PLATFORM_WEBHOOK_SECRET: ${{ secrets.STRIPE_PLATFORM_WEBHOOK_SECRET }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
@@ -1133,9 +1137,11 @@ jobs:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
-          # zap-api's dev Worker secret: the one osn-api holds, which zap-api
-          # registers its ARC key with.
+          # zap-api's dev Worker secrets: the one osn-api holds, which zap-api
+          # registers its ARC key with, and OSN_ARC_KID_SECRET (shared with
+          # osn-api and cire-api), declared only while it holds a value.
           INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+          OSN_ARC_KID_SECRET: ${{ secrets.OSN_ARC_KID_SECRET }}
 
       # Change counts and resource names to the run summary; with
       # expect_no_change, fails unless the plan was "no changes".

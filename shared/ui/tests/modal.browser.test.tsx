@@ -9,16 +9,14 @@
  * component exists to borrow rather than the markup it emits.
  */
 
-import { cleanup, render } from "@solidjs/testing-library";
+import { render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { commands } from "vitest/browser";
 
 import { Modal } from "../src/ui/modal";
 
 import "./test-support/tailwind.css";
-
-afterEach(cleanup);
 
 /**
  * Mount a modal whose `open` is driven by a signal, as a caller's would be, and
@@ -563,12 +561,6 @@ describe("Modal under prefers-reduced-motion", () => {
     (commands as unknown as { emulateMedia: (o: typeof options) => Promise<void> }).emulateMedia(
       options,
     );
-
-  afterEach(async () => {
-    // The browser context is shared across tests in this file, so a leaked
-    // preference would rewrite every later assertion about motion.
-    await emulate({ reducedMotion: "no-preference" });
-  });
 
   it("collapses the choreography to 1ms rather than removing it", async () => {
     // Near-zero and not `none`, and the distinction is load-bearing rather than

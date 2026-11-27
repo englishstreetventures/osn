@@ -78,7 +78,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-26
 ---
 
 # Monorepo Structure
@@ -153,7 +153,7 @@ shared/
   legal/               # @shared/legal — the operator identity every published legal page must state
   observability/       # @shared/observability — redacting logger, Workers trace mirror, Bun OTLP layer, metric helpers, Elysia plugin
   openapi-tools/       # @shared/openapi-tools — OpenAPI spec generation and normalisation (specs land in shared/openapi/)
-  osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
+  osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, `extractClaims`)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
   realtime/            # @shared/realtime — invalidation signals over WebSocket: the per-topic Durable Object hub, publish/subscribe helpers, the browser client and useTopic
   rp-auth/             # @shared/rp-auth — browser half of an OSN relying party: the redirect sign-in flow and its cookie contract
@@ -172,6 +172,7 @@ tools/                 # local-only developer tooling, never shipped
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves
   oxlint/house/        # @tools/oxlint-house — this repo's own lint rules (oxlint/anti-slop beside it is a vendored upstream copy)
   stryker/             # @tools/stryker — runs Stryker mutation testing for a cire package (`test:mutation`)
+  bend/                # not a workspace — the Bend toolchain every law set shares: the pin (bend.env), its installer, the proof kit and bend.sh; the law sets live in <workspace>/laws/<topic>/ (osn/api/laws/account-deletion/, cire/api/laws/account-deletion/)
 ```
 
 ## Where to find things

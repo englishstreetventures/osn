@@ -8,13 +8,13 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 import { createAccountExportRoutes } from "../../src/routes/account-export";
-import { createArcJwksRoutes } from "../../src/routes/arc-jwks";
 import { exportLines, type ExportDownstream } from "../../src/services/account-export";
 import { createAuthService } from "../../src/services/auth";
 import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
+import { createArcJwksRoutes } from "../helpers/routes";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -285,7 +285,7 @@ describe("GET /account/export — bundle", () => {
     expect(res.headers.get("content-type")).toContain("application/x-ndjson");
 
     const text = await res.text();
-    // P6 privacy invariant — the internal accountId must never appear.
+    // The internal account id never appears in the export.
     expect(text).not.toContain(profile.accountId);
 
     const lines = text
@@ -366,7 +366,7 @@ describe("GET /account/export — bundle", () => {
     }
   });
 
-  it("includes the account's OIDC consents (C-M1 oidc)", async () => {
+  it("includes the account's OIDC consents, a revoked one too, and the clients it registered without their secret hash", async () => {
     const { layer, sqlite } = createTestLayerWithSqlite();
     const { auth, profile, accessToken } = await seed(layer);
     sqlite.run(
@@ -571,7 +571,7 @@ describe("GET /account/export — bundle", () => {
  * kid MAC checked under the secret both sides hold.
  */
 describe("GET /account/export — an app verifies osn-api's call against the published key", () => {
-  const KID_SECRET = "test-internal-secret-of-32-chars!";
+  const SERVICE_SECRET = "test-internal-secret-of-32-chars!";
 
   /** osn-api's key set over HTTP, and an app admitting a token only as Pulse and Zap do. */
   const servers = (layer: TestLayer, appSecret: string | undefined) => {
@@ -583,7 +583,11 @@ describe("GET /account/export — an app verifies osn-api's call against the pub
       async fetch(request) {
         const verdict = await verifyOsnArcToken(
           request.headers.get("authorization") ?? undefined,
-          { osnIssuer: `http://localhost:${issuer.port}`, kidSecret: appSecret },
+          {
+            osnIssuer: `http://localhost:${issuer.port}`,
+            kidSecret: undefined,
+            serviceSecret: appSecret,
+          },
           {
             audience: "zap-api",
             scope: "account:export",
@@ -619,7 +623,7 @@ describe("GET /account/export — an app verifies osn-api's call against the pub
         apps: {
           ...NO_DELETION_APPS,
           urls: { zap: running.appUrl },
-          arc: { kidSecret: KID_SECRET },
+          arc: { kidSecret: undefined, serviceSecret: SERVICE_SECRET },
         },
       });
       const res = await app.handle(
@@ -644,7 +648,7 @@ describe("GET /account/export — an app verifies osn-api's call against the pub
   };
 
   it("the app's section arrives undegraded, its kid's MAC checked", async () => {
-    const { lines, verdicts } = await exportWith(KID_SECRET);
+    const { lines, verdicts } = await exportWith(SERVICE_SECRET);
     expect(verdicts).toEqual([{ ok: true }]);
     expect(lines.filter((line) => "degraded" in line)).toEqual([]);
     expect(lines).toContainEqual({ section: "zap.chats", record: { chatId: "c1" } });
@@ -667,7 +671,7 @@ describe("GET /account/export — the apps a tier names", () => {
         apps: {
           ...NO_DELETION_APPS,
           local: false,
-          arc: { kidSecret: "s" },
+          arc: { kidSecret: undefined, serviceSecret: "s" },
           urls: {},
           absent: new Set(["pulse"]),
         },

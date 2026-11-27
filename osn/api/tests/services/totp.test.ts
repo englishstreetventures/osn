@@ -4,7 +4,7 @@ import { Db } from "@osn/db/service";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
 import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { afterEach, beforeAll, vi } from "vitest";
 
 import { createInMemoryRecoveryLockoutStore } from "../../src/lib/recovery-lockout-store";
@@ -22,6 +22,7 @@ import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 import { completeTotpStepUp, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
@@ -54,67 +55,47 @@ function makeLayer() {
 }
 
 /**
- * Wrap a drizzle query builder so it does not execute until `delayMs` has
- * passed. Builders are thenable and chain by returning more builders, so every
- * method is proxied and `then` — the one point where the statement actually
- * runs — is what gets deferred.
- */
-function delayChain(node: object, delayMs: number): object {
-  return new Proxy(node, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof value !== "function") return value;
-      if (prop === "then") {
-        return (onFulfilled?: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
-          new Promise((resolve) => setTimeout(resolve, delayMs))
-            .then(() =>
-              (value as (...a: unknown[]) => unknown).call(target, (real: unknown) => real),
-            )
-            .then(onFulfilled, onRejected);
-      }
-      return (...args: unknown[]) => {
-        const out = (value as (...a: unknown[]) => unknown).apply(target, args);
-        return out !== null && typeof out === "object" ? delayChain(out, delayMs) : out;
-      };
-    },
-  });
-}
-
-/**
- * A layer whose UPDATE statements land a few milliseconds after they are
- * issued. SELECTs are untouched, and everything still runs for real against
- * the in-memory SQLite.
+ * A layer whose statements a test can hold (`holdQueries`), everything still
+ * run for real against the in-memory SQLite.
  *
  * The gap between reading a row and writing it back is the entire subject of
  * `consumeStep`, and in a deployed tier that gap is a network round trip to
  * D1 — ample time for a second request to read the same row. On bun:sqlite it
- * is a couple of microtasks, and measurably too short: two fibres started
- * together still run one at a time through the consume, so an unmodified
- * in-memory run cannot tell a conditional UPDATE from a read-then-write and a
- * concurrency test over it passes under both. Deferring the write restores the
- * production timing rather than inventing a race that could not happen.
+ * is a couple of microtasks: two fibres started together still run one at a
+ * time through the consume, so an unheld in-memory run cannot tell a
+ * conditional UPDATE from a read-then-write. Holding the first request's
+ * UPDATE while a second request reads the row and writes puts that gap back,
+ * on every run.
  */
-function makeSlowUpdateLayer(delayMs = 20) {
-  const real = Effect.runSync(
-    Effect.provide(
-      Effect.gen(function* () {
-        return yield* Db;
-      }),
-      createTestLayer(),
-    ),
-  ).db;
-  const proxied = new Proxy(real as object, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (prop === "update" && typeof value === "function") {
-        return (...args: unknown[]) =>
-          delayChain((value as (...a: unknown[]) => object).apply(target, args), delayMs);
-      }
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  }) as typeof real;
-  return Layer.merge(Layer.succeed(Db, { db: proxied }), makeLogEmailLive().layer);
+function makeHeldLayer() {
+  const { db, email } = createTestLayerWithSqlite();
+  const queries = holdQueries(db);
+  return {
+    layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+    hold: queries.hold,
+  };
 }
+
+/** The UPDATE that claims a TOTP step. */
+const CLAIM = /^update "totp_credentials"/;
+
+/**
+ * `submit` twice: the first is held at its UPDATE, having read the row, while
+ * the second reads the same row, writes and answers; then the first writes.
+ * Answers both outcomes, first submission first.
+ */
+const twoSubmissionsAtOnce = <A, E, R>(
+  hold: ReturnType<typeof makeHeldLayer>["hold"],
+  submit: Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const write = hold(CLAIM);
+    const first = yield* Effect.forkChild(Effect.result(submit));
+    yield* Effect.promise(() => write.reached);
+    const second = yield* Effect.result(submit);
+    write.release();
+    return [yield* Fiber.join(first), second] as const;
+  });
 
 /**
  * Register an account and put a confirmed TOTP credential on it, using the
@@ -311,36 +292,34 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
     }).pipe(Effect.provide(makeLayer())),
   );
 
-  it.effect("lets exactly ONE of two concurrent submissions of the same code through", () =>
-    Effect.gen(function* () {
+  it.effect("lets exactly ONE of two concurrent submissions of the same code through", () => {
+    const { layer, hold } = makeHeldLayer();
+    return Effect.gen(function* () {
       // The claim `consumeStep` is written for, and the only test here that can
       // see it. Every other single-use test submits sequentially, where a
       // SELECT-then-UPDATE rejects the second attempt just as well — so none of
       // them can tell the two implementations apart.
       //
-      // The write is deferred (see `makeSlowUpdateLayer`) so the second fibre
-      // reads the row while the first fibre's write is still in flight, which
-      // is the ordinary case against D1 and the one the docstring is about.
-      // A read-then-write lets both through here; the conditional UPDATE means
-      // the loser changes zero rows and is rejected as a replay.
+      // The first submission is held at its write (see `makeHeldLayer`) while
+      // the second reads the row and writes, which is the ordinary case against
+      // D1 and the one the docstring is about. A read-then-write lets both
+      // through here; the conditional UPDATE means the loser changes zero rows
+      // and is rejected as a replay.
       const { profile, secret } = yield* enrolled("totp-cc@example.com", "totpcc");
       const code = yield* codeAtStep(secret, currentStep() + 1);
 
-      const outcomes = yield* Effect.all(
-        [
-          Effect.result(completeTotpStepUp(auth, profile.accountId, code)),
-          Effect.result(completeTotpStepUp(auth, profile.accountId, code)),
-        ],
-        { concurrency: "unbounded" },
+      const outcomes = yield* twoSubmissionsAtOnce(
+        hold,
+        completeTotpStepUp(auth, profile.accountId, code),
       );
 
       expect(outcomes.filter((o) => o._tag === "Success")).toHaveLength(1);
-    }).pipe(Effect.provide(makeSlowUpdateLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 /**
- * Key rotation, which is the whole of `englishstreetventures/osn#968`.
+ * Key rotation.
  *
  * What is under test is not "two keys can coexist" — it is that an operator can
  * move every credential from one key to another **with no downtime and no
@@ -367,9 +346,9 @@ describe("TOTP encryption-key rotation", () => {
   it.effect("a row written under the old key still verifies once that key is demoted", () => {
     const rekeySpy = vi.spyOn(metrics, "metricTotpRekeyed");
     return Effect.gen(function* () {
-      // Issue #968's first two "done when" clauses, in the order an operator
-      // meets them: enrol under one key; come back with that key demoted to
-      // OSN_TOTP_ENCRYPTION_KEY_PREVIOUS and a new one installed; verify.
+      // In the order an operator meets them: enrol under one key; come back
+      // with that key demoted to OSN_TOTP_ENCRYPTION_KEY_PREVIOUS and a new one
+      // installed; verify.
       const k1 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
       const k2 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
 
@@ -585,11 +564,10 @@ describe("TOTP encryption-key rotation", () => {
 
   it.effect("answers the GENERIC failure when no configured key opens the row", () =>
     Effect.gen(function* () {
-      // This was a DatabaseError, and so a 500 while every other TOTP failure
-      // answers 400 — which told an unauthenticated caller at
-      // POST /login/recovery/totp/complete that the account HAS a credential. A
-      // mis-staged rotation makes that branch common, so it has to look like
-      // every other rejection.
+      // Every TOTP failure answers the same 400, so an unreadable row must not
+      // tell an unauthenticated caller at POST /login/recovery/totp/complete
+      // that the account has a credential. A mis-staged rotation makes that
+      // branch common, so it has to look like every other rejection.
       const k1 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
       const k2 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
 
@@ -689,12 +667,13 @@ describe("TOTP encryption-key rotation", () => {
     }).pipe(Effect.provide(makeLayer())),
   );
 
-  it.effect("keeps single use when the same statement also re-encrypts", () =>
-    Effect.gen(function* () {
+  it.effect("keeps single use when the same statement also re-encrypts", () => {
+    const { layer, hold } = makeHeldLayer();
+    return Effect.gen(function* () {
       // The re-encryption rides the conditional UPDATE that enforces RFC 6238
-      // §5.2. If adding it turned that into a read-then-write, both fibres
-      // would pass here — which is what `makeSlowUpdateLayer` exists to expose,
-      // since it defers only the write.
+      // §5.2. If adding it turned that into a read-then-write, both submissions
+      // would pass here — which is what holding the first one's write while
+      // the second reads and writes (`twoSubmissionsAtOnce`) exists to expose.
       const k1 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
       const k2 = yield* Effect.promise(generateEphemeralTotpEncryptionKey);
 
@@ -703,12 +682,9 @@ describe("TOTP encryption-key rotation", () => {
 
       const during = authWith(createTotpKeyRing(k2, k1));
       const code = yield* codeAtStep(secret, currentStep() + 1);
-      const outcomes = yield* Effect.all(
-        [
-          Effect.result(completeTotpStepUp(during, profile.accountId, code)),
-          Effect.result(completeTotpStepUp(during, profile.accountId, code)),
-        ],
-        { concurrency: "unbounded" },
+      const outcomes = yield* twoSubmissionsAtOnce(
+        hold,
+        completeTotpStepUp(during, profile.accountId, code),
       );
 
       expect(outcomes.filter((o) => o._tag === "Success")).toHaveLength(1);
@@ -725,8 +701,8 @@ describe("TOTP encryption-key rotation", () => {
         }),
       );
       expect(opened.secret).toEqual(secret);
-    }).pipe(Effect.provide(makeSlowUpdateLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 describe("TOTP failures are indistinguishable on the wire", () => {
@@ -776,17 +752,15 @@ describe("TOTP per-account lockout", () => {
   it.effect("clears the counter after a success", () =>
     Effect.gen(function* () {
       // The reset runs after the answer, in the background (`forkBackground`),
-      // and the deployed store is a Durable Object a network hop away. A store
-      // whose reset takes a real 25 ms makes that order certain here: the
-      // success is `settle`d, as the Worker's `waitUntil` would hold it, so the
-      // next attempt is counted after the reset and never races it.
+      // and the deployed store is a Durable Object a network hop away, so this
+      // store answers its reset a turn late. The success is `settle`d, as the
+      // Worker's `waitUntil` would hold it, so the next attempt is counted
+      // after the reset and never races it.
       const memory = createInMemoryRecoveryLockoutStore();
       const slowReset = {
         ...memory,
         reset: (key: string, failures: number) =>
-          new Promise<void>((resolve) => setTimeout(resolve, 25)).then(() =>
-            memory.reset(key, failures),
-          ),
+          Promise.resolve().then(() => memory.reset(key, failures)),
       };
       const service = createAuthService({ ...config, totpLockoutStore: slowReset });
       const { profile, secret } = yield* enrolledWith(service, "totp-n@example.com", "totpn");
@@ -886,20 +860,19 @@ describe("TOTP disable", () => {
 describe("TOTP enrolment and disable are audible", () => {
   // The `security_events` row is the only IN-APP channel telling a user their
   // account grew or lost a second factor, and the threat model leans on it. It
-  // shares a `commitBatch` with the credential write, so a regression could
+  // shares a `commitBatch` with the credential write, so a change could
   // drop the audit row while the ceremony itself keeps working — nothing else
   // in this file would notice.
 
   it.effect("enrolment writes totp_enrolled and dispatches the notice", () => {
     const test = createTestLayerWithSqlite();
     return Effect.gen(function* () {
-      const { profile } = yield* enrolled("totp-ev1@example.com", "totpev1");
+      // The notice is sent in the background; `settle` waits for it.
+      const { profile } = yield* settle(enrolled("totp-ev1@example.com", "totpev1"));
 
       const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events.map((e) => e.kind)).toContain("totp_enrolled");
 
-      // The notice is forked detached — let the fiber finish.
-      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
       const sent = test.email
         .recorded()
         .filter((e) => e.template === "totp-enrolled" && e.to === "totp-ev1@example.com");
@@ -912,12 +885,11 @@ describe("TOTP enrolment and disable are audible", () => {
     return Effect.gen(function* () {
       const { profile } = yield* enrolled("totp-ev2@example.com", "totpev2");
       const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_disable");
-      yield* auth.disableTotp(profile.accountId, token);
+      yield* settle(auth.disableTotp(profile.accountId, token));
 
       const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events.map((e) => e.kind)).toContain("totp_disabled");
 
-      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
       const sent = test.email
         .recorded()
         .filter((e) => e.template === "totp-disabled" && e.to === "totp-ev2@example.com");
@@ -927,9 +899,11 @@ describe("TOTP enrolment and disable are audible", () => {
 });
 
 describe("which gates a totp-AMR step-up token reaches", () => {
-  // Four allow-lists, and `recoveryGenerateAllowedAmr` is read by five separate
-  // verifiers — so a gate per verifier, not a gate per list. Every one of the
-  // five is exercised below by the verifier it actually runs through.
+  // Five allow-lists, and `recoveryGenerateAllowedAmr` is read by several
+  // verifiers — so a gate per verifier, not a gate per list, each exercised
+  // below by the verifier it actually runs through. The app-data gates, which
+  // admit a passkey alone, refuse `totp` in `tests/routes/app-step-up-requests.test.ts`,
+  // through the routes Pulse, Zap and Musubi reach them by.
   //
   // Each case pins the DIRECT gate: whether a token carrying `amr: ["totp"]`
   // satisfies that verifier. None of them says anything about what a chain of
@@ -1000,22 +974,6 @@ describe("which gates a totp-AMR step-up token reaches", () => {
         auth.verifyStepUpForAccountExport(profile.accountId, token),
       );
       expect(outcome._tag).toBe("Success");
-    }).pipe(Effect.provide(makeLayer())),
-  );
-
-  it.effect("is ACCEPTED at verifyStepUpForExternalPurpose, the Pulse / Zap app delete", () =>
-    Effect.gen(function* () {
-      // The cross-service verifier behind ARC-gated `/internal/step-up/verify`.
-      // It reads the same allow-list, takes the profile the calling service
-      // verified, and returns the token's verified `sub` for it to use.
-      const profile = yield* auth.registerProfile("totp-ex@example.com", "totpex");
-      const token = yield* mintTotpToken(profile.accountId, "pulse_app_delete");
-      const result = yield* auth.verifyStepUpForExternalPurpose(
-        token,
-        "pulse_app_delete",
-        profile.id,
-      );
-      expect(result.accountId).toBe(profile.accountId);
     }).pipe(Effect.provide(makeLayer())),
   );
 

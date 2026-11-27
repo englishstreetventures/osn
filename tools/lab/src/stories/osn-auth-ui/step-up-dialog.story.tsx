@@ -271,6 +271,23 @@ export const DestructiveWarning = state(
   },
 );
 
+export const AppDataRemoval = state(
+  "removing an app's data",
+  <>
+    Musubi's confirm page for an app's request, here cire's: removing an app's data takes a passkey,
+    so the sheet offers <Mono>Use passkey</Mono> alone, though the account has an authenticator app.
+    The page around it says what to do without one.
+  </>,
+  {
+    client: client(),
+    runPasskeyCeremony: heldCeremony,
+    totpClient: authenticator,
+    purpose: "cire_app_delete",
+    title: "Remove your Cire data?",
+    reason: "Cire asks Musubi to confirm it's you before it removes your data.",
+  },
+);
+
 export const LongPasskeyName = state(
   "a title with a 64-character name",
   <>
@@ -598,6 +615,7 @@ const PURPOSES = [
   "security_event_ack",
   "email_change",
   "account_delete",
+  "cire_app_delete",
 ] as const satisfies readonly StepUpPurpose[];
 
 const CEREMONIES = {

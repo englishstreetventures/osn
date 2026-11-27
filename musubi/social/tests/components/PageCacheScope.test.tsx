@@ -54,7 +54,7 @@ vi.mock("../../src/lib/api", () => ({
 }));
 vi.mock("../../src/lib/authClients", () => ({ connectionsClient: {} }));
 vi.mock("../../src/components/ShellDialogs", () => ({
-  useShellDialogs: () => ({ ready: () => true, open: () => {} }),
+  useShellDialogs: () => ({ ready: () => true, failed: () => false, open: () => {} }),
 }));
 
 import { ShellNotices } from "../../src/components/ShellNotices";

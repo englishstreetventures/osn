@@ -14,18 +14,21 @@
  *   shared motion tokens (`tokens.css`). Its strings are frozen:
  *   `tests/dropdown-menu-default.browser.test.tsx` reads them back literally,
  *   because that is the only thing that keeps those apps unmoved by a change
- *   made for cire. A focused row is marked by its sunk fill; a contrast theme
- *   drops the fill, so the row's outline is hidden only while it has focus,
- *   and the theme paints it. Hidden at rest as well, it would ring every row.
+ *   made for cire, and it measures a row's corner as well. A focused row is
+ *   marked by its sunk fill; a contrast theme drops the fill, so the row's
+ *   outline is hidden only while it has focus, and the theme paints it.
+ *   Hidden at rest as well, it would ring every row.
  * - `accent` — cire's portal look: the raised panel at the 10px corner with
- *   the floating shadow, 6px rows in full ink, the highlighted row a 10%
- *   accent wash with readable accent ink. It opens with a short pop from the
+ *   the floating shadow, rows in full ink at cire's 6px, the highlighted row a
+ *   10% accent wash with readable accent ink. It opens with a short pop from the
  *   trigger's side, from the shared `--ui-scale-enter`, and closes at once: a menu held mounted for an exit
  *   animation keeps focus inside it, and Kobalte's hand-back to the trigger
  *   then falls to `<body>`.
  *
  * In both looks the separator is a fill, so it draws a top border in a
- * contrast theme alone.
+ * contrast theme alone, and a row's corner is the contract's menu-row role
+ * (`rounded-ui-menu-row`), which falls back to the app's small corner, so an
+ * app that maps no menu-row corner draws its rows there.
  *
  * The accent look reads an app's own `--elev-2`, `--dur-fast` and `--ease-out`
  * first and the contract's `--ui-*` after, as `choice.ts` and `control.ts` do,
@@ -53,7 +56,7 @@ const PANEL = {
 
 const ROW = {
   default:
-    "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-sm base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
+    "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-menu-row base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
     "base:focus:bg-ui-surface-sunk base:focus:text-ui-ink base:focus:outline-hidden " +
     "base:data-[disabled]:pointer-events-none base:data-[disabled]:opacity-50",
   // The ring is inset (-2px), not the dashboard's 2px outside: Kobalte scrolls
@@ -62,7 +65,7 @@ const ROW = {
   // It shows for the keyboard only; a pointer's highlight is the wash. The
   // colour fade names its properties, so the ring never fades in.
   accent:
-    "base:relative base:flex base:w-full base:cursor-pointer base:select-none base:items-center base:gap-4 base:rounded-ui-sm base:px-3 base:py-2 " +
+    "base:relative base:flex base:w-full base:cursor-pointer base:select-none base:items-center base:gap-4 base:rounded-ui-menu-row base:px-3 base:py-2 " +
     "base:font-ui-body base:text-ui-sm base:text-ui-ink base:no-underline base:outline-none " +
     "base:transition-[color,background-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] " +
     "base:data-[highlighted]:bg-ui-accent/10 base:data-[highlighted]:text-ui-accent-ink " +

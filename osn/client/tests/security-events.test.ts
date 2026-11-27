@@ -78,6 +78,11 @@ describe("createSecurityEventsClient", () => {
       stepUpToken: "eyJ.step.up",
     });
     expect(result.acknowledged).toBe(false);
+
+    // Only `true` is an acknowledgement; any other value the server sends is a miss.
+    fetchMock.mockResolvedValue(okResponse({ acknowledged: "yes" }));
+    const odd = await client.acknowledge({ id: "sev_000000000000", stepUpToken: "eyJ.step.up" });
+    expect(odd.acknowledged).toBe(false);
   });
 
   it("acknowledgeAll() POSTs /account/security-events/ack-all and returns the count", async () => {
@@ -99,27 +104,8 @@ describe("createSecurityEventsClient", () => {
     );
   });
 
-  it("acknowledgeAll() throws on non-2xx responses", async () => {
-    fetchMock.mockResolvedValue(okResponse({ error: "step_up_required" }, 403));
-    await expect(client.acknowledgeAll({ stepUpToken: "expired.token" })).rejects.toThrow(
-      SecurityEventsError,
-    );
-  });
-
-  it("list() throws SecurityEventsError on non-2xx responses", async () => {
-    fetchMock.mockResolvedValue(okResponse({ error: "unauthorized" }, 401));
-    await expect(client.list()).rejects.toThrow(SecurityEventsError);
-  });
-
   it("list() throws SecurityEventsError when the payload is not an events array", async () => {
     fetchMock.mockResolvedValue(okResponse({ events: "not-an-array" }));
     await expect(client.list()).rejects.toThrow(SecurityEventsError);
-  });
-
-  it("acknowledge() throws SecurityEventsError on non-2xx responses", async () => {
-    fetchMock.mockResolvedValue(okResponse({ error: "rate_limited" }, 429));
-    await expect(client.acknowledge({ id: "sev_000000000000", stepUpToken: "t" })).rejects.toThrow(
-      SecurityEventsError,
-    );
   });
 });

@@ -16,7 +16,7 @@
  *   under the pointer, drawn or native, and not while chosen or disabled.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
@@ -30,7 +30,6 @@ import { dotOffset, picture } from "./test-support/painted";
 import "./test-support/tailwind.css";
 
 afterEach(async () => {
-  cleanup();
   await page.viewport(414, 896);
 });
 

@@ -7,8 +7,8 @@
  * below is made against computed style and layout in real Chromium.
  */
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { render, screen } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
 import { commands, userEvent } from "vitest/browser";
 
 import { Switch } from "../src/ui/switch";
@@ -20,11 +20,6 @@ const emulateMedia = (options: MotionPreference) =>
   (commands as unknown as { emulateMedia: (o: MotionPreference) => Promise<void> }).emulateMedia(
     options,
   );
-
-afterEach(async () => {
-  cleanup();
-  await emulateMedia({ reducedMotion: "no-preference" });
-});
 
 /** The track and thumb of the switch named `label`. */
 function partsOf(label: string): { track: HTMLElement; thumb: HTMLElement } {

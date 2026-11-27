@@ -118,7 +118,7 @@ import { SettingsPage } from "../../src/pages/SettingsPage";
 const SHOTS = "../../../../e2e-artifacts/musubi-loading";
 
 /** An unsigned access token carrying the `sub` claim Settings reads. */
-const ACCESS_TOKEN = `header.${btoa(JSON.stringify({ sub: "prof_1" }))}.signature`;
+const ACCESS_TOKEN = `header.${btoa(JSON.stringify({ sub: "prof_1", handle: "ada" }))}.signature`;
 
 function authValue() {
   const session = { accessToken: ACCESS_TOKEN, idToken: null, expiresAt: 0, scopes: [] };
@@ -252,8 +252,10 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
   it("an organisation: its head, then one member row", async () => {
     renderAt("/organisations/acme", "/organisations/:handle", OrgDetailPage);
     await busyRegion(2);
+    // Read by an admin, so a member's row carries Remove.
     reads.release("org", {
       organisation: { handle: "acme", name: "Acme Inc", avatarUrl: null, description: null },
+      caller: { role: "admin", owner: false },
     });
     await screen.findByRole("heading", { name: "Acme Inc" });
     // The roster's own region, now the page's only busy one. Its row is one a
@@ -266,6 +268,26 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
       { members: [{ ...person("bob", "Bob Jones"), role: "member" }] },
       "Bob Jones",
     );
+    expect(screen.getByRole("button", { name: "Remove @bob" })).toBeTruthy();
+    expect(height.landed).toBeCloseTo(height.held, 0);
+  });
+
+  it("an organisation read by a plain member: a row with no Remove", async () => {
+    renderAt("/organisations/acme", "/organisations/:handle", OrgDetailPage);
+    await busyRegion(2);
+    reads.release("org", {
+      organisation: { handle: "acme", name: "Acme Inc", avatarUrl: null, description: null },
+      caller: { role: "member", owner: false },
+    });
+    await screen.findByRole("heading", { name: "Acme Inc" });
+    const region = await busyRegion(1);
+    const height = await land(
+      region,
+      "members",
+      { members: [{ ...person("bob", "Bob Jones"), role: "member" }] },
+      "Bob Jones",
+    );
+    expect(screen.queryByRole("button", { name: "Remove @bob" })).toBeNull();
     expect(height.landed).toBeCloseTo(height.held, 0);
   });
 
@@ -295,6 +317,7 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
             clientName: "Pulse",
             logoUrl: null,
             scope: "openid profile",
+            manageDataUrl: null,
           },
         ],
       },

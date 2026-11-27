@@ -2,10 +2,29 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    // Only tests/laws/ reads laws/, and only the compiled model.mjs and its
+    // types there, never a .bend file. So `test` and the type check (which
+    // reads the tests) leave the .bend files out, and the build and the D1
+    // tier leave the whole folder out: a proof-only edit reruns none of them.
+    // `transit`, which the type check depends on, hashes the package's files
+    // too, so it leaves the .bend files out as well.
+    "transit": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**/*.bend"]
+    },
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", "!laws/**"]
+    },
+    "typecheck": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/astro-typecheck.ts", "!laws/**/*.bend"]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**/*.bend"]
+    },
     // tests/d1/worker-e2e.test.ts writes its results outside this package, to
     // the repository's e2e-artifacts/, which CI uploads. Declared here, a
     // cached run restores that file instead of leaving the upload empty.
     "test:d1": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "!laws/**"],
       "outputs": ["$TURBO_ROOT$/e2e-artifacts/osn-api-workerd/**"]
     }
   }

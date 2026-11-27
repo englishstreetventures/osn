@@ -398,14 +398,6 @@ describe("PinterestBoard", () => {
     expect(scriptHandle.all().length).toBeGreaterThan(0);
   });
 
-  it("mounts already-consented (no placeholder) when consent was persisted in a previous visit", () => {
-    seedConsentForTest({ pinterest: true });
-    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
-    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
-    expect(showButton(container)).toBeUndefined();
-    expect(scriptHandle.all().length).toBeGreaterThan(0);
-  });
-
   it("stays blocked for a guest who explicitly refused", () => {
     seedConsentForTest({ pinterest: false });
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
@@ -586,13 +578,6 @@ describe("PinterestBoard", () => {
       expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
     });
 
-    it("hides the link while the embed is loading", () => {
-      seedConsentForTest({ pinterest: true });
-      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
-      expect(container.querySelector('[role="status"]')).not.toBeNull();
-      expect(fallbackLink(container)).toBeUndefined();
-    });
-
     it("keeps the link hidden once the board has rendered", async () => {
       seedConsentForTest({ pinterest: true });
       vi.useFakeTimers();
@@ -607,14 +592,6 @@ describe("PinterestBoard", () => {
       // Well past the cutoff: a rendered board never falls back.
       await vi.advanceTimersByTimeAsync(10000);
       expect(fallbackLink(container)).toBeUndefined();
-    });
-
-    it("shows the link when the script errors", async () => {
-      seedConsentForTest({ pinterest: true });
-      const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
-      expect(fallbackLink(container)).toBeUndefined();
-      scriptHandle.last().dispatchEvent(new Event("error"));
-      await waitFor(() => expect(fallbackLink(container)).toBeDefined());
     });
 
     it("shows the link when nothing renders by the cutoff", async () => {

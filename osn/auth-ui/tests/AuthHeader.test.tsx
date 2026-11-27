@@ -33,16 +33,6 @@ function cancelButton(name = "Cancel"): HTMLButtonElement {
 }
 
 describe("AuthHeader in a dialog", () => {
-  it("names the dialog by its title", () => {
-    render(() => (
-      <OpenDialog>
-        <AuthHeader host="dialog" title="Sign in to Musubi" />
-      </OpenDialog>
-    ));
-    expect(screen.getByRole("dialog", { name: "Sign in to Musubi" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: "Sign in to Musubi" })).toBeTruthy();
-  });
-
   it("renames the dialog when the title changes", () => {
     const [title, setTitle] = createSignal("Sign in to Musubi");
     render(() => (

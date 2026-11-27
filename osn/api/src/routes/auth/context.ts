@@ -279,7 +279,8 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
       };
   /**
    * These two routes are the ONLY place the `osn-recovery` audience is accepted
-   * anywhere in this service.
+   * anywhere in this service. A restricted session carries it: a recovery's,
+   * or a sign-up's before the new account's first passkey.
    *
    * The ordinary audience is tried first, and the order is load-bearing: an
    * everyday enrolment must never come back marked `restricted`, or it would

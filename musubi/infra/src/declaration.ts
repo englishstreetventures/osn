@@ -288,7 +288,7 @@ export function musubiProductionApis(input: {
         OSN_ISSUER_URL: origin(hosts.osnApi),
         OSN_CORS_ORIGIN: app,
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
-        OSN_EMAIL_FROM: "hello@cireweddings.com", // not a host: the sender
+        OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
         OSN_EMAIL_VERIFICATION_API: "true",
         OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",
@@ -474,8 +474,8 @@ export function musubiDeclaration(input: {
         // The session marker cookie's domain: the app's host, never a parent shared with production.
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
         // Resend refuses a sender on a domain it has not verified, so musubi.social must be
-        // verified before a deploy (englishstreetventures/osn#1548). Dev shares the address
-        // production moves to, by the owner's choice on that issue.
+        // verified before a deploy (englishstreetventures/osn#1548). Dev sends from the same
+        // address as production.
         OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
         // Sign out everywhere else, revoking cire's connection and an account's
         // deletion end its cire organiser sessions through cire-api, at

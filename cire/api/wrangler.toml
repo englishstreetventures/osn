@@ -89,6 +89,14 @@ ZAP_API_URL = "http://localhost:3002"
 # characters ⇒ the endpoint is disabled (503). The SAME value must be
 # provisioned on the osn-api side.
 #
+# OSN_ARC_KID_SECRET — the secret osn-api keys a MAC on its ARC key ids with
+# for that alone. A SECRET, the SAME value osn-api holds: locally in
+# `.dev.vars`, in a deployed tier `wrangler secret put OSN_ARC_KID_SECRET`,
+# only after osn-api holds it (wiki/shared/production-deploy.md §5.11). Set ⇒
+# osn-api's deletion and export calls are refused before any key fetch unless
+# their key id carries a MAC under it. Absent, or shorter than 32 characters
+# (logged once) ⇒ no key id is checked.
+#
 # CIRE_OPS_EMAIL — the operator address for the daily "vendor claims are
 # waiting for review" reminder and the R2 orphan reconcilers' alerts
 # (src/index.ts `scheduled`). A SECRET, never a
@@ -407,6 +415,9 @@ ZAP_API_URL = "https://zap.cireweddings.com"
 #   bunx wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production
 # Absent or shorter than 32 characters ⇒ POST /internal/revoke-organiser-sessions
 # answers 503 (disabled).
+# The ARC key-id secret (see the top-level [vars] note), only after osn-api
+# holds it:
+#   bunx wrangler secret put OSN_ARC_KID_SECRET --env production
 # Operator address for the daily vendor-claim reminder (secret, see the
 # top-level [vars] note). Absent ⇒ no reminder, only the cron's log line:
 #   bunx wrangler secret put CIRE_OPS_EMAIL --env production

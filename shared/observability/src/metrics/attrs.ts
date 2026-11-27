@@ -201,7 +201,7 @@ export type StepUpVerifyResult =
   | "amr_not_allowed"
   // The factor was permitted but the credential behind it was not: a passkey
   // registered under a weaker AMR, inside its 72-hour window, asked to delete
-  // an older credential or change the account email. Distinct from
+  // an older credential, change the account email or remove an app's data. Distinct from
   // `amr_not_allowed` so a dashboard separates "wrong factor" from "right
   // factor, wrong provenance" — those need different answers from the user.
   | "provenance_blocked"
@@ -232,14 +232,17 @@ export type RecoveryCodeStep =
   | "disown";
 
 /**
- * Why the post-recovery cooldown refused an action. Every one of these answers
- * the caller with the same generic error, so the dashboard is the only place
- * the three are told apart.
+ * Why the post-recovery cooldown refused an action. The first three answer the
+ * caller with the same generic error, so the dashboard is the only place they
+ * are told apart. `app_delete_refused` is a passkey inside its 72-hour hold, or
+ * one that names no credential, asked to remove an app's data; Musubi's confirm
+ * page tells the person when a held passkey can be used.
  */
 export type RecoveryCooldownOutcome =
   | "second_recovery_refused"
   | "passkey_mutation_refused"
-  | "email_change_refused";
+  | "email_change_refused"
+  | "app_delete_refused";
 
 /**
  * Outcome of `POST /recovery/disown`. Every one answers 202 except

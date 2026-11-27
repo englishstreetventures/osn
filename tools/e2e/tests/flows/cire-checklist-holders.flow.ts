@@ -329,6 +329,17 @@ test("cire-checklist-holders", async ({ page, flow }) => {
 
 const SETTINGS = CIRE_ORGANISER.settings;
 const SETTINGS_API = `${ORIGINS.cireApi}/api/organiser/weddings/${SETTINGS.weddingId}`;
+/** What the Overview reads for a Crimson wedding whose caches are empty. */
+const OVERVIEW_READS = [
+  "rsvp-changes",
+  "settings",
+  "rsvps",
+  "events",
+  "guests",
+  "tasks",
+  "budget",
+  "vendors",
+] as const;
 const SETTINGS_PAGE = `${ORIGINS.cireHost}/#/w/${SETTINGS.weddingId}/settings`;
 
 /** How long a deleted wedding can be restored: `RESTORE_WINDOW_S`, `cire/api/src/db/live-wedding.ts`. */
@@ -575,11 +586,23 @@ async function settingsSteps(flow: Flow, page: Page): Promise<void> {
     const answered = page.waitForResponse(
       (r) => r.request().method() === "POST" && r.url() === `${SETTINGS_API}/restore`,
     );
+    // The restore opens the wedding's Overview, which reads all of these
+    // afresh: the delete dropped its caches with its scope. This is the
+    // flow's last page, and its record is cut after the screenshot, so each
+    // read is awaited here rather than left to land in some runs only.
+    const overviewReads = OVERVIEW_READS.map((read) =>
+      page.waitForResponse(
+        (r) =>
+          r.request().method() === "GET" &&
+          new URL(r.url()).pathname === new URL(`${SETTINGS_API}/${read}`).pathname,
+      ),
+    );
     await recentlyDeleted.getByRole("button", { name: "Restore" }).click();
     const status = (await answered).status();
     await expect(page.getByText("Wedding restored.")).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`#/w/${SETTINGS.weddingId}`));
     await expect(recentlyDeleted).toHaveCount(0);
+    await Promise.all(overviewReads);
     return status;
   });
   flow.check("cire-api restores the wedding", 200, restored);

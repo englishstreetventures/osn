@@ -23,7 +23,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-11-18
+last-reviewed: 2026-11-25
 ---
 
 # Backend Code Patterns
@@ -196,8 +196,7 @@ factory/entry split as **Zap** and **Pulse**: `src/app.ts` exports a pure
 pair, validates the session-IP pepper, builds the coordination bundle — rate
 limiters, ceremony stores, lockouts — in memory, selects the email transport, and builds the Effect layer graph once
 into the shared `appRuntime`; `startBunServer()` keeps `app.listen`, the
-ephemeral-key warning, outbound ARC key rotation, and the account-erasure
-sweeper). This was Phase 1 (P1) of the Cloudflare Workers migration; the later
+ephemeral-key warning, and the account-erasure sweeper). This was Phase 1 (P1) of the Cloudflare Workers migration; the later
 phases have since shipped too — osn-api runs a Workers `fetch` entry
 (`src/index.ts`, served through `src/entry.ts`, the `main` in `wrangler.toml`) on
 `id.musubi.social`, with its shared state on the `COORDINATION` Durable Object

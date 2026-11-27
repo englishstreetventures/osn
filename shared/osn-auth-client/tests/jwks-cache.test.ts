@@ -1,5 +1,5 @@
 import { generateKeyPair, exportJWK } from "jose";
-import { describe, expect, it, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
 import { clearJwksCache, resolvePublicKeyForKid, refreshPublicKeyForKid } from "../src/jwks-cache";
 
@@ -73,6 +73,84 @@ describe("jwks-cache", () => {
     });
     gate = { promise, release };
   }
+
+  it("matches a published kid exactly unless told otherwise: a lookup of a.b never takes a.b.c", async () => {
+    routes.set(URL_1, [await makeJwk("a.b.c")]);
+    expect(await resolvePublicKeyForKid("a.b", URL_1)).toBeNull();
+    expect(await resolvePublicKeyForKid("a.b.c", URL_1)).not.toBeNull();
+  });
+
+  /** An ARC lookup naming `names`, fetched from `URL_1` itself, kept five minutes. */
+  const lookup = (names: (published: string) => boolean) => ({
+    names,
+    from: URL_1,
+    ttlMs: 5 * 60 * 1000,
+  });
+
+  it("with names, caches and refuses under the id given, never the published kid", async () => {
+    routes.set(URL_1, [await makeJwk("a.b.c")]);
+    const names = (published: string) => published.startsWith("a.b.");
+    expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
+    expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
+    expect(calls.get(URL_1)).toBe(1);
+    expect(
+      await resolvePublicKeyForKid(
+        "x.y",
+        URL_1,
+        lookup(() => false),
+      ),
+    ).toBeNull();
+    expect(
+      await resolvePublicKeyForKid(
+        "x.y",
+        URL_1,
+        lookup(() => false),
+      ),
+    ).toBeNull();
+    expect(calls.get(URL_1)).toBe(2);
+  });
+
+  it("skips a published entry whose kid is not a string, and still answers the one named", async () => {
+    routes.set(URL_1, [{ kid: 7 }, { kid: null }, await makeJwk("a.b.c")]);
+    // Reads the kid as a string, as `checkArcKid`'s lookup does: handed a
+    // number or null it would throw.
+    const names = (published: string) => published.split(".").slice(0, 2).join(".") === "a.b";
+    expect(await resolvePublicKeyForKid("a.b", URL_1, lookup(names))).not.toBeNull();
+  });
+
+  it("keeps an access-token key five minutes, then fetches again", async () => {
+    routes.set(URL_1, [jwkA]);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      clock.mockReturnValue(start + 5 * 60_000 - 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(1);
+      clock.mockReturnValue(start + 5 * 60_000 + 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("keeps a refreshed key five minutes too", async () => {
+    routes.set(URL_1, [jwkA]);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      expect(await refreshPublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      clock.mockReturnValue(start + 5 * 60_000 - 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(1);
+      clock.mockReturnValue(start + 5 * 60_000 + 1_000);
+      expect(await resolvePublicKeyForKid("shared-kid", URL_1)).not.toBeNull();
+      expect(calls.get(URL_1)).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
 
   it("same kid on two issuers resolves to distinct keys (no collision)", async () => {
     routes.set(URL_1, [jwkA]);

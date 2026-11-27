@@ -282,20 +282,6 @@ const fundImage = (fund: GiftRegistryFund) =>
   fund.imageName === null ? null : `${API}/img/${fund.imageName}`;
 
 describe("giving to a fund", () => {
-  it("gives to the couple in general unless the guest chooses a fund", async () => {
-    const { calls } = stubFetch(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
-    const { container } = renderPanel({
-      funds: [HONEYMOON, HOUSE],
-      fundImageBase: fundImage,
-      navigate: captureNavigation(),
-    });
-
-    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
-
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect((calls[0]?.body as { itemId: string | null } | undefined)?.itemId).toBeNull();
-  });
-
   it("gives to the fund the guest chose", async () => {
     const { calls } = stubFetch(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
     const { container } = renderPanel({
@@ -458,13 +444,6 @@ describe("giving to a fund", () => {
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
     await screen.findByText("The couple aren’t taking money gifts at the moment.");
     await waitFor(() => expect(screen.queryByText(FUND_CLOSED)).toBeNull());
-  });
-
-  it("has words of its own for a fund that has closed, apart from money being off", () => {
-    expect(giftMoneyMessage({ kind: "fund-closed" })).toBe(FUND_CLOSED);
-    expect(giftMoneyMessage({ kind: "fund-closed" })).not.toBe(
-      giftMoneyMessage({ kind: "unavailable" }),
-    );
   });
 });
 

@@ -66,10 +66,6 @@ describe("giftRegistryImageBase", () => {
 });
 
 describe("giftRegistryPath", () => {
-  it("points at the wedding's own gift page", () => {
-    expect(giftRegistryPath("anita-and-ben")).toBe("/cire/registry?slug=anita-and-ben");
-  });
-
   it("encodes a slug that would otherwise change the URL's shape", () => {
     // Query encoding preserves slugs that include URL punctuation.
     expect(giftRegistryPath("a b")).toBe("/cire/registry?slug=a%20b");

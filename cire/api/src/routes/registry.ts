@@ -330,6 +330,17 @@ export const createRegistryWriteRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
+                // Whether the account's holder is an owner is an owner's to
+                // know: anyone else is refused as for an account Stripe has not
+                // finished with, and reads the settings so (`settingsForReader`).
+                Effect.catchTag("PayoutHolderAbsent", (e) =>
+                  conflictWithSettings(
+                    set,
+                    reader.canManage ? "payout_holder_absent" : "stripe_not_ready",
+                    e.current,
+                    reader,
+                  ),
+                ),
                 Effect.catchTag("StripeNotReady", (e) =>
                   conflictWithSettings(set, "stripe_not_ready", e.current, reader),
                 ),

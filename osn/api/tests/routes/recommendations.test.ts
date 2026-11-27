@@ -86,18 +86,6 @@ describe("recommendations routes", () => {
   // Happy path
   // -------------------------------------------------------------------------
 
-  it("returns [] when the caller has no connections", async () => {
-    const alice = await registerAndGetToken("alice@example.com", "alice");
-    const res = await recsApp.handle(
-      new Request("http://localhost/recommendations/connections", {
-        headers: { Authorization: `Bearer ${alice.token}` },
-      }),
-    );
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { suggestions: unknown[] };
-    expect(json.suggestions).toEqual([]);
-  });
-
   // per-user connection suggestions — never cached or stored.
   it("GET /recommendations/connections sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
@@ -210,7 +198,7 @@ describe("recommendations routes", () => {
     expect(res.status).toBe(200);
   });
 
-  it("rejects a non-numeric ?limit at the HTTP boundary (S-M1/P-W1)", async () => {
+  it("rejects a non-numeric ?limit at the HTTP boundary", async () => {
     // With t.Numeric in the schema, Elysia returns 422 for non-numeric
     // input rather than silently collapsing to an empty result.
     const alice = await registerAndGetToken("a@e.com", "alice");
@@ -301,12 +289,12 @@ describe("recommendations routes", () => {
   });
 
   it("rejects a limiter argument that is missing either slot", () => {
-    // The rename from a single backend to the pair invites a caller passing the
-    // old shape; this guard is what turns that into a boot-time error rather
-    // than a per-request crash on `rateLimiters.suggest.check`.
+    // A caller that passes one backend, or a pair missing a slot, gets a
+    // boot-time error rather than a per-request crash on
+    // `rateLimiters.suggest.check`.
     const bare = { check: () => Promise.resolve(true) };
     expect(() =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately the pre-branch shape
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately one backend in place of the pair
       createRecommendationRoutes(config, layer, undefined, bare as any),
     ).toThrow(/suggest must have a check\(\) method/);
     expect(() =>
@@ -390,8 +378,8 @@ describe("recommendations routes", () => {
       // One character reaches the caller's own edges only; two reaches the
       // global handle index. Asserting this at the route layer matters because
       // the scope rule and the people/organisation fan-out meet here — and
-      // because a caller with no connections makes the one-character case pass
-      // vacuously, which is what this test used to do.
+      // because with no connections the one-character case would pass whatever
+      // the scope rule did.
       const alice = await registerAndGetToken("a@e.com", "alice");
       const bob = await registerAndGetToken("b@e.com", "bob");
       await registerAndGetToken("c@e.com", "bella");

@@ -65,6 +65,10 @@ export default defineConfig({
           name: "browser",
           include: ["tests/**/*.browser.test.{ts,tsx}"],
           passWithNoTests: true,
+          // One `afterEach` for every file: unmount, close the top layer, let
+          // Kobalte's queued `aria-hidden` writes land, put `<html>`, `<body>`,
+          // scroll and media emulation back. A file's own hooks run first.
+          setupFiles: ["./tests/test-support/browser-setup.ts"],
           browser: {
             enabled: true,
             // `launchOptions` belongs to the PROVIDER, not to an entry in

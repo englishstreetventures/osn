@@ -22,7 +22,7 @@ import {
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
-import { registeredResponse } from "../helpers/registration";
+import { registerThroughRoutes } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 const CIRE_URL = "https://cire-api.test";
@@ -107,9 +107,10 @@ function setup(cire: CireOrganiserRevokeConfig = CONFIGURED) {
 
   /** Registers an account; returns its cookie, access token, account id and profile id. */
   async function register(emailAddress: string, handle: string) {
-    const res = await registeredResponse(app, () => email.recorded(), emailAddress, handle);
-    const body = (await res.json()) as { session: { access_token: string } };
-    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    // With its first passkey, so the session is an ordinary one.
+    const done = await registerThroughRoutes(app, () => email.recorded(), emailAddress, handle);
+    const cookie =
+      done.cookies.map((c) => c.split(";")[0]!).find((c) => c.startsWith("osn_session=")) ?? "";
     expect(cookie).toContain("osn_session=");
     const row = sqlite
       .query<{ id: string; account_id: string }, [string]>(
@@ -119,7 +120,7 @@ function setup(cire: CireOrganiserRevokeConfig = CONFIGURED) {
     if (!row) throw new Error(`no profile for ${handle}`);
     return {
       cookie,
-      accessToken: body.session.access_token,
+      accessToken: done.accessToken,
       accountId: row.account_id,
       profileId: row.id,
     };
@@ -353,6 +354,9 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
 
     expect(res.status).toBe(200);
     expect(calls).toHaveLength(1);
+    // The stand-in follows nothing itself, so "not followed" is the request
+    // asking fetch not to follow: the bearer goes to cire's origin only.
+    expect(calls[0]?.redirect).toBe("manual");
     const errors = errorLogs(h.logs);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.annotations).toMatchObject({ status: 307 });

@@ -13,10 +13,11 @@ import {
 } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitBatchResults, DbService, dbQuery, driverErrorText } from "../db";
+import { commitBatchResults, DbService, dbQuery, driverErrorText, outerColumn } from "../db";
 import type { Db } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import type { InviteImageKeys } from "./invite";
+import { holdsPayoutAccountSql } from "./payout-holder";
 import { EXEMPT_OWNER_SEATS, normaliseTier, peopleLimitOf, peopleLimitSql } from "./tiers";
 import type { PeopleLimit, Tier } from "./tiers";
 
@@ -239,6 +240,16 @@ export class LastOwner extends Data.TaggedError("LastOwner")<{
 }> {}
 
 /**
+ * A removal, a leave or a move below owner would take the owner seat of the
+ * person who holds the Stripe account the wedding's money gifts are paid into.
+ * They hand money gifts to another owner or disconnect the account first, or
+ * another owner replaces it; the refused write changed nothing.
+ */
+export class HoldsPayoutAccount extends Data.TaggedError("HoldsPayoutAccount")<{
+  weddingId: string;
+}> {}
+
+/**
  * A seat could not be added, or another owner moved below owner, because the
  * wedding has no room under its tier's people limit. `peopleLimit` is the count
  * the refused write saw, and names the tier that would have let it through. The
@@ -410,6 +421,15 @@ function readSeatUsage(rows: unknown): SeatUsage {
 /** The (wedding, profile) pair that names one seat. */
 const seatOf = (weddingId: string, osnProfileId: string) =>
   and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId));
+
+/**
+ * 1 when `osnProfileId` holds the Stripe account `weddingId` names now. Bound
+ * values, never the statement's own row, so it reads the same in a WHERE and
+ * in a select list. The one rule the three hosts writes refuse on: an owner
+ * seat whose person this names may not be removed, left or moved below owner.
+ */
+const holdsPayoutAccount = (weddingId: string, osnProfileId: string): SQL<number> =>
+  holdsPayoutAccountSql(sql`${weddingId}`, sql`${osnProfileId}`);
 
 type AuthorizeResult = {
   isOwner: boolean;
@@ -647,7 +667,12 @@ export const hostsService = {
    */
   list(weddingId: string): Effect.Effect<
     {
-      hosts: WeddingHostRow[];
+      /**
+       * `payoutHolder`: the seat is an owner's and its holder is the holder
+       * of the Stripe account the wedding names (`holdsPayoutAccountSql`).
+       * The route tells owners alone.
+       */
+      hosts: Array<WeddingHostRow & { payoutHolder: boolean }>;
       total: number;
       peopleLimit: PeopleLimit;
     },
@@ -665,6 +690,10 @@ export const hostsService = {
             createdAt: weddingHosts.createdAt,
             addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
             runSheetScope: weddingHosts.runSheetScope,
+            payoutHolder: sql<number>`(${outerColumn(weddingHosts.role)} = 'owner' AND ${holdsPayoutAccountSql(
+              outerColumn(weddingHosts.weddingId),
+              outerColumn(weddingHosts.osnProfileId),
+            )})`,
             // The windows run before LIMIT, so every row carries the wedding's
             // true seat and people counts, not the number returned, from the
             // rows this read already holds.
@@ -689,6 +718,7 @@ export const hostsService = {
           createdAt: row.createdAt,
           addedByOsnProfileId: row.addedByOsnProfileId,
           runSheetScope: normaliseRunSheetScope(row.runSheetScope),
+          payoutHolder: row.payoutHolder === 1,
         })),
         // No row means no seat, so the count is 0. Every live wedding holds an
         // owner seat, so the Ivory fallback is never what a gated caller sees.
@@ -721,14 +751,21 @@ export const hostsService = {
    * whole run sheet, made an editor and later moved back down, does not come
    * back seeing everything.
    *
+   * An owner holding the Stripe account the wedding's money gifts are paid into
+   * cannot be moved below owner, by another owner or by stepping down: that
+   * rule rides in the same WHERE, so a retire committed before the batch lets
+   * the change through and a connect committed before it refuses it.
+   *
    * One batch: a read of the seat as it stood, the UPDATE, and a read of the
    * wedding's counts after it. The first gives `previousRole` — what tells a
-   * caller an owner was demoted — and the last gives the new `peopleLimit`, or,
-   * on a refusal, the state the UPDATE's guards saw, which names the reason.
+   * caller an owner was demoted — and whether its person holds the payout
+   * account; the last gives the new `peopleLimit`. On a refusal they are the
+   * state the UPDATE's guards saw, which names the reason.
    *
    * Fails `HostNotFound` when the profile holds no seat, `LastOwner` when the
-   * seat is the wedding's only owner (named ahead of the limit), and
-   * {@link PeopleLimitReached} when demoting another owner has no room.
+   * seat is the wedding's only owner (named first), {@link HoldsPayoutAccount}
+   * when its person holds the payout account, and {@link PeopleLimitReached}
+   * when demoting another owner has no room.
    */
   setRole(input: {
     weddingId: string;
@@ -738,35 +775,37 @@ export const hostsService = {
     actorOsnProfileId: string;
   }): Effect.Effect<
     WeddingHostRow & { previousRole: WeddingRole; peopleLimit: PeopleLimit },
-    HostNotFound | LastOwner | PeopleLimitReached | HostWriteError,
+    HostNotFound | LastOwner | HoldsPayoutAccount | PeopleLimitReached | HostWriteError,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const ownStepDown = input.actorOsnProfileId === input.osnProfileId;
+      const holds = holdsPayoutAccount(input.weddingId, input.osnProfileId);
       // A seat below owner, or one moving to owner, passes; an owner moving
-      // down needs another owner to remain, and — unless they are stepping
-      // down themselves — room for the person their move adds. One pass over
-      // the wedding's seats.
+      // down needs another owner to remain, to hold no payout account, and —
+      // unless they are stepping down themselves — room for the person their
+      // move adds. One pass over the wedding's seats.
       const allowed =
         input.role === "owner"
           ? undefined
           : or(
               ne(weddingHosts.role, "owner"),
-              overSeats(input.weddingId, (seats, owners) =>
+              sql`(${overSeats(input.weddingId, (seats, owners) =>
                 ownStepDown
                   ? sql`${owners} > 1`
                   : sql`${owners} > 1 AND (${owners} > ${EXEMPT_OWNER_SEATS} OR ${roomForOnePerson(input.weddingId, seats, owners)})`,
-              ),
+              )} AND NOT ${holds})`,
             );
 
       const results = yield* Effect.tryPromise({
         try: () =>
           commitBatchResults(db, [
-            // The seat as it stood before the UPDATE: whether it exists, and
-            // the role it held, which is how a caller tells a demotion apart.
+            // The seat as it stood before the UPDATE: whether it exists, the
+            // role it held, which is how a caller tells a demotion apart, and
+            // whether its person holds the payout account.
             db
-              .select({ role: weddingHosts.role })
+              .select({ role: weddingHosts.role, holdsPayout: holds })
               .from(weddingHosts)
               .where(seatOf(input.weddingId, input.osnProfileId)),
             db
@@ -795,7 +834,7 @@ export const hostsService = {
           Effect.logError("host role update failed", { reason: err.reason }),
         ),
       );
-      const [seat] = results[0] as readonly { role: string }[];
+      const [seat] = results[0] as readonly { role: string; holdsPayout: number }[];
       const [updated] = results[1] as readonly {
         id: string;
         createdAt: Date;
@@ -814,11 +853,19 @@ export const hostsService = {
       if (!updated || !seat) {
         if (!seat) return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
         // The seat is there and the UPDATE matched nothing, so it is an owner
-        // moving down: with no other owner it is the last-owner guard, and
-        // otherwise the people limit.
+        // moving down: with no other owner it is the last-owner guard, then
+        // the payout account's holder, and otherwise the people limit.
         if (usage.owners <= 1) {
           yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
           return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
+        }
+        if (seat.holdsPayout === 1) {
+          yield* logRefusal(
+            "host change refused: holds payout account",
+            input.weddingId,
+            "holds_payout_account",
+          );
+          return yield* Effect.fail(new HoldsPayoutAccount({ weddingId: input.weddingId }));
         }
         yield* logRefusal(
           "host change refused: people limit",
@@ -933,19 +980,23 @@ export const hostsService = {
    * own wedding (the route's `weddingOwner()` proved ownership). Idempotent:
    * removing a profile that holds no seat succeeds.
    *
-   * The wedding's last owner is never removed: the seat's DELETE carries the
-   * guard in its own WHERE, so two owners removing each other at once leave
-   * one of them. Their RSVP read marker and digest setting (`host_rsvp_notices`)
-   * go in the same batch, ahead of the seat and under the same guard, so a
-   * refused removal keeps both and a batch that fails part-way never leaves a
-   * seat without its notice row. A read of the seat closes the batch: still
-   * there means the guard refused it, which fails `LastOwner`. On success,
-   * `removed` is the seat as it stood — its role, who created it and when — or
-   * `null` when there was none. With `withPeopleLimit`, a read of the
-   * wedding's counts closes the batch and `peopleLimit` is the count after the
-   * removal; without it — leaving, whose caller shows no count — the batch
-   * reads nothing more and `peopleLimit` is `null`. A removal never adds
-   * anyone, so the people limit has nothing to refuse here.
+   * The wedding's last owner is never removed, and neither is an owner holding
+   * the Stripe account its money gifts are paid into: the seat's DELETE
+   * carries both guards in its own WHERE, so two owners removing each other at
+   * once leave one of them, and a retire committed before the batch lets the
+   * removal through while a connect committed before it refuses it. Their RSVP
+   * read marker and digest setting (`host_rsvp_notices`) go in the same batch,
+   * ahead of the seat and under the same guards, so a refused removal keeps
+   * both and a batch that fails part-way never leaves a seat without its
+   * notice row. A read of the seat closes the batch: still there means a guard
+   * refused it, which fails `LastOwner` while no other owner remains and
+   * {@link HoldsPayoutAccount} otherwise. On success, `removed` is the seat as
+   * it stood — its role, who created it and when — or `null` when there was
+   * none. With `withPeopleLimit`, a read of the wedding's counts closes the
+   * batch and `peopleLimit` is the count after the removal; without it —
+   * leaving, whose caller shows no count — the batch reads nothing more and
+   * `peopleLimit` is `null`. A removal never adds anyone, so the people limit
+   * has nothing to refuse here.
    */
   remove(input: {
     weddingId: string;
@@ -953,11 +1004,15 @@ export const hostsService = {
     withPeopleLimit?: boolean;
   }): Effect.Effect<
     { removed: RemovedSeat | null; peopleLimit: PeopleLimit | null },
-    LastOwner | HostWriteError,
+    LastOwner | HoldsPayoutAccount | HostWriteError,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const holds = holdsPayoutAccount(input.weddingId, input.osnProfileId);
+      // An owner seat may go only while another owner remains and its person
+      // holds no payout account here.
+      const ownerSeatMayGo = sql`(${ownerSeatCount(input.weddingId)} > 1 AND NOT ${holds})`;
       const results = yield* Effect.tryPromise({
         try: () =>
           commitBatchResults(db, [
@@ -973,7 +1028,7 @@ export const hostsService = {
                       and(
                         seatOf(input.weddingId, input.osnProfileId),
                         eq(weddingHosts.role, "owner"),
-                        sql`${ownerSeatCount(input.weddingId)} <= 1`,
+                        sql`NOT ${ownerSeatMayGo}`,
                       ),
                     ),
                 ),
@@ -984,7 +1039,7 @@ export const hostsService = {
               .where(
                 and(
                   seatOf(input.weddingId, input.osnProfileId),
-                  or(ne(weddingHosts.role, "owner"), sql`${ownerSeatCount(input.weddingId)} > 1`),
+                  or(ne(weddingHosts.role, "owner"), ownerSeatMayGo),
                 ),
               )
               .returning({
@@ -993,7 +1048,11 @@ export const hostsService = {
                 createdAt: weddingHosts.createdAt,
               }),
             db
-              .select({ id: weddingHosts.id })
+              .select({
+                id: weddingHosts.id,
+                owners: ownerSeatCount(input.weddingId),
+                holdsPayout: holds,
+              })
               .from(weddingHosts)
               .where(seatOf(input.weddingId, input.osnProfileId)),
             ...(input.withPeopleLimit ? [seatUsage(db, input.weddingId)] : []),
@@ -1002,8 +1061,18 @@ export const hostsService = {
       }).pipe(
         Effect.tapError((err) => Effect.logError("host delete failed", { reason: err.reason })),
       );
-      const remaining = results[2] as readonly { id: string }[];
-      if (remaining.length > 0) {
+      const [remaining] = results[2] as readonly { owners: number; holdsPayout: number }[];
+      if (remaining) {
+        // Still seated, so a guard refused it: the last owner first, then the
+        // payout account's holder.
+        if (remaining.owners > 1 && remaining.holdsPayout === 1) {
+          yield* logRefusal(
+            "host change refused: holds payout account",
+            input.weddingId,
+            "holds_payout_account",
+          );
+          return yield* Effect.fail(new HoldsPayoutAccount({ weddingId: input.weddingId }));
+        }
         yield* logRefusal("host change refused: last owner", input.weddingId, "last_owner");
         return yield* Effect.fail(new LastOwner({ weddingId: input.weddingId }));
       }

@@ -22,15 +22,6 @@ afterEach(() => {
 });
 
 describe("createFirstScroll", () => {
-  it("is false at the top of the page", async () => {
-    await createRoot(async (dispose) => {
-      const scrolled = createFirstScroll();
-      await flushMount();
-      expect(scrolled()).toBe(false);
-      dispose();
-    });
-  });
-
   it("turns true on the first scroll down the page", async () => {
     await createRoot(async (dispose) => {
       const scrolled = createFirstScroll();

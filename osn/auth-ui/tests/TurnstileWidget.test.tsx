@@ -239,20 +239,24 @@ describe("TurnstileWidget — a challenge that fails to load", () => {
     await screen.findByRole("alert");
   });
 
-  it("stops looking for the challenge once a load has failed, even after a late load event", async () => {
+  it("stops looking for the challenge once the load deadline passes, and leaves no timer running", async () => {
     vi.useFakeTimers();
     const stale = document.createElement("script");
     stale.id = "cf-turnstile-script";
     document.head.append(stale);
     heldScripts();
     render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={() => {}} />);
+    // The load 25 ms in puts the 50 ms looks off the deadline's beat, so one
+    // is still waiting when the deadline fails the load, and has to be cleared.
+    await vi.advanceTimersByTimeAsync(25);
     stale.dispatchEvent(new Event("load"));
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(14_975);
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(vi.getTimerCount()).toBe(0);
   });
 
   it("renders nothing for a load that lands after the widget has gone", async () => {
+    vi.useFakeTimers();
     const scripts = heldScripts();
     const onToken = vi.fn();
     const { unmount } = render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
@@ -261,7 +265,7 @@ describe("TurnstileWidget — a challenge that fails to load", () => {
     const api = workingApi();
     setApi(api);
     scripts[0]!.dispatchEvent(new Event("load"));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.advanceTimersByTimeAsync(0);
     expect(api.render).not.toHaveBeenCalled();
     expect(onToken).not.toHaveBeenCalled();
   });

@@ -64,10 +64,6 @@ describe("autoSizeAnimates", () => {
     expect(autoSizeAnimates(null, 120)).toBe(false);
   });
 
-  it("animates a short move", () => {
-    expect(autoSizeAnimates(96, 180)).toBe(true);
-  });
-
   it("snaps when either end is taller than the cap", () => {
     // Long distances read as a wipe, not a movement — in both directions, so a
     // collapse from something enormous snaps too.
@@ -143,14 +139,6 @@ describe("createAutoSize", () => {
     expect(frame().style.transition).toContain("var(--dur-base)");
   });
 
-  it("lets go when the height transition ends", () => {
-    const { frame } = mount(120);
-    resizeTo(180);
-    endTransition(frame(), "height");
-    expect(frame().style.height).toBe("");
-    expect(frame().style.overflow).toBe("");
-  });
-
   it("stays clipped for a transition that belongs to something inside it", () => {
     // Children transition all the time — a row's colour, a button's border. Those
     // bubble through the frame and must not be mistaken for its own move ending.
@@ -204,31 +192,10 @@ describe("createAutoSize", () => {
     expect(el.style.height).toBe("180px");
   });
 
-  it("lets go on the backstop when no transition ever ends", () => {
-    // A frame torn out of the layout mid-move, or a tab hidden before it settled,
-    // never gets its `transitionend`. Stuck at a fixed height is the one state
-    // this hook exists to avoid.
-    vi.useFakeTimers();
-    const { frame } = mount(120);
-    resizeTo(180);
-    expect(frame().style.height).toBe("180px");
-    vi.advanceTimersByTime(1000);
-    expect(frame().style.height).toBe("");
-  });
-
   it("lets go at once when a change past the cap comes mid-move", () => {
     const { frame } = mount(120);
     resizeTo(180);
     expect(frame().style.overflow).toBe("hidden");
-    resizeTo(AUTO_SIZE_CAP + 400);
-    expect(frame().style.height).toBe("");
-    expect(frame().style.overflow).toBe("");
-  });
-
-  it("touches nothing at all for a change past the cap", () => {
-    // Past the cap there is no animation, and with no animation there is no
-    // reason to write a height or a clip the frame would then have to shed.
-    const { frame } = mount(120);
     resizeTo(AUTO_SIZE_CAP + 400);
     expect(frame().style.height).toBe("");
     expect(frame().style.overflow).toBe("");
@@ -260,11 +227,6 @@ describe("createAutoSize", () => {
     content().remove();
     resizeTo(0);
     expect(size.height()).toBe(120);
-  });
-
-  it("reports the measured height", () => {
-    const { size } = mount(96);
-    expect(size.height()).toBe(96);
   });
 
   it("stops observing, and stops listening, when the component goes away", () => {

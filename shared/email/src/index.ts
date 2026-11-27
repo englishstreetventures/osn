@@ -1,4 +1,10 @@
-export { EmailService, EmailError, type EmailServiceImpl, type SendEmailInput } from "./service";
+export {
+  EmailService,
+  EmailError,
+  type EmailServiceImpl,
+  type KeyedBatchResult,
+  type SendEmailInput,
+} from "./service";
 
 export { makeCloudflareEmailLive, type CloudflareEmailConfig } from "./cloudflare";
 
@@ -10,6 +16,7 @@ export { makeNoopEmailLive } from "./noop";
 
 export {
   renderTemplate,
+  type ChangeNoticeData,
   type EmailTemplate,
   type EmailTemplateData,
   type EmailTemplateDataMap,

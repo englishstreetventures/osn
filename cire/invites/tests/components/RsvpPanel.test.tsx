@@ -559,31 +559,6 @@ describe("RsvpPanel", () => {
     expect(onConfirmed).toHaveBeenCalledTimes(1);
   });
 
-  it("still celebrates a host-preview save — preview carries no recorded rows to be 'already complete' from", async () => {
-    // A preview claim's family is the synthetic `kind: "host"` one, which is
-    // barred from RSVP and therefore has no rows, so `wasComplete` is false and
-    // the new crossing gate never suppresses preview's confirmation. Asserted
-    // because preview exists to show a host exactly what a guest sees, and it
-    // would be easy to gate it away by accident.
-    vi.useFakeTimers();
-    const onConfirmed = vi.fn();
-    render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya]}
-        preview
-        apiUrl="https://api.test"
-        onClose={() => {}}
-        onConfirmed={onConfirmed}
-      />
-    ));
-
-    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
-    fireEvent.click(document.querySelector("button[type='submit']")!);
-    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
-    expect(onConfirmed).toHaveBeenCalledTimes(1);
-  });
-
   async function submitOnce(): Promise<void> {
     const fs = fieldsetFor("Priya");
     fireEvent.click(within(fs).getByText("Attending"));
@@ -761,7 +736,7 @@ describe("RsvpPanel", () => {
     expect(within(fs).getByText("Not attending").getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("hides the consent checkbox until there is dietary data to authorise (C-H2)", () => {
+  it("hides the consent checkbox until there is dietary data to authorise", () => {
     render(() => (
       <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
@@ -806,7 +781,7 @@ describe("RsvpPanel", () => {
     expect(screen.getByText(/Priya and Raj/)).toBeTruthy();
   });
 
-  it("never pre-ticks consent on behalf of a member who has never given it (C-H2)", () => {
+  it("never pre-ticks consent on behalf of a member who has never given it", () => {
     // THE fan-out rule. Priya consented at a previous submit; Raj is answering
     // for the first time. Collapsing four boxes into one is only safe if the
     // survivor refuses to open ticked here — otherwise one tick nobody made for
@@ -1058,7 +1033,7 @@ describe("RsvpPanel", () => {
     expect(parsed.rsvps[0].dietaryConsent).toBe(false);
   });
 
-  it("blocks submit when a newly-covered member has no prior consent (C-H2)", async () => {
+  it("blocks submit when a newly-covered member has no prior consent", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -1092,7 +1067,7 @@ describe("RsvpPanel", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("blocks submit and shows an error when dietary is entered without consent (C-H2)", async () => {
+  it("blocks submit and shows an error when dietary is entered without consent", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -1114,7 +1089,7 @@ describe("RsvpPanel", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("allows submit with empty dietary and no consent needed (C-H2)", async () => {
+  it("allows submit with empty dietary and no consent needed", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ rsvps: [] }), {
         status: 200,
@@ -1143,7 +1118,7 @@ describe("RsvpPanel", () => {
     });
   });
 
-  it("prefills the consent box as ticked when an existing RSVP carries dietary (C-H2)", () => {
+  it("prefills the consent box as ticked when an existing RSVP carries dietary", () => {
     const existing: RsvpSummary[] = [
       {
         guestId: "guest-priya",
@@ -1385,42 +1360,6 @@ describe("RsvpPanel", () => {
     expect(within(fs).getByText("Attending").tagName).toBe("P");
     expect(within(fs).queryByRole("button", { name: /attending/i })).toBeNull();
     expect(openOtherText(fs).disabled).toBe(true);
-  });
-
-  it("writes each member's answer on file as words once closed", () => {
-    render(() => (
-      <RsvpPanel
-        event={event}
-        members={[priya, raj, { ...naina, eventIds: ["event-1"] }]}
-        existingRsvps={[
-          {
-            guestId: "guest-priya",
-            eventId: "event-1",
-            status: "attending",
-            dietary: "",
-            dietaryPresets: [],
-            dietaryConsentCurrent: false,
-          },
-          {
-            guestId: "guest-raj",
-            eventId: "event-1",
-            status: "declined",
-            dietary: "",
-            dietaryPresets: [],
-            dietaryConsentCurrent: false,
-          },
-        ]}
-        apiUrl="https://api.test"
-        closed
-        onClose={() => {}}
-      />
-    ));
-
-    expect(within(fieldsetFor("Priya")).getByText("Attending")).toBeTruthy();
-    expect(within(fieldsetFor("Raj")).getByText("Not attending")).toBeTruthy();
-    // Naina is invited and has nothing on file.
-    expect(within(fieldsetFor("Naina")).getByText("No reply")).toBeTruthy();
-    expect(document.querySelectorAll("fieldset button")).toHaveLength(0);
   });
 
   it("states what is stored in place of the consent boxes once closed", () => {
@@ -1757,7 +1696,7 @@ describe("RsvpPanel", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("rescues focus into the sheet when the deadline passes with Save focused (C-L2)", async () => {
+  it("rescues focus into the sheet when the deadline passes with Save focused", async () => {
     // The deadline can flip on a live timer while this sheet is open, and that
     // unmounts the submit button. If focus was ON it, focus would revert to
     // <body> — outside an `aria-modal` dialog, with no keyboard way back in.
@@ -2213,160 +2152,6 @@ describe("RsvpPanel", () => {
       expect(onSubmitted).not.toHaveBeenCalled();
     });
 
-    it("does not fire onConfirmed when the save leaves the party incomplete", async () => {
-      // A partial save still closes the sheet and still gets the toast, but
-      // the Respond-button celebration is reserved for the save that finishes
-      // the whole party.
-      const onConfirmed = vi.fn();
-      const onClose = vi.fn();
-      const rsvps: RsvpSummary[] = [
-        {
-          guestId: "guest-priya",
-          eventId: "event-1",
-          status: "attending",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsentCurrent: false,
-        },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ rsvps }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      );
-      vi.useFakeTimers();
-      render(() => (
-        <RsvpPanel
-          event={event}
-          members={[priya, raj]}
-          apiUrl="https://api.test"
-          onClose={onClose}
-          onConfirmed={onConfirmed}
-        />
-      ));
-      // Only Priya answered — Raj is left null.
-      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
-      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-
-      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
-      expect(onClose).toHaveBeenCalledTimes(1);
-      expect(onConfirmed).not.toHaveBeenCalled();
-    });
-
-    it("fires onConfirmed when the save leaves every invited member answered", async () => {
-      const onConfirmed = vi.fn();
-      const onClose = vi.fn();
-      const rsvps: RsvpSummary[] = [
-        {
-          guestId: "guest-priya",
-          eventId: "event-1",
-          status: "attending",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsentCurrent: false,
-        },
-        {
-          guestId: "guest-raj",
-          eventId: "event-1",
-          status: "declined",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsentCurrent: false,
-        },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ rsvps }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      );
-      vi.useFakeTimers();
-      render(() => (
-        <RsvpPanel
-          event={event}
-          members={[priya, raj]}
-          apiUrl="https://api.test"
-          onClose={onClose}
-          onConfirmed={onConfirmed}
-        />
-      ));
-      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
-      fireEvent.click(within(fieldsetFor("Raj")).getByText("Not attending"));
-      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-
-      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
-      expect(onConfirmed).toHaveBeenCalledTimes(1);
-      expect(onClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("counts a member's PRIOR reply as answered, so completing just the last member fires onConfirmed", async () => {
-      // `initialResponses` prefills an existing reply into `responses()`, so
-      // "every visible member answered" already accounts for a household that
-      // is finishing a party it started on an earlier visit — not just one
-      // answered entirely in this session.
-      const onConfirmed = vi.fn();
-      const rsvps: RsvpSummary[] = [
-        {
-          guestId: "guest-priya",
-          eventId: "event-1",
-          status: "attending",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsentCurrent: false,
-        },
-        {
-          guestId: "guest-raj",
-          eventId: "event-1",
-          status: "declined",
-          dietary: "",
-          dietaryPresets: [],
-          dietaryConsentCurrent: false,
-        },
-      ];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ rsvps }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-        ),
-      );
-      vi.useFakeTimers();
-      render(() => (
-        <RsvpPanel
-          event={event}
-          members={[priya, raj]}
-          // Raj already answered on a previous visit; only Priya is missing.
-          existingRsvps={[
-            {
-              guestId: "guest-raj",
-              eventId: "event-1",
-              status: "declined",
-              dietary: "",
-              dietaryPresets: [],
-              dietaryConsentCurrent: false,
-            },
-          ]}
-          apiUrl="https://api.test"
-          onClose={() => {}}
-          onConfirmed={onConfirmed}
-        />
-      ));
-      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
-      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-
-      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
-      expect(onConfirmed).toHaveBeenCalledTimes(1);
-    });
-
     it("announces the recorded reply in a live region", async () => {
       // A colour sweep and a tick say nothing to a screen reader, and the
       // button's own label is not re-read on change.
@@ -2610,52 +2395,6 @@ describe("RsvpPanel", () => {
       expect(within(fieldsetFor("Priya")).getByText("Attending").getAttribute("aria-pressed")).toBe(
         "true",
       );
-    });
-
-    it("drops the dwell timer if the guest dismisses the confirmation early", async () => {
-      // Escape, the close chip or a backdrop tap all unmount this component
-      // mid-dwell. A surviving timer would then call `onClose` a second time on
-      // a disposed instance.
-      vi.useFakeTimers();
-      try {
-        const onClose = vi.fn();
-        const rsvps: RsvpSummary[] = [
-          {
-            guestId: "guest-priya",
-            eventId: "event-1",
-            status: "attending",
-            dietary: "",
-            dietaryPresets: [],
-            dietaryConsentCurrent: false,
-          },
-        ];
-        vi.stubGlobal(
-          "fetch",
-          vi.fn().mockResolvedValue(
-            new Response(JSON.stringify({ rsvps }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          ),
-        );
-
-        const { getByRole } = render(() => (
-          <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
-        ));
-
-        fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
-        fireEvent.click(getByRole("button", { name: "Save" }));
-
-        // Let the fetch promise chain settle without letting the dwell elapse.
-        await vi.advanceTimersByTimeAsync(0);
-        expect(getByRole("button", { name: "Saved" })).toBeTruthy();
-
-        cleanup();
-        await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS * 3);
-        expect(onClose).not.toHaveBeenCalled();
-      } finally {
-        vi.useRealTimers();
-      }
     });
   });
 

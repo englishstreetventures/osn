@@ -37,7 +37,7 @@ describe("resolveCorsOrigins", () => {
     ).toEqual(["https://a.example.com", "https://b.example.com"]);
   });
 
-  it("normalises trailing slash and case so ops typos still match browser Origins (S-L2)", () => {
+  it("normalises trailing slash and case so a configured origin still matches the browser's Origin", () => {
     expect(
       resolveCorsOrigins(
         { OSN_CORS_ORIGIN: "HTTPS://App.Example.com/, http://localhost:1420/" },

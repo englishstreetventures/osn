@@ -215,6 +215,7 @@ describe("the musubi stack, evaluated offline", () => {
     expect(readFileSync(seed, "utf8")).toBe(
       osnSeedSql({
         cireApiOrigin: origin(stageHosts(DEV_DOMAIN, "dev").cireApi),
+        cireOrganiserOrigin: origin(stageHosts(DEV_DOMAIN, "dev").cireHost),
         clientSecretSha256: OIDC_CLIENT_SECRET_SHA256,
         arcKeyId: ARC_KEY_ID,
         arcPublicJwk,
@@ -446,6 +447,12 @@ describe("the musubi stack on production", () => {
           domainsOf(live)[id],
         ]),
       ),
+    );
+  });
+
+  test("KP7: osn-api sends account email as Musubi from musubi.social, never from a cire address", () => {
+    expect(resourcesOf(production).OsnApi?.Props.env?.OSN_EMAIL_FROM).toBe(
+      "Musubi <hello@musubi.social>",
     );
   });
 

@@ -7,6 +7,7 @@ import {
   organiserSessions,
   ownerNoticeBudget,
   realtimeSubscribeBudget,
+  registrySettings,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -1117,5 +1118,116 @@ describe("accountErasureService.eraseWithOutcomes — a host leaving cire", () =
     );
     expect(partial.result).toEqual({ status: "not_finished" });
     expect(partial.owned).toHaveLength(MAX_OWNED_WEDDINGS_PER_CALL);
+  });
+});
+
+/**
+ * A host leaving cire who holds a wedding's Stripe payout account, seated
+ * there as an owner beside another owner, keeps that seat: the removal's route
+ * refuses first, and the writes themselves keep it, so a connect landing after
+ * the route's read cannot slip the holder out. An account's erasure is the one
+ * way such a holder goes.
+ */
+describe("accountErasureService.eraseWithOutcomes — a host who holds a payout account", () => {
+  /** `weddingId`'s settings name a Stripe account `profile` connected. */
+  function holds(db: TestDb, weddingId: string, profile: string) {
+    db.insert(registrySettings)
+      .values({
+        weddingId,
+        stripeAccountId: `acct_${weddingId}`,
+        stripeConnectedByOsnProfileId: profile,
+        createdAt: NOW,
+        updatedAt: NOW,
+      })
+      .run();
+  }
+
+  const connectorOf = (db: TestDb, weddingId: string) =>
+    db
+      .select({ connector: registrySettings.stripeConnectedByOsnProfileId })
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, weddingId))
+      .get()?.connector;
+
+  function signedIn(db: TestDb, profile: string) {
+    db.insert(organiserSessions)
+      .values({
+        id: `oss_${profile}`,
+        token: `tok_${profile}`,
+        osnProfileId: profile,
+        osnSub: "sub",
+        expiresAt: new Date(NOW.getTime() + DAY_S * 1000),
+        createdAt: NOW,
+      })
+      .run();
+  }
+
+  const host = (db: TestDb) =>
+    run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P],
+        now: NOW,
+        scope: "host",
+      }),
+    );
+
+  const sorted = (rows: { profile: string; role: string }[]) =>
+    rows.toSorted((a, b) => a.profile.localeCompare(b.profile));
+
+  it("keeps the holder's owner seat, notice row and record in the wedding's own batch, and runs no clean-up", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [OTHER, P]);
+    holds(db, "w1", P);
+    db.insert(hostRsvpNotices).values({ weddingId: "w1", osnProfileId: P, updatedAt: NOW }).run();
+    signedIn(db, P);
+    // A column the account's clean-up clears, on another wedding the person
+    // last saved the settings of.
+    wedding(db, "w_saved", [OTHER]);
+    db.update(weddings).set({ updatedByOsnProfileId: P }).where(eq(weddings.id, "w_saved")).run();
+
+    const done = await host(db);
+    expect(done.result).toEqual({ status: "not_finished" });
+    expect(done.payoutHeld).toEqual(["w1"]);
+    // No wedding the person left in this call: nothing for a notice.
+    expect(done.owned).toEqual([]);
+    expect(weddingRow(db, "w_saved")?.updatedByOsnProfileId).toBe(P);
+    expect(sorted(seatsOf(db, "w1"))).toEqual([
+      { profile: P, role: "owner" },
+      { profile: OTHER, role: "owner" },
+    ]);
+    expect(db.select().from(hostRsvpNotices).all()).toHaveLength(1);
+    expect(connectorOf(db, "w1")).toBe(P);
+    // The clean-up never ran: the person is still signed in.
+    expect(db.select().from(organiserSessions).all()).toHaveLength(1);
+
+    // An account's erasure takes the seat and the record all the same.
+    expect((await erase(db).result).status).toBe("done");
+    expect(seatsOf(db, "w1")).toEqual([{ profile: OTHER, role: "owner" }]);
+    expect(connectorOf(db, "w1")).toBeNull();
+  });
+
+  it("keeps the record of a holder made owner while the call runs, and keeps their seat on the next call", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [OTHER]);
+    seat(db, "w1", P, "editor", OTHER);
+    holds(db, "w1", P);
+    // The owned read finds no owner seat; another owner promotes the person
+    // before the account's clean-up runs.
+    beforeStatement(db, /delete from "host_rsvp_notices"/i, () => {
+      db.update(weddingHosts).set({ role: "owner" }).where(eq(weddingHosts.osnProfileId, P)).run();
+    });
+
+    expect((await host(db)).result).toEqual({ status: "not_finished" });
+    expect(connectorOf(db, "w1")).toBe(P);
+
+    const next = await host(db);
+    expect(next.payoutHeld).toEqual(["w1"]);
+    expect(sorted(seatsOf(db, "w1"))).toEqual([
+      { profile: P, role: "owner" },
+      { profile: OTHER, role: "owner" },
+    ]);
+    expect(connectorOf(db, "w1")).toBe(P);
   });
 });

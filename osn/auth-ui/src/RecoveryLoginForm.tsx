@@ -54,12 +54,13 @@ import { StepLink, stepAction, ViewStep } from "./ViewParts";
  * dialogs the moment `session()` is truthy, which is the trap
  * `wiki/osn/passkey-primary.md` records against registration.
  *
- * Adopting *late* is no better, and this is where the resemblance to
- * `<Register>` stops. `<Register>` holds an `osn-access` token; these paths
- * hold `osn-recovery`, and `POST /passkey/register/complete` returns no new
- * token set — it lifts the restriction on the session row, but cannot rewrite
- * a token already in the browser. Publishing it would announce a signed-in
- * user whose token every ordinary route rejects.
+ * Adopting *late* is no better. These paths hold `osn-recovery`, as
+ * `<Register>`'s passkey step does, and `POST /passkey/register/complete`
+ * returns no new token set — it lifts the restriction on the session row, but
+ * cannot rewrite a token already in the browser. Publishing it would announce
+ * a signed-in user whose token every ordinary route rejects. `<Register>`
+ * renews the cookie after enrolling and publishes the renewal; this form does
+ * not.
  *
  * So a successful factor recovery ends by handing the user back to sign-in
  * with a passkey they now hold. That costs one ceremony and buys something:
