@@ -11,12 +11,15 @@ import {
   weddingHosts,
   weddings,
 } from "@cire/db";
+import { EmailService } from "@shared/email";
+import type { SendEmailInput } from "@shared/email";
 import { and, eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { createOwnerNotices } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
 import {
   accountErasureService,
@@ -536,8 +539,8 @@ describe("accountErasureService.erase — weddings the person owns", () => {
       }),
     );
     expect(owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
-      { weddingId: "w_mine", outcome: "seat_removed", leavers: [P] },
-      { weddingId: "w_sibling", outcome: "seat_removed", leavers: [P2] },
+      { weddingId: "w_mine", outcome: "seat_removed", leavers: [P], payoutHolderLeft: false },
+      { weddingId: "w_sibling", outcome: "seat_removed", leavers: [P2], payoutHolderLeft: false },
     ]);
     expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
@@ -1104,8 +1107,8 @@ describe("accountErasureService.eraseWithOutcomes — a host leaving cire", () =
     );
     expect(finished.result).toEqual({ status: "done", kept: [] });
     expect(finished.owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
-      { weddingId: "w_alone", outcome: "deleted", leavers: [P] },
-      { weddingId: "w_shared", outcome: "seat_removed", leavers: [P] },
+      { weddingId: "w_alone", outcome: "deleted", leavers: [P], payoutHolderLeft: false },
+      { weddingId: "w_shared", outcome: "seat_removed", leavers: [P], payoutHolderLeft: false },
     ]);
     // The other person's wedding is untouched.
     expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);
@@ -1229,5 +1232,365 @@ describe("accountErasureService.eraseWithOutcomes — a host who holds a payout 
       { profile: OTHER, role: "owner" },
     ]);
     expect(connectorOf(db, "w1")).toBe(P);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A payout account's holder: the preview's line and the remaining owners' email
+// ---------------------------------------------------------------------------
+
+/** `weddingId`'s settings name a Stripe account `profile` connected, of `type`. */
+function holdsAccount(
+  db: TestDb,
+  weddingId: string,
+  profile: string,
+  type: "express" | "standard" | null = null,
+) {
+  db.insert(registrySettings)
+    .values({
+      weddingId,
+      stripeAccountId: `acct_${weddingId}`,
+      stripeAccountType: type,
+      stripeConnectedByOsnProfileId: profile,
+      createdAt: NOW,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+const deletionPreview = (db: TestDb, profileIds: readonly string[] = [P]) =>
+  run(
+    db,
+    accountErasureService.deletionPreview({
+      profileIds,
+      deletesAt: NOW_S,
+      organiserOrigin: PORTAL,
+    }),
+  );
+
+/**
+ * osn-api refuses an app's whole answer when a label or a description is
+ * empty or longer than 500 characters (`osn/api/src/services/deletion-apps.ts`),
+ * and every account's preview then shows cire as "could not check".
+ */
+function keepsTheContract(actions: Awaited<ReturnType<typeof deletionPreview>>) {
+  for (const action of actions) {
+    expect(action.label.length).toBeGreaterThan(0);
+    expect(action.label.length).toBeLessThanOrEqual(500);
+    for (const choice of action.choices) {
+      expect(choice.description.length).toBeGreaterThan(0);
+      expect(choice.description.length).toBeLessThanOrEqual(500);
+    }
+  }
+}
+
+describe("accountErasureService.deletionPreview — a payout account's holder", () => {
+  it("lists, after the sole-owner actions, one payout action per held wedding with another owner, defaulting to close", async () => {
+    const db = makeDb();
+    wedding(db, "w_sole", [P]);
+    wedding(db, "w_held", [P, OTHER]);
+    holdsAccount(db, "w_held", P, "standard");
+    const actions = await deletionPreview(db);
+    expect(actions.map((a) => [a.id, a.defaultChoice, a.choices.map((c) => c.choice)])).toEqual([
+      ["cire:wedding:w_sole", null, ["delete"]],
+      ["cire:payout:w_held", "close", ["close"]],
+    ]);
+    expect(actions[1]?.link).toBe(`${PORTAL}/#/w/w_held/registry/settings`);
+    keepsTheContract(actions);
+  });
+
+  it("lists none for a wedding the account owns alone, a deleted one, a holder below owner, or another person's account", async () => {
+    const db = makeDb();
+    wedding(db, "w_sole_held", [P]);
+    holdsAccount(db, "w_sole_held", P);
+    wedding(db, "w_deleted", [P, OTHER], { deletedAt: new Date(NOW.getTime() - DAY_S * 1000) });
+    holdsAccount(db, "w_deleted", P);
+    wedding(db, "w_editor", [OTHER]);
+    seat(db, "w_editor", P, "editor", OTHER);
+    holdsAccount(db, "w_editor", P);
+    wedding(db, "w_theirs", [P, OTHER]);
+    holdsAccount(db, "w_theirs", OTHER);
+    expect((await deletionPreview(db)).map((a) => a.id)).toEqual(["cire:wedding:w_sole_held"]);
+  });
+
+  it("a held wedding whose other owners are all the account's own profiles is sole ownership", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, P2]);
+    holdsAccount(db, "w1", P2);
+    expect((await deletionPreview(db, [P, P2])).map((a) => a.id)).toEqual(["cire:wedding:w1"]);
+  });
+
+  it("past twenty held weddings, twenty actions and one that stands for the rest", async () => {
+    const db = makeDb();
+    for (let i = 0; i < 21; i += 1) {
+      const id = `w${String(i).padStart(2, "0")}`;
+      wedding(db, id, [P, OTHER]);
+      holdsAccount(db, id, P);
+    }
+    const actions = await deletionPreview(db);
+    expect(actions).toHaveLength(21);
+    expect(actions.slice(0, 20).every((a) => a.kind === "wedding_payout_account")).toBe(true);
+    expect(actions[20]).toMatchObject({
+      id: "cire:payouts:rest",
+      kind: "weddings_payout_account",
+      defaultChoice: "close",
+      choices: [{ choice: "close", erasedOn: null }],
+      link: `${PORTAL}/`,
+    });
+    expect(actions[20]?.label).toContain(
+      "on other weddings that have another owner, beyond the 20 above",
+    );
+    expect(actions[20]?.choices[0]?.description).toContain("connect.stripe.com/express_login");
+    keepsTheContract(actions);
+  });
+
+  it("twenty held weddings are listed one by one", async () => {
+    const db = makeDb();
+    for (let i = 0; i < 20; i += 1) {
+      const id = `w${String(i).padStart(2, "0")}`;
+      wedding(db, id, [P, OTHER]);
+      holdsAccount(db, id, P);
+    }
+    const actions = await deletionPreview(db);
+    expect(actions).toHaveLength(20);
+    expect(actions.some((a) => a.id === "cire:payouts:rest")).toBe(false);
+  });
+
+  it("past a hundred weddings the account alone owns, the one action for them is followed by the payout actions", async () => {
+    const db = makeDb();
+    for (let i = 0; i < 101; i += 1) wedding(db, `w${String(i).padStart(3, "0")}`, [P]);
+    wedding(db, "w_held", [P, OTHER]);
+    holdsAccount(db, "w_held", P);
+    const actions = await deletionPreview(db);
+    expect(actions.map((a) => a.id)).toEqual(["cire:weddings:all", "cire:payout:w_held"]);
+    keepsTheContract(actions);
+  });
+
+  it("a long wedding name keeps the payout line inside the contract's 500 characters", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER], { name: "y".repeat(600) });
+    holdsAccount(db, "w1", P);
+    const [action] = await deletionPreview(db);
+    expect(action?.label.length).toBeLessThanOrEqual(500);
+    expect(action?.label).toContain(`"${"y".repeat(120)}…"`);
+    expect(action?.choices[0]?.description.length).toBeLessThanOrEqual(500);
+  });
+
+  it("quotes a wedding name another owner wrote with no mark a mail client turns into a link", async () => {
+    // osn-api prints the line in its plain-text email to the person.
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER], { name: "Claim at https://evil.example/pay or me@evil.example" });
+    holdsAccount(db, "w1", P);
+    const [action] = await deletionPreview(db);
+    expect(action?.label).toContain('"Claim at https evil example pay or me evil example"');
+    expect(action?.label).not.toMatch(/:\/\/|evil\.example|@/);
+  });
+
+  it("the preview a host's removal reads lists no payout action", async () => {
+    // "Remove my Cire data" refuses a holder on its own, and reads any action
+    // that is not a wedding's as the one standing for a hundred.
+    const db = makeDb();
+    wedding(db, "w_held", [P, OTHER]);
+    holdsAccount(db, "w_held", P);
+    expect(await preview(db)).toEqual([]);
+  });
+});
+
+describe("accountErasureService.erase — the remaining owners of a payout account's holder", () => {
+  const ADDRESSES: Record<string, string> = {
+    [P]: "erased@example.test",
+    [P2]: "erased-second@example.test",
+    [OTHER]: "other@example.test",
+    [EDITOR]: "editor@example.test",
+  };
+
+  /** The real notice, through a transport that keeps what it was asked to send. */
+  function notifier(db: TestDb, profileIds: readonly string[] = [P]) {
+    const sent: SendEmailInput[] = [];
+    const notices = createOwnerNotices({
+      lookup: async (ids) => ({
+        answered: true,
+        emails: new Map(ids.flatMap((id) => (ADDRESSES[id] ? [[id, ADDRESSES[id]] as const] : []))),
+      }),
+      emailLayer: Layer.succeed(EmailService, {
+        send: (input) => Effect.sync(() => void sent.push(input)),
+      }),
+      portalUrl: PORTAL,
+    });
+    const hook = (weddingId: string) =>
+      notices
+        .payoutHolderErased({ weddingId, erasedProfileIds: profileIds })
+        .pipe(Effect.provideService(DbService, db));
+    return { sent, hook };
+  }
+
+  const eraseNotifying = (
+    db: TestDb,
+    hook: (weddingId: string) => Effect.Effect<void>,
+    profileIds: readonly string[] = [P],
+  ) =>
+    run(
+      db,
+      accountErasureService.erase({
+        accountId: ACCOUNT,
+        profileIds,
+        now: NOW,
+        onPayoutHolderLeft: hook,
+      }),
+    );
+
+  const recipients = (sent: SendEmailInput[]) => sent.map((m) => [m.template, m.to]);
+
+  it("mails every owner left once, naming no one, when the holder's owner seat goes and another owner remains", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER], { name: "Ama & Jonah" });
+    seat(db, "w1", EDITOR, "editor", P);
+    holdsAccount(db, "w1", P);
+    const { sent, hook } = notifier(db);
+    expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
+    expect(sent).toEqual([
+      {
+        template: "registry-payout-holder-erased",
+        to: "other@example.test",
+        data: { weddingName: "Ama & Jonah", moneyGiftsUrl: `${PORTAL}/#/w/w1/registry/settings` },
+      },
+    ]);
+  });
+
+  it("a repeated call mails no one again", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    holdsAccount(db, "w1", P);
+    const { sent, hook } = notifier(db);
+    await eraseNotifying(db, hook);
+    await eraseNotifying(db, hook);
+    expect(recipients(sent)).toEqual([["registry-payout-holder-erased", "other@example.test"]]);
+  });
+
+  it("two calls at once mail the remaining owners once: the seat delete decides, not the first read", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    holdsAccount(db, "w1", P);
+    const { sent, hook } = notifier(db);
+    const call = accountErasureService.erase({
+      accountId: ACCOUNT,
+      profileIds: [P],
+      now: NOW,
+      onPayoutHolderLeft: hook,
+    });
+    const statements = recordStatements(db);
+    await run(db, Effect.all([call, call], { concurrency: "unbounded" }));
+    // Both calls read the owned wedding and ran its batch.
+    expect(
+      statements.filter((q) => /^update "weddings" set "deleted_at"/i.test(q.sql)),
+    ).toHaveLength(2);
+    expect(recipients(sent)).toEqual([["registry-payout-holder-erased", "other@example.test"]]);
+  });
+
+  it("after a replay erased the account with no hook, the route's call that follows mails no one", async () => {
+    // A restore of both databases: cire's replay of the recorded erasure calls
+    // the service with no hook, then osn-api's restored job calls the route,
+    // hook and all. The seat is already gone, so nobody is mailed twice.
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    holdsAccount(db, "w1", P);
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+    expect(seatsOf(db, "w1")).toEqual([{ profile: OTHER, role: "owner" }]);
+    const { sent, hook } = notifier(db);
+    expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
+    expect(sent).toEqual([]);
+  });
+
+  it("a wedding's notice is sent as its batch commits, so a failed clean-up after it loses nothing", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    holdsAccount(db, "w1", P);
+    const { sent, hook } = notifier(db);
+    const failing = failStatements(db, (statement) =>
+      /delete from "host_rsvp_notices" where .*NOT EXISTS/i.test(statement),
+    );
+    const exit = await Effect.runPromiseExit(
+      accountErasureService
+        .erase({ accountId: ACCOUNT, profileIds: [P], now: NOW, onPayoutHolderLeft: hook })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(failing.failed()).toBeGreaterThan(0);
+    expect(recipients(sent)).toEqual([["registry-payout-holder-erased", "other@example.test"]]);
+    failing.restore();
+    // The call that finishes removes no seat, so it mails no one again.
+    expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("mails no one for an owner who did not hold the account, or a holder seated below owner", async () => {
+    const db = makeDb();
+    wedding(db, "w_theirs", [P, OTHER]);
+    holdsAccount(db, "w_theirs", OTHER);
+    wedding(db, "w_editor", [OTHER]);
+    seat(db, "w_editor", P, "editor", OTHER);
+    holdsAccount(db, "w_editor", P);
+    const { sent, hook } = notifier(db);
+    expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
+    expect(sent).toEqual([]);
+  });
+
+  it("mails no one, and names no leaver, for a profile holding the account from a seat below owner beside the account's owner seat", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    seat(db, "w1", P2, "editor", P);
+    holdsAccount(db, "w1", P2);
+    const { sent, hook } = notifier(db, [P, P2]);
+    const { owned } = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P, P2],
+        now: NOW,
+        onPayoutHolderLeft: hook,
+      }),
+    );
+    expect(owned).toEqual([
+      { weddingId: "w1", outcome: "seat_removed", leavers: [P], payoutHolderLeft: false },
+    ]);
+    expect(sent).toEqual([]);
+  });
+
+  it("mails no one for a wedding the erasure deletes, or one already deleted", async () => {
+    const db = makeDb();
+    wedding(db, "w_sole", [P]);
+    holdsAccount(db, "w_sole", P);
+    wedding(db, "w_deleted", [P, OTHER], { deletedAt: new Date(NOW.getTime() - DAY_S * 1000) });
+    holdsAccount(db, "w_deleted", P);
+    const { sent, hook } = notifier(db);
+    expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
+    expect(weddingRow(db, "w_sole")?.deletedAt).toEqual(NOW);
+    expect(seatsOf(db, "w_deleted")).toEqual([{ profile: OTHER, role: "owner" }]);
+    expect(sent).toEqual([]);
+  });
+
+  it("mails no profile of the erased account, the holder's other profile included", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, P2, OTHER]);
+    holdsAccount(db, "w1", P2);
+    const { sent, hook } = notifier(db, [P, P2]);
+    await eraseNotifying(db, hook, [P, P2]);
+    expect(recipients(sent)).toEqual([["registry-payout-holder-erased", "other@example.test"]]);
+  });
+
+  it("a call at the cap that mails the owners of each wedding stays inside 41 of the 50 D1 queries", async () => {
+    const db = makeDb();
+    for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) {
+      wedding(db, `w${i}`, [P, OTHER]);
+      holdsAccount(db, `w${i}`, P);
+    }
+    const { sent, hook } = notifier(db);
+    const statements = recordStatements(db);
+    expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
+    expect(sent).toHaveLength(MAX_OWNED_WEDDINGS_PER_CALL);
+    // 1 read of owned weddings + 3 per wedding + 22 in the clean-up, and per
+    // notice the owners' read and the budget's two statements.
+    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 22 + 3 * 3);
+    expect(statements.length).toBeLessThanOrEqual(50);
   });
 });

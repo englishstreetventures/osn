@@ -6966,6 +6966,77 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
   it(
+    "erases a payout account's holder on D1: the seat delete's RETURNING reads the holder, the preview lists the wedding",
+    async () => {
+      // The seat delete returns, per seat, a sub-select of the settings row and
+      // the wedding, which D1 must accept inside RETURNING; the preview reads
+      // the holder rule in one batch beside the sole-owner read.
+      const held = "wed_d1_payout_held";
+      const theirs = "wed_d1_payout_theirs";
+      const erased = "usr_d1_payout_erased";
+      const other = "usr_d1_payout_other";
+      for (const statement of [
+        ...fullWeddingStatements(held, { owner: other }),
+        ...fullWeddingStatements(theirs, { owner: other }),
+      ]) {
+        await db.run(statement);
+      }
+      for (const weddingId of [held, theirs]) {
+        await db.insert(weddingHosts).values({
+          id: `whost_${weddingId}_erased`,
+          weddingId,
+          osnProfileId: erased,
+          addedByOsnProfileId: other,
+          role: "owner",
+          createdAt: new Date(),
+        });
+      }
+      await db
+        .update(registrySettings)
+        .set({ stripeAccountId: "acct_d1_payout_held", stripeConnectedByOsnProfileId: erased })
+        .where(eq(registrySettings.weddingId, held));
+      await db
+        .update(registrySettings)
+        .set({ stripeAccountId: "acct_d1_payout_theirs", stripeConnectedByOsnProfileId: other })
+        .where(eq(registrySettings.weddingId, theirs));
+
+      const actions = await run(
+        accountErasureService.deletionPreview({
+          profileIds: [erased],
+          deletesAt: Math.floor(Date.now() / 1000),
+          organiserOrigin: "https://host.example.test",
+        }),
+      );
+      expect(actions.map((a) => [a.id, a.defaultChoice])).toEqual([
+        [`cire:payout:${held}`, "close"],
+      ]);
+
+      const told: string[] = [];
+      const answer = await run(
+        accountErasureService.erase({
+          accountId: "acc_d1_payout",
+          profileIds: [erased],
+          onPayoutHolderLeft: (weddingId) => Effect.sync(() => void told.push(weddingId)),
+        }),
+      );
+      expect(answer).toEqual({ status: "done", kept: [] });
+      expect(told).toEqual([held]);
+      const connectors = await db
+        .select({
+          weddingId: registrySettings.weddingId,
+          connector: registrySettings.stripeConnectedByOsnProfileId,
+        })
+        .from(registrySettings)
+        .where(inArray(registrySettings.weddingId, jsonEachIn([held, theirs])))
+        .orderBy(asc(registrySettings.weddingId));
+      expect(connectors).toEqual([
+        { weddingId: held, connector: null },
+        { weddingId: theirs, connector: other },
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
     "erases an account on D1: the preview read, each owned wedding's batch, the clean-up and the purge",
     async () => {
       // Every statement binds the profile list as one JSON parameter, so a

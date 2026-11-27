@@ -1267,6 +1267,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   account the account-deletion flow deletes (`DELETION_PERSON` in
  *   `tools/e2e/src/config.ts`), so its deletion preview lists the wedding and
  *   its erasure deletes it.
+ * - `wed_e2e_leaver_payout`: owned by `usr_e2e_leaver`, who connected its
+ *   Stripe account, and by `usr_e2e_heir`, so the deletion preview shows the
+ *   payout line, which asks for no answer, and the erasure mails the heir.
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
  * - `wed_e2e_holders`: one open task nobody holds, an editor and a viewer, for
@@ -1384,6 +1387,38 @@ function seedE2eOrganiser(db: TestDb): void {
       addedByOsnProfileId: "usr_e2e_leaver",
       role: "owner",
       createdAt: now,
+    })
+    .run();
+
+  // The leaver holds this wedding's payout account (an Express account cire
+  // made: no type recorded) beside the heir, a second owner with an address.
+  wedding("wed_e2e_leaver_payout", "leaver-payout-wedding", "Leaver Payout Wedding");
+  for (const [id, profile] of [
+    ["whost_e2e_leaver_payout_owner", "usr_e2e_leaver"],
+    ["whost_e2e_leaver_payout_heir", "usr_e2e_heir"],
+  ] as const) {
+    db.insert(schema.weddingHosts)
+      .values({
+        id,
+        weddingId: "wed_e2e_leaver_payout",
+        osnProfileId: profile,
+        addedByOsnProfileId: "usr_e2e_leaver",
+        role: "owner",
+        createdAt: now,
+      })
+      .run();
+  }
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId: "wed_e2e_leaver_payout",
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_leaver_payout",
+      stripeConnectedByOsnProfileId: "usr_e2e_leaver",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
     })
     .run();
 

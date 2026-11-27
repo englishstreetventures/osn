@@ -21,6 +21,10 @@
  *  - Soft-deleted weddings past their restore window, or with no owner left to
  *    restore them: hard-deleted, with every child row by FK cascade and every
  *    R2 object their rows name. See `purgeDeletedWeddings`.
+ *
+ *  - Retired Standard Stripe accounts past their 120 days: handed back to
+ *    their holders, on a cron trigger of their own. See
+ *    `handBackRetiredAccounts`.
  */
 
 import {
@@ -39,11 +43,12 @@ import {
 import { jsonEachIn, rowsChanged } from "@shared/db-utils";
 import { and, asc, count, eq, isNotNull, isNull, lt, lte, min, not, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
-import { Data, Effect } from "effect";
+import { Cause, Clock, Data, Effect } from "effect";
 
 import { commitBatchResults, DbService, outerColumn } from "../db";
 import { epochSeconds, RESTORE_WINDOW_S } from "../db/live-wedding";
 import {
+  metricRegistryStripeHandBack,
   metricStalePreviewsSwept,
   metricVendorClaimsSwept,
   metricWeddingPurgeBacklog,
@@ -53,11 +58,12 @@ import { INVITE_IMAGE_SLOTS } from "../schemas/invite";
 import { SLOT_COLUMNS } from "./invite";
 import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
+import { registryService } from "./registry";
 import type { StripeError } from "./stripe";
 import { changeClaimLive } from "./wedding-lifecycle";
 
 class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
-  op: "vendor_claims" | "stale_previews" | "purge_deleted_weddings";
+  op: "vendor_claims" | "stale_previews" | "purge_deleted_weddings" | "hand_back_retired_accounts";
   reason: string;
 }> {}
 
@@ -339,6 +345,50 @@ function handBackStandardAccounts(
   });
 }
 
+/**
+ * How long a retired Standard account stays connected after its last retire
+ * before cire hands it back (the owner's decision), in SECONDS: late refunds
+ * and most disputes on its gifts still reach the gift log meanwhile.
+ */
+export const RETIRED_HAND_BACK_AFTER_S = 120 * 24 * 60 * 60;
+
+/**
+ * Retired Standard accounts one run of the hand-back sweep reaches. Each costs
+ * at most two Stripe calls and six D1 statements (its re-check, the release
+ * batch, the read for a late connect and that connect's clear), the run one
+ * read more, and a control read and call once a run: 20 queries and 7 calls
+ * at the cap, alone on the sweep's own cron trigger.
+ */
+export const HAND_BACKS_PER_RUN = 3;
+
+/** What the hand-back sweep needs of Stripe. */
+export interface HandBackStripe {
+  /** `POST /oauth/deauthorize`: give the account back to its holder. */
+  readonly deauthorize: (accountId: string) => Effect.Effect<void, StripeError>;
+  /** `GET /v1/accounts/:id`: whether cire still reaches the account. */
+  readonly retrieveAccount: (accountId: string) => Effect.Effect<unknown, StripeError>;
+}
+
+interface HandBackRunResult {
+  handedBack: number;
+  /** Accounts Stripe no longer let cire reach: released without a call. */
+  released: number;
+  failed: number;
+  /** Accounts a connect or a dispute held between the run's read and their call. */
+  held: number;
+  /** More accounts were due than the run's cap. */
+  more: boolean;
+}
+
+/**
+ * Stripe's answer to a read of an account the key cannot reach: one that does
+ * not exist, is not connected to the platform, or no longer grants it access
+ * (docs.stripe.com/error-codes, `account_invalid`). Another platform's key, or
+ * the wrong mode, answers the same, so it counts only beside a control read.
+ */
+const unreachable = (error: StripeError): boolean =>
+  error.status === 403 && error.code === "account_invalid";
+
 export const maintenanceSweeps = {
   /** Delete every vendor-claim token past its expiry. Returns rows deleted. */
   sweepExpiredVendorClaims(
@@ -540,5 +590,230 @@ export const maintenanceSweeps = {
       Effect.tapError(() => Effect.sync(() => metricWeddingPurged("error", 1))),
       Effect.withSpan("cire.maintenance.purgeDeletedWeddings"),
     );
+  },
+
+  /**
+   * Hand back retired Standard accounts cire no longer needs: at most
+   * {@link HAND_BACKS_PER_RUN} a run, never tried first, then the oldest
+   * attempt, so a few failing accounts never hold the others back.
+   *
+   * An account is due when every unreleased retired row naming it, whatever its
+   * type, is more than {@link RETIRED_HAND_BACK_AFTER_S} old and one is
+   * Standard; no settings row names it; no gift on it is `disputed`, however
+   * old, since once it is handed back Stripe stops sending the dispute's close;
+   * and none is `pending` with a session and younger than
+   * {@link PURGE_PENDING_HOLD_S}, the purge's bound on the same question. Each
+   * account is judged again just before its call, so a connect or a dispute
+   * that lands while an earlier account's calls run holds it.
+   *
+   * A success releases every row naming the account (`detachStripeAccount`,
+   * timed a second before the call). A settings row that names the account
+   * after that, a connect that landed while Stripe revoked it, is read at
+   * Stripe: cleared when Stripe no longer reaches the account, kept when a new
+   * grant does. A refused `deauthorize` proves nothing, since a bad client id
+   * is refused the same way: the account is read, and released only when
+   * Stripe answers 403 `account_invalid` and a control read of an account a
+   * settings row still names succeeds, once a run, proving the key reaches
+   * this platform. Any other answer sets `last_hand_back_at`, logs the id for a
+   * hand fix and goes on. A failure of the run's own writes is logged with the
+   * id and the run goes on, with no mark, since the write that would make it
+   * may be what failed; a deauthorize that succeeded and whose release failed
+   * is released on the next run, by the refusal path.
+   */
+  handBackRetiredAccounts(
+    now: Date,
+    stripe: HandBackStripe,
+  ): Effect.Effect<HandBackRunResult, MaintenanceSweepError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const nowS = epochSeconds(now);
+      const failRead = (e: unknown) =>
+        new MaintenanceSweepError({ op: "hand_back_retired_accounts", reason: String(e) });
+      // The accounts due, or with `accountId` that one if it still is. The
+      // grouped inner read keeps the unreleased rows' rules; the two holds run
+      // once per account that passes them, not once per row.
+      const dueAccounts = (limit: number, accountId?: string) =>
+        db.all<{ accountId: string }>(
+          sql`SELECT candidate.account_id AS accountId FROM (
+                SELECT ${registryRetiredAccounts.stripeAccountId} AS account_id,
+                       max(${registryRetiredAccounts.lastHandBackAt}) AS last_try,
+                       min(${registryRetiredAccounts.retiredAt}) AS first_retired
+                  FROM ${registryRetiredAccounts}
+                 WHERE ${registryRetiredAccounts.releasedAt} IS NULL
+                   ${accountId === undefined ? sql`` : sql`AND ${registryRetiredAccounts.stripeAccountId} = ${accountId}`}
+                 GROUP BY ${registryRetiredAccounts.stripeAccountId}
+                HAVING max(${registryRetiredAccounts.stripeAccountType} = 'standard') = 1
+                   AND max(${registryRetiredAccounts.retiredAt}) <= ${nowS - RETIRED_HAND_BACK_AFTER_S}
+              ) candidate
+              WHERE NOT EXISTS (SELECT 1 FROM ${registrySettings} WHERE ${registrySettings.stripeAccountId} = candidate.account_id)
+                AND NOT EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.stripeAccountId} = candidate.account_id AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.stripeCheckoutSessionId} IS NOT NULL AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S})))
+              ORDER BY candidate.last_try IS NOT NULL, candidate.last_try, candidate.first_retired, candidate.account_id
+              LIMIT ${limit}`,
+        );
+      const due = yield* Effect.tryPromise({
+        try: () => Promise.resolve(dueAccounts(HAND_BACKS_PER_RUN + 1)),
+        catch: failRead,
+      });
+      const more = due.length > HAND_BACKS_PER_RUN;
+      if (more) {
+        yield* Effect.logInfo("retired stripe account hand-back hit its per-run cap", {
+          cap: HAND_BACKS_PER_RUN,
+        });
+      }
+
+      // Whether the key reaches this platform's accounts, read at most once.
+      let control: boolean | undefined;
+      const keyReachesPlatform = Effect.gen(function* () {
+        if (control !== undefined) return control;
+        const [named] = yield* Effect.tryPromise(() =>
+          Promise.resolve(
+            db
+              .select({ accountId: registrySettings.stripeAccountId })
+              .from(registrySettings)
+              .where(isNotNull(registrySettings.stripeAccountId))
+              .orderBy(sql`${registrySettings.stripeAccountUpdatedAt} DESC`)
+              .limit(1)
+              .all(),
+          ),
+        );
+        control = named?.accountId
+          ? yield* stripe.retrieveAccount(named.accountId).pipe(
+              Effect.as(true),
+              Effect.catchTag("StripeError", () => Effect.succeed(false)),
+            )
+          : false;
+        return control;
+      });
+
+      const clockSeconds = Clock.currentTimeMillis.pipe(Effect.map((ms) => Math.floor(ms / 1000)));
+      const clearedLog = (accountId: string) =>
+        Effect.logError("stripe account handed back while a wedding connected it").pipe(
+          Effect.annotateLogs({ stripeAccountId: accountId }),
+        );
+      // Releases the account's rows and clears a settings row connected at or
+      // before `observedAt` (seconds); answers whether one was cleared.
+      const release = (accountId: string, observedAt: number) =>
+        registryService
+          .detachStripeAccount({ accountId, observedAt })
+          .pipe(Effect.tap((cleared) => (cleared ? clearedLog(accountId) : Effect.void)));
+      // After a hand-back, a settings row that names the account connected
+      // while Stripe revoked it. Stripe says which: one it no longer reaches is
+      // cleared, one a new grant reaches stays.
+      const settleLateConnect = (accountId: string) =>
+        Effect.gen(function* () {
+          const [named] = yield* Effect.tryPromise(() =>
+            Promise.resolve(
+              db
+                .select({ weddingId: registrySettings.weddingId })
+                .from(registrySettings)
+                .where(eq(registrySettings.stripeAccountId, accountId))
+                .limit(1)
+                .all(),
+            ),
+          );
+          if (!named) return;
+          const gone = yield* stripe.retrieveAccount(accountId).pipe(
+            Effect.as(false),
+            Effect.catchTag("StripeError", (error) => Effect.succeed(unreachable(error))),
+          );
+          if (!gone) {
+            yield* Effect.logInfo("stripe account connected again after its hand-back").pipe(
+              Effect.annotateLogs({ stripeAccountId: accountId }),
+            );
+            return;
+          }
+          if (yield* registryService.detachStripeAccount({ accountId })) {
+            yield* clearedLog(accountId);
+          }
+        });
+      const notHandedBack = (accountId: string, why: string) =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise(() =>
+            Promise.resolve(
+              db
+                .update(registryRetiredAccounts)
+                .set({ lastHandBackAt: now })
+                .where(
+                  and(
+                    eq(registryRetiredAccounts.stripeAccountId, accountId),
+                    isNull(registryRetiredAccounts.releasedAt),
+                  ),
+                )
+                .run(),
+            ),
+          );
+          yield* Effect.logError("stripe account not handed back").pipe(
+            Effect.annotateLogs({ stripeAccountId: accountId, why }),
+          );
+          return "failed" as const;
+        });
+
+      const handBack = (accountId: string) =>
+        Effect.gen(function* () {
+          // Judged again: a connect or a dispute may have landed since the read.
+          const [stillDue] = yield* Effect.tryPromise(() =>
+            Promise.resolve(dueAccounts(1, accountId)),
+          );
+          if (!stillDue) return "held" as const;
+          // A second before the call: a settings row connected at or before it
+          // was revoked with the account.
+          const calledAt = (yield* clockSeconds) - 1;
+          return yield* stripe
+            .deauthorize(accountId)
+            .pipe(
+              Effect.andThen(release(accountId, calledAt)),
+              Effect.andThen(settleLateConnect(accountId)),
+              Effect.as("handed_back" as const),
+            );
+        }).pipe(
+          Effect.catchTag("StripeError", () =>
+            stripe.retrieveAccount(accountId).pipe(
+              Effect.as(false),
+              Effect.catchTag("StripeError", (error) => Effect.succeed(unreachable(error))),
+              Effect.flatMap((gone) =>
+                !gone
+                  ? notHandedBack(accountId, "account_reachable_or_unknown")
+                  : keyReachesPlatform.pipe(
+                      Effect.flatMap((reaches) =>
+                        reaches
+                          ? clockSeconds.pipe(
+                              Effect.flatMap((readAt) => release(accountId, readAt)),
+                              Effect.as("released" as const),
+                            )
+                          : notHandedBack(accountId, "key_reach_unproved"),
+                      ),
+                    ),
+              ),
+            ),
+          ),
+          // A write through `dbQuery` dies rather than fails: a defect here
+          // ends this account's step, never the run.
+          Effect.catchCause((cause) =>
+            Effect.logError("stripe account hand-back failed").pipe(
+              Effect.annotateLogs({
+                stripeAccountId: accountId,
+                cause: Cause.pretty(cause).split("\n")[0] ?? "",
+              }),
+              Effect.as("failed" as const),
+            ),
+          ),
+        );
+
+      const result: HandBackRunResult = { handedBack: 0, released: 0, failed: 0, held: 0, more };
+      for (const { accountId } of due.slice(0, HAND_BACKS_PER_RUN)) {
+        const outcome = yield* handBack(accountId);
+        if (outcome === "handed_back") result.handedBack += 1;
+        else if (outcome === "released") result.released += 1;
+        else if (outcome === "held") result.held += 1;
+        else result.failed += 1;
+      }
+      yield* Effect.sync(() => {
+        metricRegistryStripeHandBack("handed_back", result.handedBack);
+        metricRegistryStripeHandBack("released", result.released);
+        metricRegistryStripeHandBack("failed", result.failed);
+      });
+      yield* Effect.logInfo("retired stripe account hand-back sweep complete", { ...result });
+      return result;
+    }).pipe(Effect.withSpan("cire.maintenance.handBackRetiredAccounts"));
   },
 };

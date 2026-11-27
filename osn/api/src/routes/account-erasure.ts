@@ -104,7 +104,10 @@ interface PlannedAction {
  * With "delete everything", nothing is stored: each app deletes what the
  * person has there as soon as it can, as the app contract says, and each
  * organisation passes to the member the preview named, or is deleted when
- * there is none. An organisation is named by its handle, never by its name,
+ * there is none. An app action whose one choice is its default is the
+ * exception: that choice is what happens whatever was answered (cire's line
+ * for a wedding whose payout account the person holds), so its own words
+ * stand. An organisation is named by its handle, never by its name,
  * which any of its admins can rewrite.
  */
 export function deletionPlan(
@@ -122,6 +125,10 @@ export function deletionPlan(
           outcome: handle ? `It passes to @${handle}.` : "It is deleted.",
           keptUntil: null,
         };
+      }
+      const [only] = action.choices;
+      if (action.choices.length === 1 && only && only.choice === action.default_choice) {
+        return { label, outcome: only.description, keptUntil: only.erased_on };
       }
       const app = APP_DISPLAY_NAMES.get(action.app) ?? action.app;
       return {

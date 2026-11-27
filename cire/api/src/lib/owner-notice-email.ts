@@ -2,7 +2,7 @@
  * Emails a wedding's owners when one of them changes who owns it.
  *
  * Every owner acts alone: any owner may make someone an owner, remove or
- * demote another, step down, or delete the wedding. Two notices tell the
+ * demote another, step down, or delete the wedding. These notices tell the
  * others:
  *
  *  - an owner added, promoted, removed or demoted (`wedding-owner-change`)
@@ -28,9 +28,19 @@
  *    each one needs them to have connected an account again, so a loop of
  *    retires cannot keep it from them either. An owner the actor seated in the
  *    last {@link FRESH_SEAT_MS} is not mailed, as for an owner change, unless
- *    they are the holder: they connected the account themselves.
+ *    they are the holder: they connected the account themselves;
+ *  - the owner who held that account deleted their OSN account
+ *    (`registry-payout-holder-erased`): goes to every owner left, never to a
+ *    profile of the erased account, names no one, and spends the wedding's
+ *    budget only, since the erasure has no acting owner and cire keeps nothing
+ *    naming the person, a budget row included. The account erasure sends it as
+ *    each wedding's batch commits (`services/account-erasure.ts`), so one
+ *    erasure sends at most one notice per wedding whose payout account the
+ *    person held, each wedding needing a paid tier and a connected account of
+ *    its own; no per-person cap bounds it, since none can be kept without
+ *    naming the person.
  *
- * Each names who acted. The actor gets their own copy because a session
+ * Each owner-change, delete and retire notice names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
  * see what was done in their name.
  *
@@ -45,7 +55,9 @@
  * counted, never returned to the caller.
  *
  * An email budget keyed both by wedding and by the owner who acted bounds how
- * much mail one person can cause per UTC day. It counts emails, not notices,
+ * much mail one person can cause per UTC day, for every notice with an
+ * actor; the notices with none (a refund, an owner who left, an erased
+ * holder) spend a wedding's budget alone, bounded as each says above. It counts emails, not notices,
  * because one notice reaches every owner; a promote/demote loop or a wedding
  * stacked with owners then runs out of budget rather than spending the mail
  * provider's daily allowance, which the platform's sign-in codes share. It
@@ -369,7 +381,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
             ? [`refund:${weddingId}`]
             : kind === "payout_retired"
               ? [`retire:${weddingId}`]
-              : kind === "owner_left"
+              : kind === "owner_left" || kind === "payout_holder_erased"
                 ? [`wedding:${weddingId}`]
                 : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
@@ -590,6 +602,39 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
             ],
             render,
           };
+        }),
+      );
+    },
+
+    /**
+     * The owner who held the wedding's payout account deleted their OSN
+     * account, and the erasure took their owner seat. Told to every owner
+     * left outside `erasedProfileIds`, the account's profiles; none is named.
+     */
+    payoutHolderErased(input: {
+      readonly weddingId: string;
+      readonly erasedProfileIds: ReadonlyArray<string>;
+    }): Effect.Effect<void, never, DbService> {
+      return deliverVoid("payout_holder_erased", input.weddingId, "", new Date(), () =>
+        Effect.gen(function* () {
+          const wedding = yield* weddingOwners(input.weddingId);
+          if (!wedding) return null;
+          const erased = new Set(input.erasedProfileIds);
+          const recipients: Recipient<"owner">[] = wedding.owners
+            .filter((id) => !erased.has(id))
+            .map((osnProfileId) => ({ osnProfileId, audience: "owner" as const }));
+          // One data object for every copy: the batch sender renders a shared
+          // object once.
+          const data = {
+            weddingName: wedding.name,
+            moneyGiftsUrl: `${deps.portalUrl}/#/w/${encodeURIComponent(input.weddingId)}/registry/settings`,
+          };
+          const render: RenderFor<"owner"> = (_recipient, to) => ({
+            template: "registry-payout-holder-erased",
+            to,
+            data,
+          });
+          return { recipients, named: [], render };
         }),
       );
     },

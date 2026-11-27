@@ -12,6 +12,7 @@ import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { createD1Db } from "../src/db/index";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
+import { DAILY_CRON, HAND_BACK_CRON } from "../src/lib/crons";
 import { CIRE_METRICS } from "../src/metrics";
 import * as osnBridge from "../src/services/osn-bridge";
 import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
@@ -1101,7 +1102,11 @@ describe("D1 session routing at the entry points", () => {
 
   // `onWaitUntil` runs as each sweep is handed to `waitUntil`, so a test can
   // place that hand-off in the same log stream as the handler's own lines.
-  const runCron = async (extraEnv: Record<string, unknown> = {}, onWaitUntil?: () => void) => {
+  const runCron = async (
+    extraEnv: Record<string, unknown> = {},
+    onWaitUntil?: () => void,
+    cron: string = DAILY_CRON,
+  ) => {
     const probe = probeD1();
     const env = { ...BASE_ENV, ...extraEnv, DB: probe.binding } as unknown as Parameters<
       NonNullable<typeof handler.scheduled>
@@ -1117,7 +1122,7 @@ describe("D1 session routing at the entry points", () => {
     } as unknown as ExecutionContext;
 
     await handler.scheduled!(
-      { cron: "0 4 * * *", scheduledTime: Date.now(), noRetry: () => {} } as ScheduledController,
+      { cron, scheduledTime: Date.now(), noRetry: () => {} } as ScheduledController,
       env,
       cronCtx,
     );
@@ -1231,6 +1236,38 @@ describe("D1 session routing at the entry points", () => {
     expect(without.pending).toHaveLength(11);
     expect(reads(without.probe)).toHaveLength(0);
   }, 60_000);
+
+  /**
+   * The 04:30 trigger runs the retired Standard account hand-back alone, on
+   * an invocation of its own; with no Stripe OAuth there is nothing it could
+   * hand back, and it starts nothing.
+   */
+  it("runs the hand-back alone on its own trigger, where Stripe OAuth is set up", async () => {
+    const { pending, probe } = await runCron(
+      {
+        STRIPE_SECRET_KEY: "sk_test_cron",
+        STRIPE_CONNECT_CLIENT_ID: "ca_testcron",
+        CIRE_API_ORIGIN: "https://api.example.test",
+      },
+      undefined,
+      HAND_BACK_CRON,
+    );
+    expect(pending).toHaveLength(1);
+    expect(
+      probe.sessionQueries.filter((queries) =>
+        queries.some((q) => /from "registry_retired_accounts"/i.test(q)),
+      ),
+    ).toHaveLength(1);
+  }, 30_000);
+
+  it("starts nothing on the hand-back trigger without Stripe OAuth", async () => {
+    const { pending } = await runCron(
+      { STRIPE_SECRET_KEY: "sk_test_cron" },
+      undefined,
+      HAND_BACK_CRON,
+    );
+    expect(pending).toEqual([]);
+  }, 30_000);
 
   it("gives the realtime budget sweep a session of its own", async () => {
     const { probe } = await runCron();

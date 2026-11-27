@@ -38,6 +38,13 @@
  * cire's action links the wedding's download page (`<cire host>/#/w/<id>/settings/export`):
  * on this http stack too, since a local run follows an http link to this
  * machine. Following it to the download is `cire-remove-my-data`'s step.
+ *
+ * The person also connected the Stripe account of `wed_e2e_leaver_payout`,
+ * which they own with the heir. The preview shows its payout line, asking for
+ * no answer, with the Express Dashboard sign-in and a link to its Money gifts;
+ * "Delete everything" keeps that line's own words in the scheduled email, since
+ * it happens whatever is answered; and the erasure mails the heir, once,
+ * naming no one, that money gifts there need a new Stripe account.
  */
 
 import {
@@ -193,7 +200,34 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   flow.check(
     "cire's action links the wedding's download page",
     `${ORIGINS.cireHost}/#/w/${P.wedding.id}/settings/export`,
-    (await page.getByRole("link", { name: "Open in Cire" }).getAttribute("href")) ?? "no link",
+    (await page
+      .locator(`[data-action="cire:wedding:${P.wedding.id}"]`)
+      .getByRole("link", { name: "Open in Cire" })
+      .getAttribute("href")) ?? "no link",
+  );
+  const payoutCard = page.locator(`[data-action="cire:payout:${P.payoutWedding.id}"]`);
+  flow.check(
+    "cire's payout line names the wedding whose Stripe account the person connected",
+    true,
+    (await payoutCard.textContent())?.includes(
+      `You connected the Stripe account for money gifts on "${P.payoutWedding.name}".`,
+    ) ?? false,
+  );
+  flow.check(
+    "cire's payout line asks for no answer",
+    0,
+    await payoutCard.getByRole("checkbox").count(),
+  );
+  flow.check(
+    "cire's payout line names the Express Dashboard sign-in",
+    true,
+    (await payoutCard.textContent())?.includes("connect.stripe.com/express_login") ?? false,
+  );
+  flow.check(
+    "cire's payout line links the wedding's Money gifts",
+    `${ORIGINS.cireHost}/#/w/${P.payoutWedding.id}/registry/settings`,
+    (await payoutCard.getByRole("link", { name: "Open in Cire" }).getAttribute("href")) ??
+      "no link",
   );
 
   await flow.step("answer the wedding: delete it with the account", async () => {
@@ -442,6 +476,13 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     "Your Musubi account is scheduled for deletion",
     second?.subject ?? "",
   );
+  flow.check(
+    "the second scheduled email gives the payout line its own words, not a deletion",
+    true,
+    second?.text.includes(
+      `You connected the Stripe account for money gifts on "${P.payoutWedding.name}". Hand money gifts to another owner in Cire to keep them open, or they close when your account is deleted.\n  Guests cannot give money on this wedding until another owner connects an account`,
+    ) ?? false,
+  );
 
   await flow.step("cire: start a sign-in while signed in to Musubi", async () => {
     await page.goto(`${ORIGINS.cireHost}/login/`);
@@ -572,6 +613,37 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     "none",
     weddingDeleter() ?? "none",
   );
+
+  // The payout wedding stays with the heir, its account's holder gone; the
+  // heir is told once, by name of no one.
+  const payoutSubject = `Money gifts on ${P.payoutWedding.name} need a new Stripe account`;
+  const payoutMails = (await mailFor(P.heir.email, (m) => m.subject === payoutSubject)).filter(
+    (m) => m.subject === payoutSubject,
+  );
+  flow.check("the heir is told once that money gifts need a new account", 1, payoutMails.length);
+  flow.check(
+    "the heir's payout email names no one",
+    true,
+    // By handle as OSN shows it, and by name: the wedding's id holds the
+    // handle's letters.
+    !payoutMails.some((m) => m.text.includes(`@${P.handle}`) || m.text.includes(P.name)),
+  );
+  flow.check(
+    "the heir's payout email links the wedding's Money gifts",
+    true,
+    payoutMails[0]?.text.includes(
+      `${ORIGINS.cireHost}/#/w/${P.payoutWedding.id}/registry/settings`,
+    ) ?? false,
+  );
+  flow.check(
+    "the person was sent no payout email",
+    0,
+    (await mailFor(P.email)).filter((m) => m.subject === payoutSubject).length,
+  );
+  const payout = payoutWedding();
+  flow.check("the payout wedding stays live", true, payout.deletedAt === null);
+  flow.check("the heir is the payout wedding's one owner", P.heir.profileId, payout.owners);
+  flow.check("the payout wedding's account is held by no one", "none", payout.holder ?? "none");
 
   // -------------------------------------------------------------------------
   // The organisation passed to its admin, who declines it from the email.
@@ -774,6 +846,19 @@ function leaverOrganiserSessions(): number {
       P.profileId,
     )?.n ?? 0
   );
+}
+
+/** The payout wedding as the erasure leaves it: its delete time, owners and account holder. */
+function payoutWedding(): { deletedAt: number | null; owners: string; holder: string | null } {
+  const row = queryOne<{ deletedAt: number | null; owners: string; holder: string | null }>(
+    DB_FILES.cire,
+    `SELECT w.deleted_at AS deletedAt,
+            (SELECT group_concat(osn_profile_id) FROM wedding_hosts WHERE wedding_id = w.id AND role = 'owner') AS owners,
+            (SELECT stripe_connected_by_osn_profile_id FROM registry_settings WHERE wedding_id = w.id) AS holder
+       FROM weddings w WHERE w.id = ?`,
+    P.payoutWedding.id,
+  );
+  return row ?? { deletedAt: -1, owners: "", holder: "missing" };
 }
 
 function ownerSeats(): number {

@@ -256,6 +256,10 @@ describe("renderTemplate", () => {
       listPurchased: 1,
       listReserved: 2,
     },
+    "registry-payout-holder-erased": {
+      weddingName: "Ama & Jonah",
+      moneyGiftsUrl: "https://host.example.test/#/w/wed_1/registry/settings",
+    },
     "registry-payout-retired": {
       weddingName: "Ama & Jonah",
       actorName: "Ama Mensah (@ama)",

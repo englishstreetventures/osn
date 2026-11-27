@@ -53,6 +53,10 @@ import {
 } from "./link";
 import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
 import {
+  type RegistryPayoutHolderErasedData,
+  renderRegistryPayoutHolderErased,
+} from "./registry-payout-holder-erased";
+import {
   type RegistryPayoutRetiredAudience,
   type RegistryPayoutRetiredData,
   type RegistryPayoutRetiredReason,
@@ -118,6 +122,7 @@ export type EmailTemplate =
   | "email-changed"
   | "r2-reconcile-alert"
   | "registry-gift-summary"
+  | "registry-payout-holder-erased"
   | "registry-payout-retired"
   | "rsvp-change-digest"
   | "upgrade-refund"
@@ -177,6 +182,7 @@ export interface EmailTemplateDataMap {
   "email-changed": EmailChangedData;
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
+  "registry-payout-holder-erased": RegistryPayoutHolderErasedData;
   "registry-payout-retired": RegistryPayoutRetiredData;
   "rsvp-change-digest": RsvpChangeDigestData;
   "upgrade-refund": UpgradeRefundData;
@@ -265,6 +271,10 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
       return renderRegistryGiftSummary(data as EmailTemplateData<"registry-gift-summary">);
+    case "registry-payout-holder-erased":
+      return renderRegistryPayoutHolderErased(
+        data as EmailTemplateData<"registry-payout-holder-erased">,
+      );
     case "registry-payout-retired":
       return renderRegistryPayoutRetired(data as EmailTemplateData<"registry-payout-retired">);
     case "rsvp-change-digest":
@@ -312,6 +322,7 @@ export {
   renderEmailChanged,
   renderR2ReconcileAlert,
   renderRegistryGiftSummary,
+  renderRegistryPayoutHolderErased,
   renderRegistryPayoutRetired,
   renderRsvpChangeDigest,
   renderVendorClaimInvite,
@@ -345,6 +356,7 @@ export type {
   RegistryGiftSummaryData,
   RegistryGiftSummaryGift,
   RegistryGiftSummaryTotal,
+  RegistryPayoutHolderErasedData,
   RegistryPayoutRetiredAudience,
   RegistryPayoutRetiredData,
   RegistryPayoutRetiredReason,

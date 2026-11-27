@@ -25,7 +25,9 @@ import "../../src/App.css";
  * - the step's heading, not the page, has focus as a step opens;
  * - an unchosen radio's circle and box's edge clear 3:1 on the card in both
  *   themes, read from the painted colours (DESIGN.md §Choices);
- * - "Delete everything" dims each choice once, to 50%, words and circle alike;
+ * - "Delete everything" dims each choice once, to 50%, words and circle alike,
+ *   and leaves a choice with nothing to pick, which happens whatever is
+ *   answered, at full strength;
  * - every radio and box is drawn on the one rule (`@shared/ui`'s §Choice
  *   controls), at 390px and 1280px in both themes: the chosen dot in the centre
  *   of its circle as painted at device pixel ratios 1 and 2, each control on
@@ -176,6 +178,25 @@ const EVENT: AccountDeletionOpenAction = {
   ],
   default_choice: "cancel",
   link: null,
+};
+
+/** One choice that is its default: it happens whatever is answered. */
+const PAYOUT: AccountDeletionOpenAction = {
+  id: "cire:payout:w_2",
+  app: "cire",
+  kind: "wedding_payout_account",
+  label:
+    "You connected the Stripe account for money gifts on “Kofi & Esi”. Hand money gifts to another owner in Cire to keep them open, or they close when your account is deleted.",
+  choices: [
+    {
+      choice: "close",
+      description:
+        "Guests cannot give money on this wedding until another owner connects an account, and its other owners are told by email.",
+      erased_on: null,
+    },
+  ],
+  default_choice: "close",
+  link: "https://host.cireweddings.example/#/w/w_2/registry/settings",
 };
 
 /** An app's words with no space to break at: 60 characters each. */
@@ -393,6 +414,10 @@ describe("the deletion flow, in the shell", () => {
   for (const theme of ["light", "dark"] as const) {
     it(`edges each unchosen choice at 3:1 on its card in ${theme}, and dims it once`, async () => {
       if (theme === "dark") document.documentElement.classList.add("dark");
+      mocks.preview.mockResolvedValue({
+        open_actions: [ORG, WEDDING, EVENT, PAYOUT],
+        could_not_check: [],
+      });
       await open(PHONE);
       await toAnswers();
       const radio = screen.getByRole("radio", { name: "@bobwhite becomes the owner." });
@@ -411,6 +436,8 @@ describe("the deletion flow, in the shell", () => {
         expect(shownOpacity(day)).toBeCloseTo(0.5, 2);
       }
       expect(shownOpacity(screen.getByText(ORG.label))).toBe(1);
+      // A choice with nothing to pick is not out of play: its words stay.
+      expect(shownOpacity(screen.getByText(PAYOUT.choices[0]!.description))).toBe(1);
     }, 30_000);
   }
 

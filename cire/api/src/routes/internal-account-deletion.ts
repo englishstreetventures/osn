@@ -11,6 +11,13 @@
  * own per-run cap and per-person limits, and a refused token costs a decode
  * and at most one cached fetch of a public key set. The body is read by hand
  * after the token is checked, so a refused caller costs no parse.
+ *
+ * The erasure's one email — to the remaining owners of a wedding whose payout
+ * account holder it took — is sent from here, through the hook the service
+ * calls as each wedding's batch commits, and after the response where the
+ * request has `waitUntil`. A caller of the service that passes no hook mails
+ * no one, which is how a replay of recorded erasures after a database restore
+ * must call it (englishstreetventures/osn#2541, `services/account-erasure.ts`).
  */
 import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -18,6 +25,7 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { osnArcAdmits, OSN_ARC_SCOPES, type CireOsnArc } from "../lib/osn-arc";
+import { dispatchNotice, type OwnerNotices } from "../lib/owner-notice-email";
 import { metricAccountDeletionErasure, metricAccountDeletionPreview } from "../metrics";
 import { runCire } from "../observability";
 import { accountErasureService } from "../services/account-erasure";
@@ -59,6 +67,8 @@ export interface InternalAccountDeletionOptions {
   readonly osnArc: CireOsnArc;
   /** The organiser portal, where an action's link points. */
   readonly organiserOrigin: string;
+  /** Owner mail; absent where the deployment cannot send it, and then none is sent. */
+  readonly ownerNotices?: OwnerNotices;
 }
 
 const refused = (set: { status?: number | string }) => {
@@ -73,7 +83,7 @@ const badRequest = (set: { status?: number | string }) => {
 
 export const createInternalAccountDeletionRoutes = (
   db: Db,
-  { osnArc, organiserOrigin }: InternalAccountDeletionOptions,
+  { osnArc, organiserOrigin, ownerNotices }: InternalAccountDeletionOptions,
 ) => {
   return new Elysia({ prefix: "/internal" })
     .post(
@@ -94,7 +104,7 @@ export const createInternalAccountDeletionRoutes = (
 
         const result = await runCire(
           accountErasureService
-            .preview({
+            .deletionPreview({
               profileIds: body.value.profileIds,
               deletesAt: body.value.deletesAt,
               organiserOrigin,
@@ -137,9 +147,20 @@ export const createInternalAccountDeletionRoutes = (
         // they are checked against the contract and go no further.
         if (Object.keys(body.choices ?? {}).length > MAX_CHOICES) return badRequest(set);
 
+        // The remaining owners of a wedding whose payout account holder this
+        // call takes are told as that wedding's batch commits.
+        const onPayoutHolderLeft = ownerNotices
+          ? (weddingId: string) =>
+              dispatchNotice(
+                request,
+                ownerNotices
+                  .payoutHolderErased({ weddingId, erasedProfileIds: body.profileIds })
+                  .pipe(Effect.provideService(DbService, db)),
+              )
+          : undefined;
         const result = await runCire(
           accountErasureService
-            .erase({ accountId: body.accountId, profileIds: body.profileIds })
+            .erase({ accountId: body.accountId, profileIds: body.profileIds, onPayoutHolderLeft })
             .pipe(
               Effect.catchTag("AccountErasureError", () =>
                 Effect.succeed({ status: "error" } as const),

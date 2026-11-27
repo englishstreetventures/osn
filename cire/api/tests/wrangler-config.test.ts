@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { DAILY_CRON, HAND_BACK_CRON } from "../src/lib/crons";
+
 /**
  * The realtime push bindings, per Wrangler tier. Named environments inherit
  * no bindings, so each tier must declare its own; a tier that forgets ships
@@ -56,5 +58,21 @@ describe("wrangler.toml — realtime push", () => {
     const ids = (tier.unsafe?.bindings ?? []).map((binding) => binding.namespace_id);
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+/**
+ * `scheduled` tells its two jobs apart by the expression Cloudflare hands it,
+ * character for character. A tier whose list drifts from the constants never
+ * runs the hand-back, and runs the daily jobs twice a day.
+ */
+describe("wrangler.toml — cron triggers", () => {
+  const crons = (tier: { triggers?: { crons?: string[] } }) => tier.triggers?.crons;
+
+  it.each([
+    ["the top level", config as unknown as { triggers?: { crons?: string[] } }],
+    ["env.production", config.env.production as unknown as { triggers?: { crons?: string[] } }],
+  ])("%s declares the daily run and the hand-back, as `scheduled` reads them", (_label, tier) => {
+    expect(crons(tier)).toEqual([DAILY_CRON, HAND_BACK_CRON]);
   });
 });
