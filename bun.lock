@@ -390,7 +390,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.53.1",
+      "version": "3.53.2",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
@@ -461,7 +461,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.31.0",
+      "version": "0.31.1",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
@@ -479,7 +479,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.30.3",
+      "version": "0.30.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -508,7 +508,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.20.22",
+      "version": "0.20.23",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
@@ -564,7 +564,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.119",
+      "version": "0.24.120",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -601,7 +601,7 @@
     },
     "shared/billing": {
       "name": "@shared/billing",
-      "version": "0.1.24",
+      "version": "0.1.25",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -637,7 +637,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.17.2",
+      "version": "0.17.3",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -653,7 +653,7 @@
     },
     "shared/db-utils": {
       "name": "@shared/db-utils",
-      "version": "0.10.0",
+      "version": "0.10.1",
       "dependencies": {
         "@effect/sql-d1": "4.1.4",
         "drizzle-orm": "1.0.0-rc.5",
@@ -768,7 +768,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "6.2.17",
@@ -989,7 +989,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.11.3",
+      "version": "0.11.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -1016,7 +1016,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.7.4",
+      "version": "0.7.5",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
