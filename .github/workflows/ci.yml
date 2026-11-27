@@ -55,6 +55,7 @@ jobs:
     outputs:
       docs-only: ${{ steps.classify.outputs.docs-only }}
       bend: ${{ steps.classify.outputs.bend }}
+      bend-pins: ${{ steps.classify.outputs.bend-pins }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,15 +90,27 @@ jobs:
             else
               bend=false
             fi
+            # A change to a pin names a BendTT kernel only a build from source
+            # has shown; the Bend proofs then build it rather than fetch one.
+            if printf '%s\n' "$changed" | grep -qE '^tools/bend/(bend|lean)\.env$'; then
+              bend_pins=true
+            else
+              bend_pins=false
+            fi
           else
             echo "::notice::No diff or no classifier at '$base'; every job runs."
             docs_only=false
             bend=true
+            bend_pins=true
           fi
           echo "Prose only: $docs_only"
           echo "Bend proofs: $bend"
-          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
-          echo "bend=$bend" >> "$GITHUB_OUTPUT"
+          echo "Bend pins changed: $bend_pins"
+          {
+            echo "docs-only=$docs_only"
+            echo "bend=$bend"
+            echo "bend-pins=$bend_pins"
+          } >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint & Format
@@ -1217,41 +1230,59 @@ jobs:
           path: e2e-artifacts/migrations/
           if-no-files-found: ignore
 
-  # Every Bend law set (`<workspace>/laws/<topic>/`, listed by `bend.sh sets`):
-  # Bend, at the version and SHA-256 tools/bend/bend.env pins, checks every
-  # law in each set's LAWS.bend is proved (`bend PROOF.bend` prints ALL PROOFS
-  # CHECK), and that each committed model.mjs, which the set's agreement tests
-  # import, is byte for byte what its model.bend builds. Those tests run in
-  # Build & Test and in the cire-api job, on every change. Bend is one binary,
-  # so the job installs no dependencies.
+  # Every Bend law set (`<workspace>/laws/<topic>/`, listed by `bend.sh sets`),
+  # checked twice. Bend, at the version and SHA-256 tools/bend/bend.env pins,
+  # checks every law in each set's LAWS.bend is proved (`bend PROOF.bend`
+  # prints ALL PROOFS CHECK), and that each committed model.mjs, which the
+  # set's agreement tests import, is byte for byte what its model.bend builds.
+  # Then `bend PROOF.bend --verdict` rechecks every set with BendTT, a small
+  # kernel with a proof in Lean, which bend builds from its release with the
+  # Lean tools/bend/lean.env pins; only ALL PROOFS CHECK alone passes. The
+  # agreement tests run in Build & Test and in the cire-api job, on every
+  # change. The job installs no package dependencies: Bend is one binary, the
+  # kernel another, and the Lean toolchain that builds the kernel is
+  # downloaded only when no kernel is published for the pins.
   bend-proofs:
     name: Bend proofs
+    concurrency:
+      group: ${{ format('ci-{0}-bend-proofs', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: changes
     # Only when the change touches what the proofs read (the `changes` job's
     # `bend`), or when no diff could be computed; skipped counts as passed.
     if: needs.changes.outputs.bend == 'true'
     runs-on: ubuntu-latest
-    # Bounded: one checkout, one pinned tarball (cached, or downloaded with
-    # retries) and two Bend runs a set, each under a second.
-    timeout-minutes: 10
+    # Bounded: one checkout, one pinned Bend tarball (cached, or downloaded
+    # with retries), the kernel (fetched, about 5.5 MB, or built after a
+    # 580 MB Lean download whose retries alone may take ten minutes) and three
+    # Bend runs a set, each under a second. A run that builds the kernel takes
+    # about a minute.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      # bend.env is the one place the pin lives, read as data and never run,
-      # as bend.sh reads it; this runner is linux-x64.
-      - name: Read the pinned Bend release
+      # bend.env and lean.env are the one place each pin lives, read as data
+      # and never run, as bend.sh reads them; this runner is linux-x64.
+      - name: Read the pinned Bend and Lean releases
         run: |
-          pin() { sed -n "s/^$1=//p" tools/bend/bend.env | tail -n 1; }
+          pin() { sed -n "s/^$2=//p" "tools/bend/$1" | tail -n 1; }
           {
-            echo "BEND_VERSION=$(pin BEND_VERSION)"
+            echo "BEND_VERSION=$(pin bend.env BEND_VERSION)"
             echo "BEND_TARGET=linux-x64"
-            echo "BEND_SHA256=$(pin BEND_SHA256_LINUX_X64)"
+            echo "BEND_SHA256=$(pin bend.env BEND_SHA256_LINUX_X64)"
+            echo "LEAN_VERSION=$(pin lean.env LEAN_VERSION)"
+            echo "LEAN_TARGET=linux-x64"
+            echo "LEAN_SHA256=$(pin lean.env LEAN_SHA256_LINUX_X64)"
+            echo "BENDTT_SHA256=$(pin lean.env BENDTT_SHA256_LINUX_X64)"
           } >> "$GITHUB_ENV"
 
       # The release tarball, kept under its version and SHA-256, so most runs
-      # download nothing.
+      # download nothing. The SHA-256 covers the tarball alone: a cache
+      # entry's archive can write outside its path, so the job also trusts
+      # GitHub's cache scoping (entries from this pull request's ref or from
+      # `main`, and only runs on `main` save `main`'s).
       - name: Restore Bend
         id: bend-cache
         uses: actions/cache/restore@v4
@@ -1279,13 +1310,70 @@ jobs:
       # BEND_NO_TELEMETRY: the installed bend otherwise asks bend-lang.com for
       # the latest version once a day; bend.sh sets it too. `sets` lists what
       # `check` proves, so the log names every set; `check` fails when it
-      # finds none.
+      # finds none. No kernel is here yet, so `check` says it skipped the
+      # verdict: the steps below run it.
       - name: Prove every law set and check each model.mjs
         env:
           BEND_NO_TELEMETRY: "1"
         run: |
           bash tools/bend/bend.sh sets
           bash tools/bend/bend.sh check
+
+      # The BendTT kernel from this repository's release for the pins
+      # (.github/workflows/bendtt-release.yml publishes one per pin set), taken
+      # only with the SHA-256 lean.env pins; any other bytes or a failed
+      # download fail the step. Exit 3 means nothing is published under these
+      # pins: the steps below then build it from source and check it against
+      # the same pin. Skipped when the change touches a pin, so the run that
+      # brings a pin in (its pull request, queue group and push to main)
+      # always builds the kernel it names, whatever was published first.
+      - name: Fetch the BendTT kernel
+        id: kernel-fetch
+        if: needs.changes.outputs.bend-pins != 'true'
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: |
+          status=0
+          bash tools/bend/bend.sh fetch "$RUNNER_TEMP/bendtt" || status=$?
+          case $status in
+            0) echo "published=true" >> "$GITHUB_OUTPUT" ;;
+            3) echo "published=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+
+      # Only when no kernel was fetched. tools/bend/install-lean.sh checks the
+      # tarball's SHA-256 before it unpacks anything. Lean stays in
+      # $RUNNER_TEMP/lean, never on $GITHUB_PATH: only the next step, which
+      # builds the kernel, sees it, so no later step can build a kernel nobody
+      # checked.
+      - name: Install Lean ${{ env.LEAN_VERSION }}
+        if: steps.kernel-fetch.outputs.published != 'true'
+        run: bash tools/bend/install-lean.sh "$RUNNER_TEMP/lean"
+
+      # `bend.sh kernel` takes the fetched kernel only with the SHA-256
+      # lean.env pins, or has bend build one with that Lean and takes it only
+      # with that SHA-256; it fails on any other, printing the hash it found.
+      # The path is assigned on a line of its own, so a failure fails the step
+      # instead of leaving BENDTT empty.
+      - name: Provide the BendTT kernel
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: |
+          PATH="$RUNNER_TEMP/lean/bin:$PATH"
+          kernel=$(bash tools/bend/bend.sh kernel "$RUNNER_TEMP/bendtt")
+          echo "BENDTT=$kernel" >> "$GITHUB_ENV"
+          ls -l "$kernel"
+
+      # `verdict` runs `bend PROOF.bend --verdict` in every set, then fails
+      # unless each printed ALL PROOFS CHECK alone. BENDTT is passed by name,
+      # so one the step above never wrote arrives empty, which `verdict`
+      # refuses, rather than unset; it also checks the kernel's SHA-256 again,
+      # and refuses one when lean.env pins none.
+      - name: Recheck every law set with the BendTT kernel
+        env:
+          BEND_NO_TELEMETRY: "1"
+          BENDTT: ${{ env.BENDTT }}
+        run: bash tools/bend/bend.sh verdict
 
   secrets:
     name: Secret scan

@@ -32,6 +32,7 @@ const load = (file: string): Workflow =>
 
 const NO_TOKEN_ON_DISK = [
   "alchemy-state.yml",
+  "bendtt-release.yml",
   "ci-swift.yml",
   "cire-d1-latency-probe.yml",
   "free-tier-ceiling-alert.yml",

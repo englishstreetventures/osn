@@ -1351,7 +1351,15 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   test("each cancellable job is grouped by its own name, and only a pull request cancels", () => {
     const grouped = Object.entries(ci.jobs).filter(([, job]) => job.concurrency !== undefined);
     expect(grouped.map(([id]) => id).toSorted()).toEqual(
-      ["browser", "build-test", "cire-api-tests", "d1", "e2e", "migration-flow"].toSorted(),
+      [
+        "bend-proofs",
+        "browser",
+        "build-test",
+        "cire-api-tests",
+        "d1",
+        "e2e",
+        "migration-flow",
+      ].toSorted(),
     );
     for (const [id, job] of grouped) {
       const [key, extra] = id === "browser" ? [`${id}-{1}`, ", matrix.leg"] : [id, ""];
@@ -1363,6 +1371,108 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         },
       });
     }
+  });
+
+  // The Bend proofs' second check, by the BendTT kernel, is a gate only while
+  // its step runs on every run, after the plain check, with a kernel that
+  // `bend.sh kernel` checked: the published one, fetched, or, when none is
+  // published for the pins, one built from source. A Lean on $GITHUB_PATH
+  // would let `verdict` build a kernel nobody checked; a path read inside
+  // `echo "…$(…)"` turns a failed check into an empty BENDTT and a green step;
+  // a fetch failure other than "not published" must fail, not build.
+  test("the Bend proofs job rechecks every set with the checked kernel, after the plain check, on every run", () => {
+    const steps = stepsOf(ci.jobs["bend-proofs"]);
+    const at = (found: (step: Step) => boolean) => steps.findIndex(found);
+    const runs = (command: string) => (step: Step) => (step.run ?? "").includes(command);
+    const check = at(runs("bash tools/bend/bend.sh check"));
+    const fetch = at((step) => step.id === "kernel-fetch");
+    const lean = at(runs("bash tools/bend/install-lean.sh"));
+    const kernel = at(runs("bash tools/bend/bend.sh kernel"));
+    const verdict = at(runs("bash tools/bend/bend.sh verdict"));
+    expect([check, fetch, lean, kernel, verdict].every((i) => i >= 0)).toBe(true);
+    expect([check < fetch, fetch < lean, lean < kernel, kernel < verdict]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(steps[fetch]?.if).toBe("needs.changes.outputs.bend-pins != 'true'");
+    expect(ci.jobs.changes?.outputs?.["bend-pins"]).toBe("${{ steps.classify.outputs.bend-pins }}");
+    expect(steps[fetch]?.run).toContain(
+      'bash tools/bend/bend.sh fetch "$RUNNER_TEMP/bendtt" || status=$?',
+    );
+    expect(steps[fetch]?.run).toContain('0) echo "published=true" >> "$GITHUB_OUTPUT" ;;');
+    expect(steps[fetch]?.run).toContain('3) echo "published=false" >> "$GITHUB_OUTPUT" ;;');
+    expect(steps[fetch]?.run).toContain('*) exit "$status" ;;');
+    expect(steps[lean]?.if).toBe("steps.kernel-fetch.outputs.published != 'true'");
+    expect(steps[kernel]?.if).toBeUndefined();
+    expect(steps[kernel]?.run).toMatch(
+      /^kernel=\$\(bash tools\/bend\/bend\.sh kernel "\$RUNNER_TEMP\/bendtt"\)$/m,
+    );
+    expect(steps[kernel]?.run).toContain('echo "BENDTT=$kernel" >> "$GITHUB_ENV"');
+    expect(steps[verdict]?.if).toBeUndefined();
+    expect(steps[verdict]?.run?.trim()).toBe("bash tools/bend/bend.sh verdict");
+    expect(steps[verdict]?.env?.BENDTT).toBe("${{ env.BENDTT }}");
+    // The kernel comes from its release or its build, never from the cache.
+    expect(steps.filter((step) => String(step.with?.path ?? "").includes("bendtt"))).toEqual([]);
+    for (const step of steps) {
+      expect({
+        name: step.name,
+        path: /GITHUB_PATH/.test(step.run ?? "") && /lean/i.test(step.run ?? ""),
+      }).toEqual({
+        name: step.name,
+        path: false,
+      });
+    }
+  });
+});
+
+// The release holding CI's BendTT kernel is the one thing in this repository
+// a workflow publishes to the public. Only the job that publishes holds a
+// write token, only on main and only when asked; the job that runs Bend and
+// Lean reads; nothing that job writes reaches the publishing job's checkout;
+// and an asset once published is never overwritten.
+describe("bendtt-release.yml publishes the BendTT kernel only from main, by hand, and replaces nothing", () => {
+  const release = load(".github/workflows/bendtt-release.yml");
+  const text = readFileSync(join(root, ".github/workflows/bendtt-release.yml"), "utf8");
+
+  test("it runs only when dispatched, publishes only when asked, and the workflow token holds nothing", () => {
+    expect(Object.keys(release.on)).toEqual(["workflow_dispatch"]);
+    expect(release.permissions).toEqual({});
+    const inputs = (release.on.workflow_dispatch as { inputs?: Record<string, unknown> }).inputs;
+    expect(inputs?.publish).toMatchObject({ type: "boolean", default: false });
+  });
+
+  test("the build job reads; the publish job alone writes, from main, when asked, after the build", () => {
+    expect(Object.keys(release.jobs).toSorted()).toEqual(["build", "publish"]);
+    expect(release.jobs.build?.permissions).toEqual({ contents: "read" });
+    expect(release.jobs.publish?.permissions).toEqual({ contents: "write" });
+    expect(release.jobs.publish?.if).toBe("inputs.publish && github.ref == 'refs/heads/main'");
+    expect(needsOf(release.jobs.publish!)).toEqual(["build"]);
+  });
+
+  test("the publish job runs no Bend or Lean, takes the kernel outside its checkout, and never overwrites an asset", () => {
+    const steps = stepsOf(release.jobs.publish);
+    const runs = steps.map((step) => step.run ?? "").join("\n");
+    expect(runs).not.toMatch(
+      /install-bend|install-lean|bend\.sh (kernel|verdict|check|prove|build|hook)/,
+    );
+    const download = steps.find((step) => step.uses === "actions/download-artifact@v4");
+    expect(download?.with).toEqual({ name: "bendtt", path: "${{ runner.temp }}/bendtt-artifact" });
+    expect(runs).toContain('if [ "$(ls -A "$artifact")" != "bendtt" ]; then');
+    expect(runs).toContain("sha256sum -c -");
+    // `git ls-remote --exit-code` exits 2 for no such tag and 128 when it
+    // cannot ask: only 2 may lead to creating the release.
+    expect(runs).toContain(
+      'git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || tagged=$?',
+    );
+    expect(runs).toMatch(/^\s*2\) gh release create /m);
+    expect(text).not.toContain("--clobber");
+    expect(text).not.toMatch(/gh release (delete|edit)/);
+    const upload = stepsOf(release.jobs.build).find(
+      (step) => step.uses === "actions/upload-artifact@v4",
+    );
+    expect(upload?.with?.path).toBe("${{ runner.temp }}/bendtt/bendtt");
   });
 });
 
@@ -1429,6 +1539,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
     readonly output: string;
     readonly verdict: string;
     readonly bend: string;
+    readonly bendPins: string;
   } {
     const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
     const git = (...args: string[]) => {
@@ -1481,6 +1592,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
       output: result.stdout.toString() + result.stderr.toString(),
       verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
       bend: /^bend=(.*)$/m.exec(written)?.[1] ?? "<none>",
+      bendPins: /^bend-pins=(.*)$/m.exec(written)?.[1] ?? "<none>",
     };
   }
 
@@ -1538,13 +1650,14 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   });
 
   test("a base with no classifier yet runs every job", () => {
-    const { exitCode, output, verdict, bend } = classify([["wiki/a.md"]], pullRequest, {
+    const { exitCode, output, verdict, bend, bendPins } = classify([["wiki/a.md"]], pullRequest, {
       classifierOnBase: false,
     });
-    expect({ exitCode, verdict, bend }, output).toEqual({
+    expect({ exitCode, verdict, bend, bendPins }, output).toEqual({
       exitCode: 0,
       verdict: "false",
       bend: "true",
+      bendPins: "true",
     });
   });
 
@@ -1563,6 +1676,37 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   ] as const)("%s: the Bend proofs run is %s", (_, expected, commits) => {
     const { exitCode, output, bend } = classify(commits, pullRequest);
     expect({ exitCode, bend }, output).toEqual({ exitCode: 0, bend: expected });
+  });
+
+  // A change to a pin names a kernel only a build from source has shown, so
+  // the Bend proofs build it rather than fetch whatever a writer may have
+  // published under that name first: on the pull request, its queue group and
+  // its push to main.
+  test.each([
+    ["a change to the Bend pin", "true", [["tools/bend/bend.env"]], pullRequest],
+    ["a change to the Lean and kernel pins", "true", [["tools/bend/lean.env"]], pullRequest],
+    [
+      "a queue group with a pin change ahead of it",
+      "true",
+      [["tools/bend/lean.env"], ["wiki/a.md"]],
+      queue,
+    ],
+    [
+      "a push that changes a pin",
+      "true",
+      [["tools/bend/lean.env"]],
+      (shas: readonly string[]) => ({ EVENT: "push", BEFORE: shas[0] ?? "" }),
+    ],
+    ["a change to bend.sh alone", "false", [["tools/bend/bend.sh"]], pullRequest],
+    [
+      "a change to a law set alone",
+      "false",
+      [["osn/api/laws/account-deletion/account.bend"]],
+      pullRequest,
+    ],
+  ] as const)("%s: the kernel is built from source is %s", (_, expected, commits, event) => {
+    const { exitCode, output, bendPins } = classify(commits, event);
+    expect({ exitCode, bendPins }, output).toEqual({ exitCode: 0, bendPins: expected });
   });
 });
 
