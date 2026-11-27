@@ -29,14 +29,14 @@ runbook, two regimes, because the operational steps overlap.
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window, after a passkey step-up (`pulse_app_delete`; a passkey added by an emailed link, an authenticator code or recovery counts once it is 72 hours old, [[account-deletion#Leaving one app takes a passkey]]) | 7 d (account) / 14 d (events) |
 | `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a passkey step-up confirmed on Musubi, with the same 72-hour hold ([[cire-auth#A host removes their Cire data]]). Then refused, 409 `holds_payout_account`, while a profile of the account holds the Stripe account a live wedding's money gifts are paid into, as an owner beside another owner ([[#Art. 17 — Right of erasure]]) | Immediate once confirmed, unless refused for a payout account; the person clears that refusal themselves |
 | `privacy@englishstventures.com`, named on every privacy notice (`LEGAL_ENTITY.privacyEmail`) | Anyone via email | The operator's privacy inbox, hosted by Hostinger ([[subprocessors]]) | 30 d (GDPR) / 45 d (CCPA) |
-| Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
+| Post | No one: the legal pages publish no postal address, by the owner's decision, so a written request comes by email | — | — |
 
 ## Step-by-step for a written request
 
 1. **Acknowledge within 72 hours** — automated reply confirming receipt and the response deadline.
 2. **Identify the regime** — GDPR if EU/UK; CCPA + state laws if US-resident; treat unclear cases as both (apply the stricter rule).
-3. **Verify identity** — for the account holder using the in-app endpoints, the bearer token + step-up token verifies them. For email/postal:
+3. **Verify identity** — for the account holder using the in-app endpoints, the bearer token + step-up token verifies them. For a request by email:
    - First test: email-controlled OTP to the email on file.
    - If that fails (e.g. user has lost the email): require step-up via a recovery code, OR a notarised statement of identity, OR proof of association (last login IP region, recent profile activity).
    - **Do not** require government ID for a basic DSAR — over-collection.
@@ -572,7 +572,7 @@ Not built yet:
 
 1. `dsar_requests` table for audit log.
 2. Automated acknowledgement of mail to `privacy@englishstventures.com`.
-3. Postal address published on `@musubi/landing` legal page.
+3. Postal address on the legal pages — not to be built: they publish no postal address, by the owner's decision.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).
 6. **Cire DSAR export** — built: the `cire.weddings` section of

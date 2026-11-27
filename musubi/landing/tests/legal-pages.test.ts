@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { LEGAL_ENTITY } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -19,6 +20,17 @@ describe("Musubi site legal pages", () => {
     expect(privacy).not.toContain("LEGAL_ENTITY.supportEmail");
     expect(terms).toContain("LEGAL_ENTITY.supportEmail");
     expect(terms).not.toContain("LEGAL_ENTITY.privacyEmail");
+  });
+
+  /** Each page names only details the operator's record holds. The record
+   *  holds no postal address, so a contact line that still prints one fails
+   *  here. */
+  it("name only the operator details the shared record holds", () => {
+    for (const page of [privacy, terms]) {
+      const fields = [...page.matchAll(/LEGAL_ENTITY\.(\w+)/g)].map((m) => m[1]!);
+      expect(fields).toContain("name");
+      for (const field of fields) expect(LEGAL_ENTITY).toHaveProperty(field);
+    }
   });
 
   /** The faces are self-hosted (`tests/self-hosted-fonts.test.ts`), so the

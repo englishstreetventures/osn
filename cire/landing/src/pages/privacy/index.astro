@@ -26,7 +26,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
 
   <h1>Privacy at Cire</h1>
   <PrivacyNav current="overview" />
-  <p class="meta">Last updated: 2026-11-18</p>
+  <p class="meta">Last updated: 2026-11-27</p>
 
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire, runs this
@@ -79,7 +79,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
     protection authority.
   </p>
   <p>
-    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
-    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span>.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire) —
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>.
   </p>
 </LegalPage>
