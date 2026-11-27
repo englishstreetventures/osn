@@ -1,5 +1,11 @@
 # @osn/crypto
 
+## 0.17.3
+
+### Patch Changes
+
+- @osn/db@0.31.1
+
 ## 0.17.2
 
 ### Patch Changes

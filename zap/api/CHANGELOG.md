@@ -1,5 +1,15 @@
 # @zap/api
 
+## 0.11.4
+
+### Patch Changes
+
+- Updated dependencies [a7432cd]
+  - @shared/db-utils@0.10.1
+  - @zap/db@0.7.5
+  - @shared/crypto@0.17.3
+  - @shared/osn-auth-client@0.8.3
+
 ## 0.11.3
 
 ### Patch Changes
