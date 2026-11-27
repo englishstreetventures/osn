@@ -801,16 +801,18 @@ const toSettingsRecord = (r: SettingsRowRead): RegistrySettingsRecord => ({
 
 /**
  * What stops the couple and their account taking money today, or null: the
- * account's holder holds an owner seat here, Stripe can take a charge, the
- * account settles in the currency every gift is charged in, and the couple
- * said yes. In {@link MoneyGiftsBlock}'s order.
+ * account's holder holds an owner seat here, an account is named and Stripe
+ * can take a charge on it, the account settles in the currency every gift is
+ * charged in, and the couple said yes. In {@link MoneyGiftsBlock}'s order.
  *
  * The holder half: the account carries one person's identity and bank, so
  * while they hold no owner seat — or nobody is recorded — no gift is taken
  * into it. The account is kept: seated as an owner again, money opens with
  * the switch on.
  * `payoutHolderAbsent` is false with no account, so a wedding with none reads
- * `stripe_not_ready`.
+ * `stripe_not_ready`. The account is read by its id as well as through
+ * Stripe's flag, as `updateSettings`' write reads it, so a row recording
+ * charges with no account named is not open either.
  *
  * The currency half is checked HERE, where money moves, and not only when the
  * couple switch gifts on: an account can be revoked and another connected, or
@@ -823,7 +825,9 @@ const accountMoneyBlock = (
   currency: string,
 ): Exclude<MoneyGiftsBlock, "payments_unavailable"> | null => {
   if (settings.payoutHolderAbsent) return "payout_holder_absent";
-  if (!settings.stripeChargesEnabled) return "stripe_not_ready";
+  if (settings.stripeAccountId === null || !settings.stripeChargesEnabled) {
+    return "stripe_not_ready";
+  }
   if (!settings.stripeDefaultCurrency) return "stripe_currency_unknown";
   if (settings.stripeDefaultCurrency.toUpperCase() !== currency.toUpperCase()) {
     return "currency_mismatch";
@@ -1149,15 +1153,12 @@ function claimedByItem(weddingId: string): Effect.Effect<Map<string, number>, ne
 }
 
 /**
- * Why turning money gifts on is refused for this row, or null: no account
- * named, then the holder, Stripe and currency half of
- * {@link accountMoneyBlock}, which the guest gate reads too. The account is
- * checked by its id, not only through Stripe's flag, because `updateSettings`'
- * write checks it so and this explains a refused write. With no account the
- * holder cannot be absent, so the reasons keep `accountMoneyBlock`'s order. An
- * account can take charges before Stripe names the currency it settles in;
- * until it does, a gift could be converted on Stripe's terms, so the switch
- * waits. Each refusal carries `current`, the row as it stands.
+ * Why turning money gifts on is refused for this row, or null: the holder,
+ * account, Stripe and currency half of {@link accountMoneyBlock}, which the
+ * guest gate reads too, and which `updateSettings`' write repeats in its own
+ * `WHERE`. An account can take charges before Stripe names the currency it
+ * settles in; until it does, a gift could be converted on Stripe's terms, so
+ * the switch waits. Each refusal carries `current`, the row as it stands.
  */
 function moneyOnRefusal(
   record: RegistrySettingsRecord,
@@ -1165,7 +1166,6 @@ function moneyOnRefusal(
   deployment: MoneyDeployment,
 ): PayoutHolderAbsent | StripeNotReady | SettlementCurrencyUnknown | CurrencyMismatch | null {
   const current = () => toSettingsDto(record, deployment, currency);
-  if (record.stripeAccountId === null) return new StripeNotReady({ current: current() });
   switch (accountMoneyBlock(record, currency)) {
     case "payout_holder_absent":
       return new PayoutHolderAbsent({ current: current() });
@@ -2228,11 +2228,12 @@ export const registryService = {
           .all(),
       );
       // No row back means the conflict arm's `WHERE` refused it: the row
-      // exists and a field moved under the caller. The insert arm always
-      // returns its row.
+      // exists, and a field moved under the caller or the row no longer lets
+      // money on. The insert arm always returns its row.
       if (!row) {
-        // A refusal on the currency re-check is not "someone else saved these
-        // settings": say what is actually wrong. One read answers both.
+        // A refusal on the money re-check (account, holder, Stripe, currency)
+        // is not "someone else saved these settings": say what is actually
+        // wrong. One read answers both.
         const { record, currency } = yield* settingsWithCurrency(weddingId);
         if (patch.cashGiftsEnabled === true) {
           const refused = moneyOnRefusal(record, currency, deployment);

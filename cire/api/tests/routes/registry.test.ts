@@ -2721,6 +2721,20 @@ describe("whether the account's holder is an owner (`settings.payoutHolderAbsent
         "stripe_not_ready",
       );
     });
+
+    it("refuses it when the account is cleared and the charges flag left on", async () => {
+      // Every clear in the code turns charges off with it; the save checks the
+      // account itself rather than leaning on that.
+      await expectRefused(
+        await switchOn([
+          [
+            "UPDATE registry_settings SET stripe_account_id = NULL WHERE stripe_account_id = ?",
+            "acct_live",
+          ],
+        ]),
+        "stripe_not_ready",
+      );
+    });
   });
 });
 
