@@ -60,13 +60,10 @@ describe("LEGAL_ENTITY", () => {
    *  the regulator and the governing law. No postal address, no company
    *  number. */
   it("holds the operator's published details and nothing else", () => {
-    expect(Object.keys(LEGAL_ENTITY).sort()).toEqual([
-      "governingLaw",
-      "name",
-      "privacyEmail",
-      "regulator",
-      "supportEmail",
-    ]);
+    expect(new Set(Object.keys(LEGAL_ENTITY))).toEqual(
+      new Set(["name", "privacyEmail", "supportEmail", "regulator", "governingLaw"]),
+    );
+    expect(Object.keys(LEGAL_ENTITY)).toHaveLength(5);
   });
 });
 
