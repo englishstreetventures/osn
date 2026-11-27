@@ -55,6 +55,12 @@ type Db0 = ReturnType<typeof db0>;
 /** A deployment that takes money gifts: what the settings' reason is judged on. */
 const PAYING_SITE = { takesPayments: true } as const;
 
+/** An account the bootstrap wedding's owner holds: with charges and a currency, money may open. */
+const HELD_ACCOUNT = {
+  stripeAccountId: "acct_ready",
+  stripeConnectedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+} as const;
+
 const run = <A, E>(db: Db0, eff: Effect.Effect<A, E, DbService>) =>
   Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
 
@@ -1754,14 +1760,31 @@ describe("registry ownership + range guards", () => {
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.settings.cashGiftsEnabled).toBe(false);
 
-    // Once Stripe reports charges enabled, in the wedding's own currency, the
-    // same patch goes through.
+    // Charges recorded on a row that names no account are not an account that
+    // can take a charge.
     await ok(
       db,
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
     );
     db.update(registrySettings)
       .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const accountless = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
+    );
+    expect(Exit.isFailure(accountless)).toBe(true);
+    if (Exit.isFailure(accountless)) {
+      expect(accountless.cause.toString()).toContain("StripeNotReady");
+    }
+    const unnamed = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
+    expect(unnamed.settings.cashGiftsEnabled).toBe(false);
+
+    // Once an account held by an owner reports charges enabled, in the
+    // wedding's own currency, the same patch goes through.
+    db.update(registrySettings)
+      .set(HELD_ACCOUNT)
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
     const enabled = await ok(
@@ -1780,7 +1803,7 @@ describe("registry ownership + range guards", () => {
     // Charges work, but the account settles in dollars while the wedding prices
     // everything in Australian dollars. Checkout would convert or refuse.
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "USD" })
+      .set({ ...HELD_ACCOUNT, stripeChargesEnabled: true, stripeDefaultCurrency: "USD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
@@ -1817,7 +1840,7 @@ describe("registry ownership + range guards", () => {
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
     );
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: null })
+      .set({ ...HELD_ACCOUNT, stripeChargesEnabled: true, stripeDefaultCurrency: null })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
@@ -1843,7 +1866,7 @@ describe("registry ownership + range guards", () => {
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
     );
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .set({ ...HELD_ACCOUNT, stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
     const client = db.$client;
@@ -1899,7 +1922,7 @@ describe("registry ownership + range guards", () => {
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
     );
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .set({ ...HELD_ACCOUNT, stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
     const client = db.$client;
@@ -1936,7 +1959,7 @@ describe("registry ownership + range guards", () => {
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Theirs" }, PAYING_SITE),
     );
     db.update(registrySettings)
-      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
+      .set({ ...HELD_ACCOUNT, stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
