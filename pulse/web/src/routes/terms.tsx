@@ -16,7 +16,7 @@ export default function TermsRoute(): JSX.Element {
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">Terms of Service</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-11-18</p>
+      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-11-27</p>
 
       <p>
         These terms cover Pulse, operated by{" "}
@@ -97,7 +97,8 @@ export default function TermsRoute(): JSX.Element {
       <h2>Changes</h2>
       <p>
         We may update these terms. The date at the top changes when we do, and changes are not
-        retroactive.
+        retroactive. If you use Pulse with a Musubi account and a change matters, we also email that
+        account's address before it takes effect, saying what changes and from what day.
       </p>
 
       <h2>Governing law</h2>

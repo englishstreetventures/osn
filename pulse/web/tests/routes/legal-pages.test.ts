@@ -60,6 +60,25 @@ describe("terms.tsx", () => {
     expect(text).not.toMatch(/re-suppl/);
     expect(text).not.toMatch(/accepted when you created/);
   });
+
+  /**
+   * Pulse's readers sign in with a Musubi account, and the operator's
+   * change-notice run emails every Musubi account's address
+   * (`wiki/osn/change-notices.md`). The page shows nothing of a change but the
+   * date, so the terms say their date changes and that a change that matters
+   * is emailed to the Musubi account before it takes effect.
+   */
+  it("says its date changes and a change that matters is emailed", () => {
+    const changes = text.slice(
+      text.indexOf("<h2>Changes</h2>"),
+      text.indexOf("<h2>Governing law</h2>"),
+    );
+    expect(changes).toMatch(/The date at the top changes when we do/);
+    expect(changes).toMatch(/If you use Pulse with a Musubi account/);
+    expect(changes).toMatch(/a change matters/);
+    expect(changes).toMatch(/email that account's address/);
+    expect(changes).toMatch(/before it takes effect/);
+  });
 });
 
 describe("privacy.tsx", () => {

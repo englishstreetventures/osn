@@ -35,7 +35,7 @@ export function PrivacyPage(): JSX.Element {
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-11-19"
+      updated="2026-11-27"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
@@ -178,7 +178,10 @@ export function PrivacyPage(): JSX.Element {
       </p>
 
       <h2>Changes</h2>
-      <p>If this changes, the date at the top changes with it.</p>
+      <p>
+        If this changes, the date at the top changes with it. If a change matters, we also email the
+        address on your account before it takes effect, saying what changes and from what day.
+      </p>
     </LegalDocument>
   );
 }

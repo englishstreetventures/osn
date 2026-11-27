@@ -40,20 +40,33 @@ function section(source: string, heading: string, level: "h2" | "h3" = "h2"): st
 }
 
 /**
- * Nothing in the app can flag a change to a notice (`LegalDocument.tsx` reads
- * `updated` and nothing else), and nothing can email every account: no email
- * template, operator action or procedure does it. A page that changes says
- * only that its date changes.
+ * The operator's change-notice run emails every account's address, and its
+ * check refuses a notice whose day has passed (`wiki/osn/change-notices.md`).
+ * The app shows nothing of a change but the date at the top
+ * (`LegalDocument.tsx` reads `updated` and nothing else). So each page says
+ * its date changes and that a change that matters is emailed before it takes
+ * effect, and promises no notice in the app.
  */
 describe.each([
   ["PrivacyPage.tsx", "Changes", /If this changes, the date at the top changes with it\./],
   ["TermsPage.tsx", "Changes to these terms", /The date at the top changes when we do/],
-] as const)("%s, on its own changes", (page, heading, promise) => {
-  it("promises only that the date at the top changes", () => {
-    const changes = section(readFileSync(join(dir, page), "utf8"), heading);
-    expect(changes).toMatch(promise);
-    expect(changes).not.toMatch(/flagged|in the app/i);
-    expect(changes).not.toMatch(/email/i);
+] as const)("%s, on its own changes", (page, heading, date) => {
+  const read = () => section(readFileSync(join(dir, page), "utf8"), heading);
+
+  it("says the date at the top changes", () => {
+    expect(read()).toMatch(date);
+  });
+
+  it("says a change that matters is emailed to the account's address before it takes effect", () => {
+    const changes = read();
+    expect(changes).toMatch(/a change matters/);
+    expect(changes).toMatch(/email the address on your account/);
+    expect(changes).toMatch(/before it takes effect/);
+    expect(changes).toMatch(/what changes/);
+  });
+
+  it("promises no notice in the app", () => {
+    expect(read()).not.toMatch(/flagged|in the app/i);
   });
 });
 

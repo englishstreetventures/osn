@@ -339,16 +339,47 @@ describe("legal pages", () => {
   });
 
   /**
-   * Nothing can tell every organiser of a change to the terms: no email
-   * template, operator action or procedure sends one, and the site has no
-   * notice for it. The terms say only that their date changes.
+   * Organisers and vendors sign in with a Musubi account, and the operator's
+   * change-notice run emails every Musubi account's address
+   * (`wiki/osn/change-notices.md`). The site shows nothing of a change but the
+   * date, so the terms say their date changes and that a change that matters
+   * is emailed to the Musubi account before it takes effect.
    */
-  it("the terms promise only that their date changes", () => {
-    const text = flat(terms);
-    expect(text).toMatch(/The &ldquo;last updated&rdquo; date above changes when we do/);
-    expect(text).not.toMatch(/notified on the site|by email before/);
+  it("the terms say their date changes and a change that matters is emailed", () => {
+    const changes = section(terms, "Changes to these terms");
+    expect(changes).toMatch(/The &ldquo;last updated&rdquo; date above changes when we do/);
+    expect(changes).toMatch(/If you use Cire with a Musubi account/);
+    expect(changes).toMatch(/a change matters/);
+    expect(changes).toMatch(/email that account&rsquo;s address/);
+    expect(changes).toMatch(/before it takes effect/);
+    expect(changes).not.toMatch(/notified on the site/);
+  });
+
+  /**
+   * "Remove my Cire data" refuses while a profile of the account holds the
+   * Stripe account a live wedding's money gifts are paid into, as one of its
+   * owners beside another (`cire/api/src/routes/organiser-account.ts`), so
+   * the hosts' notice says so where it offers the removal.
+   */
+  it("the hosts' notice says the removal waits for a payout account's holder to hand it on", () => {
+    const text = flat(hosts);
+    expect(text).toMatch(
+      /If you connected the Stripe account a wedding&rsquo;s money gifts are paid/,
+    );
+    expect(text).toMatch(/hand money gifts to another owner or disconnect the account/);
+    expect(text).toMatch(/until you do, Remove my Cire data will not run/);
   });
 });
+
+/** The page's text under the `<h2>` named `heading`, up to the next `<h2>`. */
+function section(page: string, heading: string): string {
+  const text = flat(page);
+  const open = `<h2>${heading}</h2>`;
+  const start = text.indexOf(open);
+  expect(start).toBeGreaterThan(-1);
+  const end = text.indexOf("<h2>", start + open.length);
+  return text.slice(start, end === -1 ? undefined : end);
+}
 
 /** A page's source with every run of whitespace as one space. */
 function flat(page: string): string {
