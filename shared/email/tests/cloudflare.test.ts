@@ -6,7 +6,7 @@ import { EmailError, EmailService, type SendEmailInput } from "../src/service";
 
 const CF_ACCOUNT_ID = "test-account-id";
 const CF_API_TOKEN = "test-api-token";
-const EXPECTED_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/email-service/send`;
+const EXPECTED_URL = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/email/sending/send`;
 
 type Captured = {
   url: string;
@@ -72,14 +72,14 @@ describe("CloudflareEmailLive", () => {
     expect(captured!.headers.get("authorization")).toBe(`Bearer ${CF_API_TOKEN}`);
 
     const payload = JSON.parse(captured!.body) as {
-      to: Array<{ email: string }>;
-      from: { email: string };
+      to: unknown;
+      from: unknown;
       subject: string;
       text: string;
       html: string;
     };
-    expect(payload.to).toEqual([{ email: "alice@example.com" }]);
-    expect(payload.from).toEqual({ email: "noreply@osn.test" });
+    expect(payload.to).toStrictEqual({ address: "alice@example.com" });
+    expect(payload.from).toStrictEqual({ address: "noreply@osn.test" });
     expect(payload.subject).toBe("Confirm your new Musubi email");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
@@ -185,10 +185,8 @@ describe("CloudflareEmailLive", () => {
       }).pipe(Effect.provide(layer)),
     );
 
-    const payload = JSON.parse(captured!.body) as {
-      to: Array<{ email: string }>;
-    };
-    expect(payload.to).toEqual([{ email: "user+tag@sub.domain.example.com" }]);
+    const payload = JSON.parse(captured!.body) as { to: unknown };
+    expect(payload.to).toStrictEqual({ address: "user+tag@sub.domain.example.com" });
   });
 
   it("does not include OTP code on span attributes (only `template`)", async () => {
@@ -216,5 +214,141 @@ describe("CloudflareEmailLive", () => {
     });
     // Code only appears in the body.
     expect(captured!.body).toContain("999888");
+  });
+});
+
+describe("CloudflareEmailLive sender", () => {
+  const EMPTY = "Cloudflare email sender is empty";
+  const UNSAFE = "Cloudflare email sender contains a control, format or line-separator character";
+  const NOT_A_SENDER =
+    "Cloudflare email sender must be an address, or a display name followed by an address in angle brackets";
+  const LENGTH =
+    "Cloudflare email sender has an address longer than 254 characters or a local part longer than 64";
+
+  /** The longest address the limits allow: a 64-character local part, 254 in all. */
+  const LONGEST = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`;
+
+  /** Builds the transport with `fromAddress`, sends one email and returns the payload's `from`. */
+  const sentFrom = async (fromAddress?: string): Promise<unknown> => {
+    const layer = makeCloudflareEmailLive({
+      accountId: CF_ACCOUNT_ID,
+      apiToken: CF_API_TOKEN,
+      ...(fromAddress === undefined ? {} : { fromAddress }),
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const email = yield* EmailService;
+        yield* email.send({
+          template: "passkey-added",
+          to: "alice@example.com",
+          data: { instanceName: "Musubi" },
+        });
+      }).pipe(Effect.provide(layer)),
+    );
+    return (JSON.parse(captured!.body) as { from: unknown }).from;
+  };
+
+  /** The message `makeCloudflareEmailLive` throws for `fromAddress`, or null when it builds. */
+  const refusal = (fromAddress: string): string | null => {
+    try {
+      makeCloudflareEmailLive({ accountId: CF_ACCOUNT_ID, apiToken: CF_API_TOKEN, fromAddress });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+
+  it.each([
+    ["Musubi <hello@musubi.social>", { address: "hello@musubi.social", name: "Musubi" }],
+    ["Musubi (dev) <dev@musubi.social>", { address: "dev@musubi.social", name: "Musubi (dev)" }],
+    ["Musubi<hello@musubi.social>", { address: "hello@musubi.social", name: "Musubi" }],
+  ])("splits %j into a display name and a bare address", async (raw, expected) => {
+    expect(await sentFrom(raw)).toStrictEqual(expected);
+  });
+
+  it.each([
+    ["<noreply@osn.test>", "noreply@osn.test"],
+    ['"  " <noreply@osn.test>', "noreply@osn.test"],
+    ["noreply@xn--bcher-kva.example", "noreply@xn--bcher-kva.example"],
+    [LONGEST, LONGEST],
+  ])("sends %j as a bare address with no name", async (raw, address) => {
+    expect(await sentFrom(raw)).toStrictEqual({ address });
+  });
+
+  it.each([
+    ["", EMPTY],
+    ["   ", EMPTY],
+    ["Musubi <hello@musubi.social", NOT_A_SENDER],
+    ["Musubi hello@musubi.social", NOT_A_SENDER],
+    ["Musubi <>", NOT_A_SENDER],
+    ["Musubi <not-an-address>", NOT_A_SENDER],
+    ["Musubi <hello@musubi.social> extra", NOT_A_SENDER],
+    ["a@b.example, c@d.example", NOT_A_SENDER],
+    ["hello@localhost", NOT_A_SENDER],
+    ['"Musubi <hello@musubi.social>', NOT_A_SENDER],
+    ["< hello@musubi.social >", NOT_A_SENDER],
+    [".hello@musubi.social", NOT_A_SENDER],
+    ["hello.@musubi.social", NOT_A_SENDER],
+    ["hel..lo@musubi.social", NOT_A_SENDER],
+    ["hello@-musubi.social", NOT_A_SENDER],
+    ["hello@musubi-.social", NOT_A_SENDER],
+    [`hello@${"b".repeat(64)}.social`, NOT_A_SENDER],
+    ['"Caf\\\u00e9" <hello@musubi.social>', NOT_A_SENDER],
+    [`${"a".repeat(65)}@musubi.social`, LENGTH],
+    [`${LONGEST}d`, LENGTH],
+  ])("refuses %j when the layer is built", (raw, message) => {
+    expect(refusal(raw)).toBe(message);
+  });
+
+  it.each([
+    "Musubi\r\nBcc: x@evil.example <hello@musubi.social>",
+    '"Mu\nsubi" <hello@musubi.social>',
+    "Mu\u202Esubi <hello@musubi.social>",
+    "Mu\u200Bsubi <hello@musubi.social>",
+    "Mu\u2028subi <hello@musubi.social>",
+    "Mu\u2029subi <hello@musubi.social>",
+    "hello@musubi.social\r\n",
+    "\thello@musubi.social",
+    "\uFEFFhello@musubi.social",
+    "Musubi <hello@musubi.social>\u2028",
+  ])("refuses %j, which holds a control, format or separator character", (raw) => {
+    expect(refusal(raw)).toBe(UNSAFE);
+  });
+
+  it.each([
+    ['"Musubi <dev>" <dev@musubi.social>', { address: "dev@musubi.social", name: "Musubi <dev>" }],
+    [
+      '"Musubi, Inc." <hello@musubi.social>',
+      { address: "hello@musubi.social", name: "Musubi, Inc." },
+    ],
+    [
+      '"The \\"Musubi\\" team" <hello@musubi.social>',
+      { address: "hello@musubi.social", name: 'The "Musubi" team' },
+    ],
+    [
+      '"Back\\\\slash" <hello@musubi.social>',
+      { address: "hello@musubi.social", name: "Back\\slash" },
+    ],
+    ['"Musubi"<hello@musubi.social>', { address: "hello@musubi.social", name: "Musubi" }],
+  ])("keeps the whole quoted name of %j", async (raw, expected) => {
+    expect(await sentFrom(raw)).toStrictEqual(expected);
+  });
+
+  it.each([
+    'Mus"ubi <hello@musubi.social>',
+    "Musubi <dev> <dev@musubi.social>",
+    "Musubi > <hello@musubi.social>",
+    "a@b.example, Musubi <c@d.example>",
+    "support@bank.example <hello@musubi.social>",
+    "Musubi: Team <hello@musubi.social>",
+    "Musubi; Team <hello@musubi.social>",
+    "Musubi [dev] <hello@musubi.social>",
+    "Musubi \\ Team <hello@musubi.social>",
+  ])("refuses %j, whose unquoted name holds a character only a quoted name may", (raw) => {
+    expect(refusal(raw)).toBe(NOT_A_SENDER);
+  });
+
+  it("sends from noreply@osn.local when no sender is configured", async () => {
+    expect(await sentFrom()).toStrictEqual({ address: "noreply@osn.local" });
   });
 });

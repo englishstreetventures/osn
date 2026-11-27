@@ -3,8 +3,9 @@
  *
  * The service is an Effect `Context.Service` key; callers yield it and invoke
  * `send({ template, to, data })`. Actual dispatch is determined by the
- * concrete `Layer` provided at boot: `CloudflareEmailLive` in production
- * staging, `LogEmailLive` in local dev + unit tests.
+ * concrete `Layer` provided at boot: `ResendEmailLive` in deployed tiers,
+ * `CloudflareEmailLive` as their fallback, `LogEmailLive` in local dev + unit
+ * tests.
  *
  * Rendering happens inside the service (template enum + typed `data`
  * object), not at call sites — this keeps subject/body strings out of the

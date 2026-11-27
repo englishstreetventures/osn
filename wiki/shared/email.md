@@ -57,7 +57,7 @@ The **live transport is Resend** — a single bearer-authed HTTPS POST to
 [[#Local emulation]]). Resend works on workerd over plain HTTP
 (no paid Workers plan required), so we prefer it over the Cloudflare
 Email Service transport. The Cloudflare transport
-(`https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`)
+(`https://api.cloudflare.com/client/v4/accounts/{id}/email/sending/send`)
 stays as a legacy fallback. Both render the **same** templates
 in-process and DKIM-sign via the verified sender domain
 (`musubi.social` for osn-api) — no intermediate Worker, no ARC tokens.
@@ -181,17 +181,25 @@ Content-Type: application/json
 ### Cloudflare Email API wire format (legacy fallback)
 
 ```
-POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email-service/send
+POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send
 Authorization: Bearer <CLOUDFLARE_EMAIL_API_TOKEN>
 Content-Type: application/json
 {
-  "to":      [{ "email": "user@example.com" }],
-  "from":    { "email": "noreply@osn.app" },
+  "to":      { "address": "user@example.com" },
+  "from":    { "address": "hello@musubi.social", "name": "Musubi" },
   "subject": "Confirm your Musubi email",
   "text":    "...",
   "html":    "..."
 }
 ```
+
+`from.name` is present only when the configured sender has a display name. An
+address object takes `address` and an optional `name`; the Workers binding's
+`email` key is not part of the REST body. The shape is checked against
+Cloudflare's [REST API page](https://developers.cloudflare.com/email-service/api/send-emails/rest-api/)
+and its [named-address rules](https://developers.cloudflare.com/email-service/examples/email-sending/recipients/)
+only, not against a live send: a deployment that falls back to this transport
+sends one test message first.
 
 ## Transports
 
@@ -218,8 +226,17 @@ Content-Type: application/json
   `resendApiUrlProblem` is that check, exported for callers that want the
   reason instead of a throw.
 - `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
-  to Cloudflare's Email Service REST API with `fetch`, which Cloudflare
-  traces on a Worker.
+  to Cloudflare's Email Sending REST API with `fetch`, which Cloudflare
+  traces on a Worker. It reads `config.fromAddress` when the layer is built
+  and throws on a malformed one, so a bad sender stops the boot, never a send.
+  It takes a bare address (`hello@musubi.social`), an address in angle
+  brackets, or a display name before one: unquoted
+  (`Musubi (dev) <dev@musubi.social>`), holding none of `" < > [ ] : ; @ \ ,`,
+  or quoted (`"Musubi, Inc." <hello@musubi.social>`), with `\"` for a quote.
+  It refuses any control, format or line-separator character, an address
+  longer than 254 characters and a local part longer than 64.
+  `cloudflareSenderProblem` is that check, exported for callers that want the
+  reason instead of a throw; no message repeats the value.
 - `EmailService.sendBatch` (optional) — several emails in as few provider
   calls as the transport allows. Resend implements it as `POST
   https://api.resend.com/emails/batch`, up to 100 emails per call, all or
@@ -337,8 +354,8 @@ Environment variables for `@osn/api`:
 |---|---|---|
 | `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
-| `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
-| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `Musubi <hello@musubi.social>`) |
+| `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with the `Email Sending Write` permission (fallback transport) |
+| `OSN_EMAIL_FROM` | optional | Verified sender: a bare address or `Name <address>` (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `Musubi <hello@musubi.social>`). Resend gets it as written. When osn-api selects the Cloudflare fallback, a malformed value throws `OSN_EMAIL_FROM must be …` at boot and the Worker answers every request `503 Worker misconfigured`. |
 | `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
@@ -375,10 +392,10 @@ Before you deploy (Resend — the live path):
    [[production-deploy]] §1.1.
 
 The Cloudflare Email Service path remains available as a fallback (onboard
-the sender domain in Cloudflare Email Sending, create an Email-Send token,
-set the `CLOUDFLARE_*` vars) but is no longer the live transport. It takes a
-bare address only (`shared/email/src/cloudflare.ts`): set `OSN_EMAIL_FROM` to
-`hello@musubi.social` before relying on it.
+the sender domain in Cloudflare Email Sending, create an API token with the
+`Email Sending Write` permission, set the `CLOUDFLARE_*` vars) but is not the
+live transport. It sends `OSN_EMAIL_FROM` with its display name, in the forms
+[[#Transports]] lists.
 
 ## Local emulation
 
@@ -445,7 +462,7 @@ through Resend itself whenever the key is set.
 
   *Checked 2026-11-24 — `dig +short TXT resend._domainkey.musubi.social`, `dig +short MX send.musubi.social`, `dig +short TXT _dmarc.musubi.social`*
 - **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
-  Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
+  the `Email Sending Write` permission only). SPF/DKIM/DMARC auto-configured by Cloudflare.
 - **OTP bodies**: the rendered `text` / `html` contains the OTP digit
   string. The service layer only logs `template`, `subject`, `to` —
   never the rendered body, never `data`. The redaction deny-list

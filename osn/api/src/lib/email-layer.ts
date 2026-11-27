@@ -22,6 +22,8 @@
  *   2. Cloudflare creds present (`CLOUDFLARE_ACCOUNT_ID` +
  *      `CLOUDFLARE_EMAIL_API_TOKEN`)        → CloudflareEmailLive (legacy real
  *      transport, retained as a fallback). Creds win over the degraded opt-in.
+ *      A malformed `OSN_EMAIL_FROM` THROWS here, naming the variable, so the
+ *      fallback never boots with a sender Cloudflare would refuse.
  *
  *   3. Local env (`OSN_ENV` unset or "local") → LogEmailLive recorder
  *      (in-memory ring; dev/test only).
@@ -39,6 +41,7 @@
  */
 
 import {
+  cloudflareSenderProblem,
   makeCloudflareEmailLive,
   makeLogEmailLive,
   makeNoopEmailLive,
@@ -120,7 +123,13 @@ export function selectEmailLayer(
   }
 
   // 2. Legacy real transport — Cloudflare creds win over the degraded opt-in.
+  //    The sender is checked here, not on the Resend path: Resend takes the value
+  //    as given. The message never repeats the value.
   if (cfAccountId && cfEmailToken) {
+    if (env.OSN_EMAIL_FROM !== undefined) {
+      const problem = cloudflareSenderProblem(env.OSN_EMAIL_FROM);
+      if (problem !== null) throw new Error(`OSN_EMAIL_FROM ${problem}`);
+    }
     return makeCloudflareEmailLive({
       accountId: cfAccountId,
       apiToken: cfEmailToken,
