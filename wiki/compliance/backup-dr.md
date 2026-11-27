@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-11-19
+last-reviewed: 2026-11-27
 ---
 
 # Backup + Disaster Recovery
@@ -65,7 +65,7 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 |---|---|
 | Database corruption | Restore the database with D1 Time Travel to a minute before the corruption, within the last 30 days |
 | Database accidental delete (DROP TABLE, etc.) | Same; 7-day soft-delete policy on user actions reduces blast radius |
-| Restoring any production database (D1 Time Travel) to an earlier point | It undoes every deletion made since that point. A deletion the restored database still records as due (an account in its 7 days, a soft-deleted wedding, guest data past its date) runs again at the next sweep. A deletion asked for after the restore point is lost: that account, wedding or guest detail comes back live, and nothing outside the database records the request. So a restore is the owner's decision, made knowing this, and each lost deletion is repeated before the restore counts as done |
+| Restoring any production database (D1 Time Travel) to an earlier point | It undoes every deletion made since that point. A deletion the restored database still records as due (an account in its 7 days, a soft-deleted wedding, guest data past its date) runs again at the next sweep; when osn-api's and cire's databases are both restored, cire's erasure then emails the remaining owners of a wedding whose payout account holder it takes a second time, unless cire's seats are gone by then (englishstreetventures/osn#2541). A deletion asked for after the restore point is lost: that account, wedding or guest detail comes back live, and nothing outside the database records the request. So a restore is the owner's decision, made knowing this, and each lost deletion is repeated before the restore counts as done |
 | Restoring `cire-db` (D1 Time Travel) to an earlier point | Rows written after the restore point are gone, so the R2 objects only they named look orphaned: the cire cron's reconcilers delete those already 7 days old at the next 04:00 UTC run, and the rest as they reach 7 days. See the runbook below |
 | A cron run finds the rows naming a bucket's objects fell by more than half (a bad migration, a wrong bulk delete, a partial restore) | That reconciler deletes nothing, keeps the count from before the drop and emails `CIRE_OPS_EMAIL` every run it holds. The hold ends when the rows recover to half, when an operator deletes the bucket's position object (`reconcile/imports-position.json` in `cire-sheets`, `reconcile/assets-position.json` in `cire-assets`), or after 7 held runs, when deleting resumes and a last email says so. If the loss was a mistake, stop the reconcilers as the runbook below says |
 | Region outage | None planned. Each D1 database has one primary, in Oceania; Cloudflare's read-only copies in other regions take no writes |

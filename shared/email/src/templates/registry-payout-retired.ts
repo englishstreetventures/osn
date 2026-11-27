@@ -64,8 +64,9 @@ const esc = (s: string): string =>
 /** A line break in a subject header would start a new header. */
 const oneLine = (s: string): string => s.replaceAll(/[\r\n]+/g, " ");
 
+/** A wedding name with no spaces wraps inside the 480px frame rather than pushing past it. */
 const wrap = (bodyHtml: string): string =>
-  `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:24px">${bodyHtml}</body></html>`;
+  `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:24px;overflow-wrap:anywhere;word-break:break-word">${bodyHtml}</body></html>`;
 
 /** What happened, worded for this copy's reader. */
 function leadOf(data: RegistryPayoutRetiredData, wedding: string): string {

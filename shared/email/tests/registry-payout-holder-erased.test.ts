@@ -19,4 +19,17 @@ describe("registry-payout-holder-erased", () => {
     expect(out.html).toContain("B &amp; &lt;C&gt;");
     expect(out.html).toContain("&quot;x&quot;&lt;y&gt;");
   });
+
+  it("labels its one button with the verb the page it opens uses, and prints the link under it", () => {
+    const url = "https://host.example.test/#/w/wed_1/registry/settings";
+    const out = renderTemplate("registry-payout-holder-erased", {
+      weddingName: "Ama & Jonah",
+      moneyGiftsUrl: url,
+    });
+    expect(out.html).toMatch(/>Use your own account<\/a>/);
+    expect(out.text).toContain("Use your own account to take gifts again");
+    expect(out.html).toContain(
+      `<p style="color:#666;font-size:14px;word-break:break-all">${url}</p>`,
+    );
+  });
 });

@@ -10,6 +10,7 @@ import {
   vendorClaims,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "../../src/db";
@@ -149,6 +150,9 @@ describe("maintenanceSweeps — error channel", () => {
     select: () => {
       throw new Error("boom: select");
     },
+    all: () => {
+      throw new Error("boom: all");
+    },
   } as unknown as Db;
   const throwingLayer = Layer.succeed(DbService, throwingDb);
 
@@ -176,7 +180,7 @@ describe("maintenanceSweeps — error channel", () => {
     );
     expect(err._tag).toBe("MaintenanceSweepError");
     expect(err.op).toBe("hand_back_retired_accounts");
-    expect(err.reason).toContain("boom: select");
+    expect(err.reason).toContain("boom: all");
   });
 
   it("sweepStalePreviews fails with MaintenanceSweepError op=stale_previews", async () => {
@@ -408,6 +412,7 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
       handedBack: 1,
       released: 0,
       failed: 0,
+      held: 0,
       more: false,
     });
     expect(await counted()).toBe(before + 1);
@@ -500,6 +505,11 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
 
   it("releases nothing when a refused hand-back's account still reads (a bad client id), and tries a never-tried account first next run", async () => {
     const { db, layer } = setup();
+    const earlier = new Date(NOW.getTime() - 200 * DAY_MS);
+    retire(db, "acct_a", {
+      releasedAt: earlier,
+      retiredAt: new Date(NOW.getTime() - 300 * DAY_MS),
+    });
     retire(db, "acct_a");
     names(db, "w2", "acct_live");
     const failing = stripe({ deauthorize: () => refused(400, "invalid_client") });
@@ -509,7 +519,11 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
       result = await sweep(layer, failing.client);
     });
     expect(result).toMatchObject({ released: 0, failed: 1 });
-    expect(rows(db)).toEqual([{ account: "acct_a", released: null, tried: NOW }]);
+    // The attempt is marked on the account's unreleased row alone.
+    expect(rows(db)).toEqual([
+      { account: "acct_a", released: earlier, tried: null },
+      { account: "acct_a", released: null, tried: NOW },
+    ]);
     // The account's id, for a hand fix.
     expect(logs).toMatch(/stripe account not handed back[\s\S]*acct_a/);
     expect(await counterValue(CIRE_METRICS.registryStripeHandBack, { result: "failed" })).toBe(
@@ -574,6 +588,48 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
       { wedding: "w2", account: "acct_a" },
     ]);
     expect(logs).toMatch(/stripe account handed back while a wedding connected it[\s\S]*acct_a/);
+  });
+
+  it("clears a wedding whose connect landed after Stripe revoked the account, when Stripe no longer reaches it", async () => {
+    const { db, layer } = setup();
+    retire(db, "acct_a");
+    // The attach of a connect made at Stripe before the revoke commits after
+    // the release, stamped later than the call.
+    const s = stripe({
+      deauthorize: () =>
+        Effect.sync(() => names(db, "w2", "acct_a", new Date(Date.now() + 60_000))),
+      retrieve: () => refused(403, "account_invalid"),
+    });
+    const logs = await captureLogs(() => sweep(layer, s.client));
+    expect(s.calls).toEqual(["deauthorize acct_a", "retrieve acct_a"]);
+    expect(
+      db
+        .select({ account: registrySettings.stripeAccountId })
+        .from(registrySettings)
+        .where(eq(registrySettings.weddingId, "w2"))
+        .get()?.account,
+    ).toBeNull();
+    expect(logs).toMatch(/stripe account handed back while a wedding connected it[\s\S]*acct_a/);
+  });
+
+  it("judges each account again before its call: a connect or a dispute that landed meanwhile holds it", async () => {
+    const { db, layer } = setup();
+    retire(db, "acct_a", { retiredAt: new Date(OLD.getTime() - 2 * DAY_MS) });
+    retire(db, "acct_b", { retiredAt: new Date(OLD.getTime() - DAY_MS) });
+    retire(db, "acct_c");
+    // While acct_a's call runs, a wedding connects acct_b and a gift on
+    // acct_c is disputed.
+    const s = stripe({
+      deauthorize: (id) =>
+        id === "acct_a"
+          ? Effect.sync(() => {
+              names(db, "w2", "acct_b");
+              gift(db, "g_late", "acct_c", "disputed", NOW);
+            })
+          : Effect.void,
+    });
+    expect(await sweep(layer, s.client)).toMatchObject({ handedBack: 1, held: 2 });
+    expect(s.calls).toEqual(["deauthorize acct_a"]);
   });
 
   it("a D1 failure on one account is logged and counted, the next account goes on, and the next run releases it", async () => {

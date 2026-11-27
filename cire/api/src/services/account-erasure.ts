@@ -43,11 +43,12 @@
  * gone and money gifts close; the remaining owners are told by email, through
  * a hook only its caller passes (`onPayoutHolderLeft`), as each wedding's batch
  * commits. The service never mails on its own: a repeated call removes no
- * seat, and a replay of a recorded erasure after a database restore calls it
- * with no hook. When both osn-api's and cire's databases are restored, osn-api's
- * next deletion sweep calls the route again, hook and all, so cire's replay must
- * run before that sweep, while the seats it would find are still there to remove
- * quietly.
+ * seat, so it mails no one, and a caller that passes no hook mails no one,
+ * which is how a replay of recorded erasures after a database restore must
+ * call it (englishstreetventures/osn#2541). After a restore of both osn-api's
+ * and cire's databases, osn-api's next deletion sweep calls the route again,
+ * hook and all, and mails the remaining owners once more unless their
+ * wedding's seats are already gone.
  *
  * **A payout account's holder, removing their Cire data.** The `host` scope
  * keeps an owner seat whose profile holds the Stripe account the wedding's
@@ -345,11 +346,22 @@ const moneyGiftsPageOf = (origin: string, weddingId: string): string =>
   `${origin}/#/w/${encodeURIComponent(weddingId)}/registry/settings`;
 
 const PAYOUT_ONE =
-  "Guests cannot give money on this wedding from when your account is deleted until another owner connects an account. The wedding and its other owners stay.";
+  "Guests cannot give money on this wedding until another owner connects an account, and its other owners are told by email. The wedding and its other owners stay. Gifts already given, and any refund or dispute on them, stay with your Stripe account.";
 const PAYOUT_EXPRESS =
-  " The Stripe account Cire made for you stays at Stripe, in your name: sign in at connect.stripe.com/express_login to take care of it.";
+  " Cire made that account for you, in your name: sign in at connect.stripe.com/express_login to see its payouts, refunds and disputes.";
 const PAYOUT_MANY =
-  "Guests cannot give money on those weddings from when your account is deleted until another owner connects an account. The weddings and their other owners stay. Any Stripe account Cire made for you stays at Stripe, in your name: sign in at connect.stripe.com/express_login to take care of it.";
+  "Guests cannot give money on those weddings until another owner connects an account, and their other owners are told by email. The weddings and their other owners stay. Gifts already given, and any refund or dispute on them, stay with your Stripe account. Any account Cire made for you is in your name: sign in at connect.stripe.com/express_login to see its payouts, refunds and disputes.";
+
+/**
+ * A wedding's name as a payout line quotes it, with no mark a mail client
+ * turns into a link (`x.com`, `https://…`, `a@b`): another owner can rewrite
+ * the name, and osn-api prints the line in its plain-text email to the person.
+ */
+const linkFree = (name: string): string =>
+  name
+    .replaceAll(/[.:/@\\]+/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
 
 /**
  * One action per held wedding ({@link payoutHeldQuery}), with one choice,
@@ -371,7 +383,7 @@ function payoutActions(
   const actions: OpenAction[] = held.slice(0, MAX_PAYOUT_ACTIONS).map((row) => ({
     id: `${PAYOUT_PREFIX}${row.weddingId}`,
     kind: "wedding_payout_account",
-    label: `You connected the Stripe account for money gifts on ${quoted(row.name)}. Once your account is deleted, guests cannot give money there until another owner connects an account. To avoid that, hand money gifts to another owner in Cire first.`,
+    label: `You connected the Stripe account for money gifts on ${quoted(linkFree(row.name))}. Hand money gifts to another owner in Cire to keep them open, or they close when your account is deleted.`,
     choices: [
       {
         choice: "close",
@@ -386,7 +398,7 @@ function payoutActions(
     actions.push({
       id: PAYOUT_REST,
       kind: "weddings_payout_account",
-      label: `You connected the Stripe account for money gifts on more than ${MAX_PAYOUT_ACTIONS} weddings that have another owner. Once your account is deleted, guests cannot give money there until another owner connects an account. To avoid that, hand money gifts to another owner on each in Cire first.`,
+      label: `You also connected the Stripe account for money gifts on other weddings that have another owner, beyond the ${MAX_PAYOUT_ACTIONS} above. Hand money gifts to another owner on each in Cire to keep them open, or they close when your account is deleted.`,
       choices: [{ choice: "close", description: PAYOUT_MANY, erasedOn: null }],
       defaultChoice: "close",
       link: origin ? `${origin}/` : null,
@@ -482,8 +494,9 @@ interface EraseInput {
    * Called as each wedding's batch commits, when it took the owner seat of the
    * profile holding that wedding's payout account and another owner remains
    * ({@link OwnedOutcome.payoutHolderLeft}): the internal route's notice to the
-   * remaining owners. Absent, nothing is sent. A replay of a recorded erasure
-   * after a database restore passes none.
+   * remaining owners. Absent, nothing is sent, as a replay of recorded
+   * erasures after a database restore must call it
+   * (englishstreetventures/osn#2541).
    */
   readonly onPayoutHolderLeft?: (weddingId: string) => Effect.Effect<void>;
 }

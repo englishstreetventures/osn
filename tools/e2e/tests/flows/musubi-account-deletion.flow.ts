@@ -480,7 +480,7 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
     "the second scheduled email gives the payout line its own words, not a deletion",
     true,
     second?.text.includes(
-      `You connected the Stripe account for money gifts on "${P.payoutWedding.name}". Once your account is deleted, guests cannot give money there until another owner connects an account. To avoid that, hand money gifts to another owner in Cire first.\n  Guests cannot give money on this wedding from when your account is deleted`,
+      `You connected the Stripe account for money gifts on "${P.payoutWedding.name}". Hand money gifts to another owner in Cire to keep them open, or they close when your account is deleted.\n  Guests cannot give money on this wedding until another owner connects an account`,
     ) ?? false,
   );
 

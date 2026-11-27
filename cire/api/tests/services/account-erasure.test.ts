@@ -1337,7 +1337,9 @@ describe("accountErasureService.deletionPreview — a payout account's holder", 
       choices: [{ choice: "close", erasedOn: null }],
       link: `${PORTAL}/`,
     });
-    expect(actions[20]?.label).toContain("on more than 20 weddings that have another owner");
+    expect(actions[20]?.label).toContain(
+      "on other weddings that have another owner, beyond the 20 above",
+    );
     expect(actions[20]?.choices[0]?.description).toContain("connect.stripe.com/express_login");
     keepsTheContract(actions);
   });
@@ -1372,6 +1374,16 @@ describe("accountErasureService.deletionPreview — a payout account's holder", 
     expect(action?.label.length).toBeLessThanOrEqual(500);
     expect(action?.label).toContain(`"${"y".repeat(120)}…"`);
     expect(action?.choices[0]?.description.length).toBeLessThanOrEqual(500);
+  });
+
+  it("quotes a wedding name another owner wrote with no mark a mail client turns into a link", async () => {
+    // osn-api prints the line in its plain-text email to the person.
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER], { name: "Claim at https://evil.example/pay or me@evil.example" });
+    holdsAccount(db, "w1", P);
+    const [action] = await deletionPreview(db);
+    expect(action?.label).toContain('"Claim at https evil example pay or me evil example"');
+    expect(action?.label).not.toMatch(/:\/\/|evil\.example|@/);
   });
 
   it("the preview a host's removal reads lists no payout action", async () => {
@@ -1452,6 +1464,26 @@ describe("accountErasureService.erase — the remaining owners of a payout accou
     const { sent, hook } = notifier(db);
     await eraseNotifying(db, hook);
     await eraseNotifying(db, hook);
+    expect(recipients(sent)).toEqual([["registry-payout-holder-erased", "other@example.test"]]);
+  });
+
+  it("two calls at once mail the remaining owners once: the seat delete decides, not the first read", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    holdsAccount(db, "w1", P);
+    const { sent, hook } = notifier(db);
+    const call = accountErasureService.erase({
+      accountId: ACCOUNT,
+      profileIds: [P],
+      now: NOW,
+      onPayoutHolderLeft: hook,
+    });
+    const statements = recordStatements(db);
+    await run(db, Effect.all([call, call], { concurrency: "unbounded" }));
+    // Both calls read the owned wedding and ran its batch.
+    expect(
+      statements.filter((q) => /^update "weddings" set "deleted_at"/i.test(q.sql)),
+    ).toHaveLength(2);
     expect(recipients(sent)).toEqual([["registry-payout-holder-erased", "other@example.test"]]);
   });
 

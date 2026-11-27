@@ -15,8 +15,9 @@
  * The erasure's one email — to the remaining owners of a wedding whose payout
  * account holder it took — is sent from here, through the hook the service
  * calls as each wedding's batch commits, and after the response where the
- * request has `waitUntil`. A replay of a recorded erasure calls the service
- * without that hook, so it mails no one (`services/account-erasure.ts`).
+ * request has `waitUntil`. A caller of the service that passes no hook mails
+ * no one, which is how a replay of recorded erasures after a database restore
+ * must call it (englishstreetventures/osn#2541, `services/account-erasure.ts`).
  */
 import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";

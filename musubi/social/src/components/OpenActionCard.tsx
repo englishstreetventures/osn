@@ -141,12 +141,14 @@ export function OpenActionCard(props: OpenActionCardProps) {
             />
           )}
         </Match>
+        {/* One choice with a default: it happens whatever is answered, so
+            "Delete everything" takes nothing out of play and its words stay. */}
         <Match when={only()}>
           {(choice) => (
             <ChoiceWords
               description={choice().description}
               erasedOn={choice().erased_on}
-              dimmed={props.disabled}
+              dimmed={false}
             />
           )}
         </Match>

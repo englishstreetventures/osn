@@ -33,16 +33,17 @@ const esc = (s: string): string =>
 /** A line break in a subject header would start a new header. */
 const oneLine = (s: string): string => s.replaceAll(/[\r\n]+/g, " ");
 
+/** A wedding name with no spaces wraps inside the 480px frame rather than pushing past it. */
 const wrap = (bodyHtml: string): string =>
-  `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:24px">${bodyHtml}</body></html>`;
+  `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:24px;overflow-wrap:anywhere;word-break:break-word">${bodyHtml}</body></html>`;
 
 export function renderRegistryPayoutHolderErased(
   data: RegistryPayoutHolderErasedData,
 ): RenderedEmail {
   const wedding = oneLine(data.weddingName);
   const subject = oneLine(`Money gifts on ${wedding} need a new Stripe account`);
-  const lead = `An owner of ${wedding} who connected its Stripe account for money gifts has deleted their account. Guests cannot give money until an owner connects a Stripe account.`;
-  const next = `Connect your own account to take gifts, or leave money gifts off, in the organiser portal: Registry, then Settings, under Money gifts.`;
+  const lead = `An owner of ${wedding} who connected its Stripe account for money gifts has deleted their Musubi account. Guests cannot give money until an owner connects a Stripe account.`;
+  const next = `Use your own account to take gifts again, or leave money gifts off, in the organiser portal: Registry, then Settings, under Money gifts.`;
   const kept = `Gifts already given stay in the Stripe account they were paid into, and any refund or dispute on them is handled there.`;
 
   const text = [
@@ -65,7 +66,7 @@ export function renderRegistryPayoutHolderErased(
       `<p>${esc(lead)}</p>` +
       `<p>${esc(next)}</p>` +
       `<p>${esc(kept)}</p>` +
-      emailButton(data.moneyGiftsUrl, "Open Money gifts") +
+      emailButton(data.moneyGiftsUrl, "Use your own account") +
       `<p style="color:#666;font-size:14px;word-break:break-all">${esc(data.moneyGiftsUrl)}</p>` +
       `<p style="color:#666;font-size:14px">Cire Weddings</p>`,
   );

@@ -1302,7 +1302,10 @@ deletion flow's "Delete everything", collected with the answers and sent
 only on step 3, as a box's choice is. Musubi draws no `Switch` (§Motion).
 Ticked, what it takes out of play dims to 50% at once and only once: each
 circle and box dims itself as it is disabled, each choice's words dim with
-it, and the action's own words above them stay.
+it, and the action's own words above them stay. A choice with nothing to
+pick, one choice that is the action's default, happens whatever is answered,
+so it is not out of play and its words stay at full strength (cire's line
+for a wedding whose payout account the person holds).
 
 An unchosen circle's and box's edge is `--ui-choice-edge`, which Musubi maps
 to `--subtle`: 3.32:1 on a card in light and 3.62:1 in dark, over the 3:1 a

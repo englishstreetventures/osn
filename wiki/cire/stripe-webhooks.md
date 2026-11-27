@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-20
+last-reviewed: 2026-11-27
 ---
 
 # Stripe webhooks (cire-api)
@@ -104,7 +104,8 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    still names it; a gift with no recorded account must arrive on the
    account its wedding names now. So an account a wedding retired
    ([[cire-registry#Retiring an account]]) stays connected, and refunds and
-   disputes on its gifts still reach them.
+   disputes on its gifts still reach them: an Express one for good, a Standard
+   one until cire hands it back, 120 days after its last retire.
 
    A **Standard** account — the couple's own, connected through OAuth — is a
    working Stripe account, and this endpoint hears its own shop's events as
