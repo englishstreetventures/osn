@@ -1,5 +1,11 @@
 # @musubi/infra
 
+## 0.7.3
+
+### Patch Changes
+
+- 25b17c5: The dev tier's osn-api sends account email as `Musubi (dev) <dev@musubi.social>`, so a dev test email no longer reads as a real one and its bounces stay off production's `Musubi <hello@musubi.social>`.
+
 ## 0.7.2
 
 ### Patch Changes
