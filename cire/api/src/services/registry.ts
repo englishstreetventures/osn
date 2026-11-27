@@ -1149,11 +1149,15 @@ function claimedByItem(weddingId: string): Effect.Effect<Map<string, number>, ne
 }
 
 /**
- * Why turning money gifts on is refused for this row, or null: the holder,
- * Stripe and currency half of {@link accountMoneyBlock}, which the guest gate
- * reads too. An account can take charges before Stripe names the currency it
- * settles in; until it does, a gift could be converted on Stripe's terms, so
- * the switch waits. Each refusal carries `current`, the row as it stands.
+ * Why turning money gifts on is refused for this row, or null: no account
+ * named, then the holder, Stripe and currency half of
+ * {@link accountMoneyBlock}, which the guest gate reads too. The account is
+ * checked by its id, not only through Stripe's flag, because `updateSettings`'
+ * write checks it so and this explains a refused write. With no account the
+ * holder cannot be absent, so the reasons keep `accountMoneyBlock`'s order. An
+ * account can take charges before Stripe names the currency it settles in;
+ * until it does, a gift could be converted on Stripe's terms, so the switch
+ * waits. Each refusal carries `current`, the row as it stands.
  */
 function moneyOnRefusal(
   record: RegistrySettingsRecord,
@@ -1161,6 +1165,7 @@ function moneyOnRefusal(
   deployment: MoneyDeployment,
 ): PayoutHolderAbsent | StripeNotReady | SettlementCurrencyUnknown | CurrencyMismatch | null {
   const current = () => toSettingsDto(record, deployment, currency);
+  if (record.stripeAccountId === null) return new StripeNotReady({ current: current() });
   switch (accountMoneyBlock(record, currency)) {
     case "payout_holder_absent":
       return new PayoutHolderAbsent({ current: current() });
@@ -2062,8 +2067,9 @@ export const registryService = {
    * Upsert the settings row. Creates it on first write (absent row = defaults).
    *
    * Owns the cash-gifts invariant: the switch that shows guests a
-   * contribute button cannot be turned on unless Stripe can actually take a
-   * charge. Enforcing it here rather than in the route means every caller gets
+   * contribute button cannot be turned on unless the wedding names an account
+   * Stripe can actually take a charge on. Enforcing it here rather than in the
+   * route means every caller gets
    * it — a guest paying into an account that cannot receive money is a refund
    * and a support case, not a validation nit.
    *
@@ -2073,20 +2079,24 @@ export const registryService = {
    * outright. Turning cash gifts on while the two disagree would look fine in
    * the portal and then fail at Checkout, in front of a guest — and so would
    * turning them on before Stripe has said which currency it settles in
-   * (`SettlementCurrencyUnknown`). The currency check is repeated inside the
-   * upsert's own `WHERE`, so a currency change landing between the read and the
-   * write cannot leave the switch on against the old currency; the wedding
-   * settings write refuses the change from its side (`CurrencyLockedByCashGifts`
-   * in `./wedding-settings`). The guest gate checks the same rule where the money
+   * (`SettlementCurrencyUnknown`). The wedding settings write refuses a
+   * currency change from its side (`CurrencyLockedByCashGifts` in
+   * `./wedding-settings`). The guest gate checks the same rule where the money
    * moves (`takesMoney`).
    *
    * Nor can it be turned on while the account's holder holds no owner seat
-   * here, or nobody is recorded (`PayoutHolderAbsent`). That check is the read
-   * before the write alone: a holder going between the two leaves the switch on
-   * beside an absent holder, which an erasure leaves too, and the guest gate
-   * closes money either way. Turning money gifts off is never refused: the
-   * switch is the couple's intent, and nothing but this save writes it, so it
-   * survives a change of account.
+   * here, or nobody is recorded (`PayoutHolderAbsent`).
+   *
+   * The upsert's own `WHERE` repeats every check the read made — an account
+   * named, its holder seated, Stripe taking charges, the settlement currency
+   * the wedding's — so an erasure of the holder, a deauthorization, an
+   * `account.updated` or a currency change landing between the read and the
+   * write cannot leave the switch on. A write that refuses is answered from one
+   * read after it, with the reason that row gives (`moneyOnRefusal`).
+   *
+   * Turning money gifts off is never refused and never checked: the switch is
+   * the couple's intent, and nothing but this save writes it, so it survives a
+   * change of account.
    *
    * Two organisers can have the settings open at once. `patch.expected` is how
    * a write says what it was looking at: each field named there must still hold
@@ -2159,11 +2169,16 @@ export const registryService = {
       // what turns a boolean into the 0/1 the column stores.
       const unchanged: SQL[] = [];
       if (patch.cashGiftsEnabled === true) {
-        // The check above, again, inside the write: the row's settlement
-        // currency must still be the wedding's. `outerColumn` because this
-        // correlates to the conflicting row, and drizzle would write the
-        // inner columns bare.
+        // The check above, again, inside the write, on the conflicting row:
+        // an account named, its holder in an owner seat here, Stripe taking
+        // charges, and its settlement currency the wedding's. The correlated
+        // subqueries name that row through `outerColumn` (as
+        // `payoutHolderAbsentSql` does), since drizzle would write the inner
+        // columns bare.
         unchanged.push(
+          isNotNull(registrySettings.stripeAccountId),
+          sql`not ${payoutHolderAbsentSql()}`,
+          eq(registrySettings.stripeChargesEnabled, true),
           sql`exists (select 1 from ${weddings} where ${weddings.id} = ${outerColumn(registrySettings.weddingId)} and upper(${weddings.currency}) = upper(${outerColumn(registrySettings.stripeDefaultCurrency)}))`,
         );
       }

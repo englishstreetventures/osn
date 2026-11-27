@@ -2577,6 +2577,151 @@ describe("whether the account's holder is an owner (`settings.payoutHolderAbsent
       moneyGiftsBlockedBy: "payments_unavailable",
     });
   });
+
+  /**
+   * Turning money gifts on reads the row, then writes it, and another request
+   * can land between the two. The account here can charge, settles in the
+   * wedding's currency and is held by a second owner, who is an owner of
+   * `wed_other` too: a seat check that lost its wedding would find that seat.
+   */
+  describe("when the account or its holder changes between the save's read and its write", () => {
+    const PARTNER = "usr_partner";
+    type Statement = readonly [sql: string, ...params: string[]];
+
+    const heldByPartner = (db: ReturnType<typeof createDb>) => {
+      const now = new Date();
+      for (const [id, weddingId] of [
+        ["whost_partner", BOOTSTRAP_WEDDING_ID],
+        ["whost_partner_other", "wed_other"],
+      ] as const) {
+        db.insert(weddingHosts)
+          .values({
+            id,
+            weddingId,
+            osnProfileId: PARTNER,
+            addedByOsnProfileId: OWNER,
+            role: "owner",
+            createdAt: now,
+          })
+          .run();
+      }
+      account(PARTNER)(db);
+    };
+
+    /**
+     * The owner turns money gifts on; `between` runs once, after the save's
+     * read and just before its upsert. Answers the response, how many times
+     * `between` ran, and the switch as stored.
+     */
+    const switchOn = async (between: readonly Statement[]) => {
+      let db: ReturnType<typeof createDb> | undefined;
+      const app = buildApp({
+        tier: "gold",
+        ...paying,
+        seed: (handle) => {
+          heldByPartner(handle);
+          db = handle;
+        },
+      });
+      const client = db!.$client;
+      const prepare = client.prepare.bind(client);
+      let ran = 0;
+      // Drizzle's bun:sqlite session gets every statement through `client.query`.
+      Object.defineProperty(client, "query", {
+        configurable: true,
+        value: (sql: string) => {
+          if (
+            between.length > 0 &&
+            ran === 0 &&
+            sql.startsWith('insert into "registry_settings"')
+          ) {
+            ran += 1;
+            for (const [statement, ...params] of between) prepare(statement).run(...params);
+          }
+          return prepare(sql);
+        },
+      });
+      const res = await req(app, "PUT", `${base}/settings`, OWNER, { cashGiftsEnabled: true });
+      Reflect.deleteProperty(client, "query");
+      const stored = db!
+        .select({ on: registrySettings.cashGiftsEnabled })
+        .from(registrySettings)
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        .get();
+      return { res, ran, storedOn: stored?.on };
+    };
+
+    /** The refusal a switch-on got, with the settings it carries, and the switch left off. */
+    const expectRefused = async (
+      outcome: Awaited<ReturnType<typeof switchOn>>,
+      error: "payout_holder_absent" | "stripe_not_ready",
+    ) => {
+      expect(outcome.ran).toBe(1);
+      expect(outcome.res.status).toBe(409);
+      const refused = (await outcome.res.json()) as { error: string; settings: Settings };
+      expect(refused.error).toBe(error);
+      expect(refused.settings.moneyGiftsBlockedBy).toBe(error);
+      expect(refused.settings.cashGiftsEnabled).toBe(false);
+      expect(outcome.storedOn).toBe(false);
+    };
+
+    const SEAT_GONE: Statement = [
+      "DELETE FROM wedding_hosts WHERE wedding_id = ? AND osn_profile_id = ?",
+      BOOTSTRAP_WEDDING_ID,
+      PARTNER,
+    ];
+
+    it("lets the switch on while nothing changes", async () => {
+      const outcome = await switchOn([]);
+      expect(outcome.res.status).toBe(200);
+      const saved = (await outcome.res.json()) as { settings: Settings };
+      expect(saved.settings).toMatchObject({ cashGiftsEnabled: true, moneyGiftsBlockedBy: null });
+      expect(outcome.storedOn).toBe(true);
+    });
+
+    it("refuses it when the holder's seat goes, as an erasure's first batch leaves it", async () => {
+      await expectRefused(await switchOn([SEAT_GONE]), "payout_holder_absent");
+    });
+
+    it("refuses it when the holder is erased, seat and record both", async () => {
+      await expectRefused(
+        await switchOn([
+          SEAT_GONE,
+          [
+            "UPDATE registry_settings SET stripe_connected_by_osn_profile_id = NULL WHERE stripe_connected_by_osn_profile_id = ?",
+            PARTNER,
+          ],
+        ]),
+        "payout_holder_absent",
+      );
+    });
+
+    it("refuses it when Stripe's deauthorization detaches the account", async () => {
+      // What `detachStripeAccount` writes to the row.
+      await expectRefused(
+        await switchOn([
+          [
+            "UPDATE registry_settings SET stripe_account_id = NULL, stripe_connected_by_osn_profile_id = NULL, stripe_account_type = NULL, stripe_connected_at = NULL, stripe_charges_enabled = 0, stripe_payouts_enabled = 0 WHERE stripe_account_id = ?",
+            "acct_live",
+          ],
+        ]),
+        "stripe_not_ready",
+      );
+    });
+
+    it("refuses it when Stripe stops taking charges on the account", async () => {
+      // What `account.updated` writes when Stripe disables charges.
+      await expectRefused(
+        await switchOn([
+          [
+            "UPDATE registry_settings SET stripe_charges_enabled = 0 WHERE stripe_account_id = ?",
+            "acct_live",
+          ],
+        ]),
+        "stripe_not_ready",
+      );
+    });
+  });
 });
 
 /**
