@@ -1255,7 +1255,7 @@ describe("D1 session routing at the entry points", () => {
     expect(pending).toHaveLength(1);
     expect(
       probe.sessionQueries.filter((queries) =>
-        queries.some((q) => q.includes('from "registry_retired_accounts"')),
+        queries.some((q) => /from "registry_retired_accounts"/i.test(q)),
       ),
     ).toHaveLength(1);
   }, 30_000);

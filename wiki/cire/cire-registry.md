@@ -220,11 +220,11 @@ A refusal pays one read, and answers the first of these that holds: **403** `for
 
 | Stripe answers | The sweep |
 | --- | --- |
-| The deauthorize succeeds | Releases every row naming the account (`detachStripeAccount`, timed a second before the call). A settings row naming the account after that, a connect that landed while Stripe revoked it, is read at Stripe: cleared when Stripe no longer reaches the account (`stripe account handed back while a wedding connected it`, with the id), kept when a new grant does (`stripe account connected again after its hand-back`) |
+| The deauthorize succeeds | Releases every row naming the account (`detachStripeAccount`, timed a second before the call). A settings row naming the account after that, a connect that landed while Stripe revoked it, is read at Stripe: cleared when Stripe refuses cire the account (`stripe account handed back while a wedding connected it`, with the id), kept when a new grant does (`stripe account connected again after its hand-back`) |
 | The deauthorize fails, and `GET /v1/accounts/:id` answers 403 `account_invalid`, and a control read succeeds | Releases the rows as above. The control read is one account a settings row still names, once a run: another platform's key, or the wrong mode, reads every account as `account_invalid` too |
 | Anything else: the account still reads (a bad client id), any other error, the control read refused, or no account to read | Sets `last_hand_back_at` on the account's unreleased rows and logs `stripe account not handed back` with the id and why, for a hand fix |
 
-A failure of the run's own writes is logged as `stripe account hand-back failed` with the id, sets no mark, and the run goes on; a deauthorize that succeeded and whose release failed is released on the next run, by the second row. At most 20 D1 statements and 7 Stripe calls a run ([[free-tier-limits]]). A connect whose attach lands after the sweep's read of it can still leave a wedding naming an account cire no longer reaches, as after the OAuth hand-back and the purge; the panel then shows an account that cannot take payments, and any owner's replace clears it.
+A failure of the run's own writes is logged as `stripe account hand-back failed` with the id, sets no mark, and the run goes on; a deauthorize that succeeded and whose release failed is released on the next run, by the second row. At most 20 D1 statements and 7 Stripe calls a run ([[free-tier-limits]]). A connect whose attach lands after the sweep's read of it can still leave a wedding naming an account Stripe refuses cire, as after the OAuth hand-back and the purge; the panel then shows an account that cannot take payments, and any owner's replace clears it.
 
 #### One account, several weddings
 
