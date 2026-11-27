@@ -612,24 +612,40 @@ describe("maintenanceSweeps.handBackRetiredAccounts", () => {
     expect(logs).toMatch(/stripe account handed back while a wedding connected it[\s\S]*acct_a/);
   });
 
-  it("judges each account again before its call: a connect or a dispute that landed meanwhile holds it", async () => {
+  it.each([
+    ["a wedding connects it", (db: TestDb) => names(db, "w2", "acct_b")],
+    ["a gift on it is disputed", (db: TestDb) => gift(db, "g_late", "acct_b", "disputed", NOW)],
+  ] as const)(
+    "judges each account again before its call: held when, during an earlier account's call, %s",
+    async (_label, landing) => {
+      const { db, layer } = setup();
+      retire(db, "acct_a", { retiredAt: new Date(OLD.getTime() - 2 * DAY_MS) });
+      retire(db, "acct_b", { retiredAt: new Date(OLD.getTime() - DAY_MS) });
+      retire(db, "acct_c");
+      const s = stripe({
+        deauthorize: (id) => (id === "acct_a" ? Effect.sync(() => landing(db)) : Effect.void),
+      });
+      expect(await sweep(layer, s.client)).toMatchObject({ handedBack: 2, held: 1 });
+      // The account that is still due after the landing is handed back.
+      expect(s.calls).toEqual(["deauthorize acct_a", "deauthorize acct_c"]);
+    },
+  );
+
+  it("keeps a wedding that connected the account in the same second as the call, while Stripe still reaches it", async () => {
     const { db, layer } = setup();
-    retire(db, "acct_a", { retiredAt: new Date(OLD.getTime() - 2 * DAY_MS) });
-    retire(db, "acct_b", { retiredAt: new Date(OLD.getTime() - DAY_MS) });
-    retire(db, "acct_c");
-    // While acct_a's call runs, a wedding connects acct_b and a gift on
-    // acct_c is disputed.
+    retire(db, "acct_a");
     const s = stripe({
-      deauthorize: (id) =>
-        id === "acct_a"
-          ? Effect.sync(() => {
-              names(db, "w2", "acct_b");
-              gift(db, "g_late", "acct_c", "disputed", NOW);
-            })
-          : Effect.void,
+      deauthorize: () => Effect.sync(() => names(db, "w2", "acct_a", new Date())),
     });
-    expect(await sweep(layer, s.client)).toMatchObject({ handedBack: 1, held: 2 });
-    expect(s.calls).toEqual(["deauthorize acct_a"]);
+    await sweep(layer, s.client);
+    expect(s.calls).toEqual(["deauthorize acct_a", "retrieve acct_a"]);
+    expect(
+      db
+        .select({ account: registrySettings.stripeAccountId })
+        .from(registrySettings)
+        .where(eq(registrySettings.weddingId, "w2"))
+        .get()?.account,
+    ).toBe("acct_a");
   });
 
   it("a D1 failure on one account is logged and counted, the next account goes on, and the next run releases it", async () => {
