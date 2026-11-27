@@ -19,10 +19,12 @@ import { Effect, Layer } from "effect";
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { erasureOutcome } from "../../src/lib/deletion-records";
 import { createOwnerNotices } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
 import {
   accountErasureService,
+  erasureProgress,
   MAX_LOWER_SEATS_PER_CALL,
   MAX_OWNED_WEDDINGS_PER_CALL,
 } from "../../src/services/account-erasure";
@@ -1698,6 +1700,33 @@ describe("accountErasureService.erase — the remaining owners of a payout accou
       },
     ]);
     expect(sent).toEqual([]);
+  });
+
+  it("records a wedding whose holder left before the owners' email runs, whatever the email does", async () => {
+    // The email may die or be interrupted inline (Bun, tests); the wedding's
+    // outcome is in the progress already, so the record lists it as taken.
+    for (const hook of [() => Effect.die("mail died"), () => Effect.interrupt]) {
+      const db = makeDb();
+      wedding(db, "w1", [P, OTHER]);
+      holdsAccount(db, "w1", P);
+      const progress = erasureProgress();
+      const exit = await Effect.runPromiseExit(
+        accountErasureService
+          .eraseWithOutcomes(
+            { accountId: ACCOUNT, profileIds: [P], now: NOW, onPayoutHolderLeft: hook },
+            progress,
+          )
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(exit._tag).toBe("Failure");
+      expect(erasureOutcome(progress, false)).toEqual({
+        deletedWeddings: [],
+        removedSeats: [{ weddingId: "w1", profileId: P }],
+        unsettledWeddings: [],
+        cleanUp: "not_run",
+        finished: false,
+      });
+    }
   });
 
   it("mails no one for a wedding the erasure deletes, or one already deleted", async () => {
