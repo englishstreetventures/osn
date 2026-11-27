@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-11-26
+last-reviewed: 2026-11-27
 ---
 
 # OSN Wiki
@@ -128,6 +128,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-envelope]] — the wax-sealed envelope a guest opens before the invite: who sees it, the card drawn from the live hero, boot and failure rules
 - [[cire-invite-look-study]] — investigation: how a leading digital-invite service builds its invites and envelope, cire's gaps, and the open questions for iPhone, App Clips, Pulse iOS and AI-made materials
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
+- [[cire-gift-payout-laws]] — the payout account's rules as a Bend model: the laws proved about it, the test that ties it to the code, and what it does not cover
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
 - [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them
 - [[cire-rsvp-changes]] — the RSVP change log, the organisers' daily digest email and the "since your last visit" card and badges

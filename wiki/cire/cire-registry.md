@@ -14,7 +14,8 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-11-26
+  - "[[cire-gift-payout-laws]]"
+last-reviewed: 2026-11-27
 ---
 
 # Gift registry
@@ -186,7 +187,7 @@ Creating that endpoint in the Stripe dashboard — its scope, the nine events, t
 - **The connector sits below owner, or holds no seat** (they left or were demoted before that refusal existed): nothing on the account changes. Their profile id stays on the row; without an owner seat they fail `weddingOwner`, so no current owner may open links; and money gifts are closed (`payout_holder_absent`). Seated as an owner again, they get the links back and the account takes gifts again while the switch is on. Clearing the column on removal would hand the account to the next owner who presses Connect. Owners' settings say so (`payoutHolderAbsent: true`), and any owner may retire the account. An erasure of their OSN account, or a removal of their Cire data, clears the column, which leaves the account with no holder on record.
 - **Stripe deauthorizes the account** (`account.application.deauthorized`): `detachStripeAccount` clears the connector with the id, on every wedding naming the account, so whoever connects the next account is its connector.
 
-How a wedding with two owners receives its gifts, hands the account from one partner to the other, or replaces it, is designed in englishstreetventures/osn#1950: the API retires an account ([Retiring an account](#retiring-an-account)), and the Money gifts panel holds the controls ([The settings tab](#the-settings-tab-cirehost), "Whose account it is").
+How a wedding with two owners receives its gifts, hands the account from one partner to the other, or replaces it, is designed in englishstreetventures/osn#1950: the API retires an account ([Retiring an account](#retiring-an-account)), and the Money gifts panel holds the controls ([The settings tab](#the-settings-tab-cirehost), "Whose account it is"). The rules that hold the account together — the generation counts every clear, a stale page retires nothing, only an erasure leaves the account with a holder who is not an owner, and money gifts open only for a seated holder whose account can charge — are proved about a Bend model tied to this code by an agreement test: [[cire-gift-payout-laws]].
 
 #### Retiring an account
 

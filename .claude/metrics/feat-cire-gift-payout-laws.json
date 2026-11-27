@@ -1,0 +1,169 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/cire-gift-payout-laws",
+    "base_sha": "1b41ed1f5953b635986e2c324c04a7b9a3558429",
+    "head_sha": "823c9bd95a4ea693647c940935abce2c9704ee4a",
+    "generated_at": "2026-11-26T15:38:52.632Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2570,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-26T14:44:52.595Z",
+    "last_ts": "2026-11-26T15:36:24.237Z",
+    "span_seconds": 3092,
+    "active_seconds": 2171,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 14.817340400000004,
+    "tokens": {
+      "input": 364,
+      "output": 160292,
+      "thinking": 84982,
+      "cache_write_5m": 681966,
+      "cache_write_1h": 0,
+      "cache_read": 20500536
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 364,
+          "output": 160292,
+          "thinking": 84982,
+          "cache_write_5m": 681966,
+          "cache_write_1h": 0,
+          "cache_read": 20500536
+        },
+        "usd_equivalent": 14.817340400000004,
+        "messages": 181
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 364,
+          "output": 160292,
+          "thinking": 84982,
+          "cache_write_5m": 681966,
+          "cache_write_1h": 0,
+          "cache_read": 20500536
+        },
+        "usd_equivalent": 14.817340400000004,
+        "messages": 181
+      }
+    },
+    "effort": {
+      "xhigh": 54,
+      "high": 127
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 5,
+      "docs": 5,
+      "config": 0,
+      "source": 13
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 898,
+        "deleted": 36
+      },
+      "docs": {
+        "added": 113,
+        "deleted": 6
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 2637,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "cire/api"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 139,
+      "Read": 57,
+      "Write": 6,
+      "SubagentHandback": 4,
+      "Skill": 4,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-performance": 1,
+      "review-security": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 181,
+      "with_tools": 181,
+      "with_one_tool": 155,
+      "context_median": 118884,
+      "context_p90": 185677
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 10,
+    "located": 9,
+    "acted_on": 9,
+    "paired": 9,
+    "acted_on_paired": 9,
+    "control_changed": 4,
+    "acted_on_by_test": 2,
+    "acted_on_paired_by_test": 2
+  }
+}

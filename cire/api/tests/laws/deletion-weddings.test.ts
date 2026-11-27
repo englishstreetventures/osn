@@ -10,7 +10,8 @@ import { accountErasureService } from "../../src/services/account-erasure";
 import { hostsService } from "../../src/services/hosts";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
 import { insertWedding } from "../test-helpers/wedding";
-import { type Role, type W, type WEv, array, model, seeded } from "./model";
+import { array, seeded } from "./bend";
+import { type Role, type W, type WEv, model } from "./model";
 
 /**
  * One wedding's seats (laws/account-deletion/weddings.bend) against cire-api's
