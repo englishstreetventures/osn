@@ -489,9 +489,14 @@ then the removal runs. It holds back the whole removal, not only the seat the
 account is tied to. Deleting the Musubi account is never refused on it: that
 erasure takes the seat, which closes the wedding's money gifts. A person who
 asks by email to erase their Cire data alone while they hold such an account is
-told these ways on. If the month to answer (Art. 12(3)) would end before the
-account is handed on, the operator takes the request to the owner before
-answering, since no Art. 17(3) ground covers the hold.
+told these ways on. If the account is not handed on before the month to answer
+ends (Art. 12(3)), everything of theirs in Cire is erased except the one owner
+seat that holds the payout account, and the answer tells them how to clear that
+seat (the owner's decision, 2026-11-27). No route does that yet: Remove my Cire
+data refuses, the erasure's `host` scope keeps the seat but then stops before
+the rest of the person's data, and the account erasure takes the seat. Until
+englishstreetventures/osn#2576 lands, bring each such case to the owner before
+the month ends.
 
 ### Art. 18 — Restriction of processing
 
@@ -543,7 +548,7 @@ Default position: do the work. Refusals are exceptional and have to survive a DP
 | Request invokes "right to be forgotten" against indexed search engines | Out of scope (we are not the search engine); inform requester. |
 | Request claims breach has occurred | Treat as breach notification; trigger [[breach-response]]. |
 | Authority subpoena vs DSAR | Different flow; route to legal counsel. |
-| A request by email to erase Cire data from a person who holds a wedding's payout account, not handed on as the month ends | Take it to the owner before answering: no Art. 17(3) ground covers the hold ([[#Art. 17 — Right of erasure]]). |
+| A request by email to erase Cire data from a person who holds a wedding's payout account, not handed on as the month ends | Erase everything of theirs in Cire but the held seat, and tell them how to clear it. No route does this until englishstreetventures/osn#2576 lands: until then, bring the case to the owner before the month ends ([[#Art. 17 — Right of erasure]]). |
 
 ## Project changes required
 

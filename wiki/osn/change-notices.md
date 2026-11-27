@@ -70,11 +70,12 @@ deleting the Musubi account, and its link is the notice's `path` on Musubi's
 app origin ([`routes/change-notices.ts`](../../osn/api/src/routes/change-notices.ts),
 [`change-notice.ts`](../../shared/email/src/templates/change-notice.ts)). So a
 notice about Cire's terms cannot link to cireweddings.com, name Cire as the
-service, or point to "Remove my Cire data".
+service, or point to "Remove my Cire data", and one about Pulse's terms cannot
+link to Pulse or name it.
 
 ## What the pages promise
 
-Three pages say that a change that matters is emailed to the reader's Musubi
+Four pages say that a change that matters is emailed to the reader's Musubi
 account before it takes effect, saying what changes and from what day, and that
 the page's date changes:
 
@@ -83,12 +84,14 @@ the page's date changes:
 | Musubi's privacy notice ([`PrivacyPage.tsx`](../../musubi/social/src/pages/PrivacyPage.tsx)) | "Changes" |
 | Musubi's terms ([`TermsPage.tsx`](../../musubi/social/src/pages/TermsPage.tsx)) | "Changes to these terms" |
 | Cire's terms ([`terms.astro`](../../cire/landing/src/pages/terms.astro)) | "Changes to these terms", for those who use Cire with a Musubi account |
+| Pulse's terms ([`terms.tsx`](../../pulse/web/src/routes/terms.tsx)) | "Changes", for those who use Pulse with a Musubi account |
 
 Cire's guest notice ([`guest-privacy-notice.astro`](../../cire/ui/src/guest-privacy-notice.astro))
 promises no email: guests hold no account. It says only that the page and its
-date change. Cire's hosts' and vendors' notices have no section on changes.
-`musubi/social/tests/legal-pages.test.ts`, `cire/landing/tests/legal-pages.test.ts`
-and `cire/ui/tests/guest-privacy-notice.test.ts` pin these sentences.
+date change. Cire's hosts' and vendors' notices and Pulse's privacy notice have
+no section on changes. `musubi/social/tests/legal-pages.test.ts`,
+`cire/landing/tests/legal-pages.test.ts`, `cire/ui/tests/guest-privacy-notice.test.ts`
+and `pulse/web/tests/routes/legal-pages.test.ts` pin these sentences.
 
 The promise is kept by the operator, not by the code: nothing sends on its own,
 and only the check job reads the day, when the action is dispatched. A change
