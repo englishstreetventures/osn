@@ -137,7 +137,7 @@ describe("the musubi stack, evaluated offline", () => {
       ].join(","),
       OSN_AUTHORIZE_UI_URL: `https://musubi.${DEV_DOMAIN}/authorize`,
       OSN_COOKIE_DOMAIN: `musubi.${DEV_DOMAIN}`,
-      OSN_EMAIL_FROM: "Musubi <hello@musubi.social>",
+      OSN_EMAIL_FROM: "Musubi (dev) <dev@musubi.social>",
       OSN_EMAIL_VERIFICATION_API: "true",
     });
 
