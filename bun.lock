@@ -358,7 +358,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.28.4",
+      "version": "0.28.5",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -390,7 +390,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.53.2",
+      "version": "3.53.3",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
@@ -689,7 +689,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.23.1",
+      "version": "0.24.0",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.1.4",
