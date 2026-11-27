@@ -25,7 +25,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-26
+last-reviewed: 2026-11-27
 ---
 
 # Email Transport
@@ -355,7 +355,7 @@ Environment variables for `@osn/api`:
 | `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with the `Email Sending Write` permission (fallback transport) |
-| `OSN_EMAIL_FROM` | optional | Verified sender: a bare address or `Name <address>` (default: `noreply@osn.local`; dev: `Musubi <hello@musubi.social>`; prod: `Musubi <hello@musubi.social>`). Resend gets it as written. When osn-api selects the Cloudflare fallback, a malformed value throws `OSN_EMAIL_FROM must be …` at boot and the Worker answers every request `503 Worker misconfigured`. |
+| `OSN_EMAIL_FROM` | optional | Verified sender: a bare address or `Name <address>` (default: `noreply@osn.local`; dev: `Musubi (dev) <dev@musubi.social>`; prod: `Musubi <hello@musubi.social>`). Resend gets it as written. When osn-api selects the Cloudflare fallback, a malformed value throws `OSN_EMAIL_FROM must be …` at boot and the Worker answers every request `503 Worker misconfigured`. |
 | `RESEND_API_URL` | local only | Origin of a local Resend emulator, e.g. `http://localhost:4008`. Unset ⇒ `https://api.resend.com`. Loopback origins only (a `*.localhost` name needs https). **Never set in a deployed tier**: osn-api refuses to boot with it, the production deploy refuses to run while it exists as a secret, and a test fails if `wrangler.toml` sets it. |
 
 cire-api reads `RESEND_API_KEY` and `RESEND_API_URL` under the same names and
@@ -364,16 +364,16 @@ a refused override leaves no Resend transport and logs `email disabled: Resend
 misconfigured` with the reason, and the Worker keeps serving. Its production
 deploy refuses to run while `RESEND_API_URL` exists as a secret.
 
-> **Dev and production both send from `musubi.social`.**
-> Resend refuses to send from a domain it cannot authenticate, so
-> `Musubi <hello@musubi.social>` works only while `musubi.social` stays verified in
+> **Dev and production both send from `musubi.social`, each from its own address.**
+> Production sends `Musubi <hello@musubi.social>`; the dev tier sends
+> `Musubi (dev) <dev@musubi.social>`. Resend refuses to send from a domain it
+> cannot authenticate, so both work only while `musubi.social` stays verified in
 > Resend. A failed send takes **OTP step-up** with it, which is the way back into
 > an account after a recovery-code login. See [[musubi-identity-migration]].
 >
-> Dev shares production's address. Neither the address nor the display name marks a message as dev,
-> and spam complaints about dev mail count against that address. A separate
-> `Musubi (dev) <dev@musubi.social>` would keep both apart, with no extra Resend
-> setup, since Resend verifies a whole domain.
+> The split keeps a dev test email from reading as a real one, and spam
+> complaints and bounces about dev mail stay off production's address. It needs
+> no extra Resend setup, since Resend verifies a whole domain.
 
 Before you deploy (Resend — the live path):
 
