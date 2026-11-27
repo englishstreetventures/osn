@@ -1,8 +1,10 @@
 import { join } from "node:path";
 
 import {
+  adoptedBucketOf,
   adoptedWorkerOf,
   declaredDomains,
+  deletionRecordsBucket,
   origin,
   physicalName,
   PRODUCTION_STAGE_HOSTS,
@@ -13,12 +15,13 @@ import {
   type DeclaredDomains,
   type MigrationSources,
   type ResourceKinds,
+  type RetainedBucketInput,
   type RetainedD1Input,
   type StageHosts,
 } from "@shared/infra";
 
 /** A Worker binding described as data; the stack turns each into an Alchemy value. */
-export type BindingDescription = { readonly kind: "d1" };
+export type BindingDescription = { readonly kind: "d1" } | { readonly kind: "r2" };
 
 /** zap-api's Worker input apart from the values only the stack holds: resources and secrets. */
 interface ZapApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
@@ -37,6 +40,8 @@ export const ZAP_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
 interface ZapDeclaration {
   readonly zapApi: ZapApiDeclaration;
   readonly zapDb: RetainedD1Input;
+  /** Where zap-api records each account erasure it accepts, outside `zap-db`. */
+  readonly zapDeletionRecords: RetainedBucketInput;
 }
 
 /**
@@ -88,7 +93,9 @@ export function zapDeclaration(input: {
         OSN_ISSUER_URL: issuer,
         OSN_API_URL: issuer,
       },
-      bindings: { DB: { kind: "d1" } },
+      // DELETION_RECORDS: each account erasure, recorded outside the database
+      // before it is written (zap/api/src/lib/deletion-records.ts).
+      bindings: { DB: { kind: "d1" }, DELETION_RECORDS: { kind: "r2" } },
       // Invocation logs on, as zap-api's Wrangler config leaves them when unset.
       observability: {
         logs: true,
@@ -108,6 +115,7 @@ export function zapDeclaration(input: {
       migrations: join(generatedDir, "migrations", "zap-db"),
       importFiles: [],
     },
+    zapDeletionRecords: deletionRecordsBucket("zap-deletion-records", stage),
   };
 }
 
@@ -120,12 +128,14 @@ export const API_LOGICAL_IDS = { zap_api: "ZapApi" } as const satisfies Readonly
 export const PRODUCTION_RESOURCE_KINDS: ResourceKinds = {
   ZapApi: "api-worker",
   ZapDb: "d1",
+  ZapDeletionRecords: "r2",
 };
 
 /** zap-api and its database on production. */
 interface ZapProductionApis {
   readonly zapApi: ZapApiDeclaration;
   readonly zapDb: RetainedD1Input;
+  readonly zapDeletionRecords: RetainedBucketInput;
 }
 
 /**
@@ -165,7 +175,9 @@ export function zapProductionApis(input: {
         OSN_ISSUER_URL: issuer,
         OSN_API_URL: issuer,
       },
-      bindings: { DB: { kind: "d1" } },
+      // DELETION_RECORDS: each account erasure, recorded outside the database
+      // before it is written (zap/api/src/lib/deletion-records.ts).
+      bindings: { DB: { kind: "d1" }, DELETION_RECORDS: { kind: "r2" } },
       observability: {
         logs: false,
         headSamplingRate: 1,
@@ -184,6 +196,7 @@ export function zapProductionApis(input: {
       migrations: join(input.generatedDir, "migrations", "zap-db"),
       importFiles: [],
     },
+    zapDeletionRecords: deletionRecordsBucket("zap-deletion-records", "production"),
   };
 }
 
@@ -199,7 +212,7 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
         migrations: ZAP_DB_PRODUCTION_MIGRATIONS,
       },
     },
-    buckets: {},
+    buckets: { ZapDeletionRecords: adoptedBucketOf(apis.zapDeletionRecords) },
   };
 })();
 

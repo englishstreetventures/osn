@@ -169,6 +169,15 @@ interface RequestErasureInput {
   readonly deleteEverything?: boolean;
 }
 
+/** The job a soft delete is about to write, for the record written ahead of it. */
+export interface ErasureJobAhead {
+  readonly jobId: string;
+  /** When the request is accepted, in unix milliseconds. */
+  readonly at: number;
+  /** When the window ends, in unix seconds, as the job stores it. */
+  readonly hardDeleteAt: number;
+}
+
 interface RequestErasureOutput {
   readonly accountId: string;
   /** Unix seconds when the account is scheduled for hard delete. */
@@ -233,14 +242,14 @@ const standingDeletion = (accountId: string) =>
     const rows = yield* Effect.tryPromise({
       try: () =>
         db
-          .select({ hardDeleteAt: deletionJobs.hardDeleteAt })
+          .select({ hardDeleteAt: deletionJobs.hardDeleteAt, jobId: deletionJobs.jobId })
           .from(deletionJobs)
           .innerJoin(accounts, eq(accounts.id, deletionJobs.accountId))
           .where(and(eq(deletionJobs.accountId, accountId), sql`${accounts.deletedAt} IS NOT NULL`))
           .limit(1),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
-    return rows[0]?.hardDeleteAt ?? null;
+    return rows[0] ?? null;
   });
 
 /** What a redacted profile's handle begins with: `deleted_` and the suffix of its id. */
@@ -274,9 +283,17 @@ const redactedHandle = sql`CASE WHEN EXISTS (
  * The cross-service fan-out runs later, from the sweeper, once the grace
  * window has closed.
  */
-export const requestErasure = (
-  input: RequestErasureInput,
-): Effect.Effect<RequestErasureOutput, AccountNotFoundError | AccountErasureDbError, Db> =>
+export const requestErasure = <E = never>(
+  input: RequestErasureInput & {
+    /**
+     * Runs once the request is accepted — the account exists and no deletion
+     * stands — and before anything is written; its failure fails the request
+     * with nothing written. The route records the request here; a caller
+     * re-applying a recorded request passes none.
+     */
+    readonly beforeWrite?: (job: ErasureJobAhead) => Effect.Effect<void, E>;
+  },
+): Effect.Effect<RequestErasureOutput, AccountNotFoundError | AccountErasureDbError | E, Db> =>
   Effect.gen(function* () {
     const {
       accountId,
@@ -285,9 +302,11 @@ export const requestErasure = (
       heldHandleDigest,
       choices,
       deleteEverything = false,
+      beforeWrite = () => Effect.void,
     } = input;
     const { db } = yield* Db;
-    const now = Math.floor(Date.now() / 1_000);
+    const nowMs = Date.now();
+    const now = Math.floor(nowMs / 1_000);
 
     // One read: the account (none means it does not exist), its job if any,
     // and each profile's handle (a lone NULL handle: no profiles).
@@ -329,6 +348,8 @@ export const requestErasure = (
     const held = rows.flatMap((row) => (row.handle === null ? [] : [heldHandleDigest(row.handle)]));
 
     const hardDeleteAt = now + ACCOUNT_DELETION_GRACE_SECONDS;
+    const jobId = newJobId();
+    yield* beforeWrite({ jobId, at: nowMs, hardDeleteAt });
     // A deletion of everything stores no answers: the apps and the hard
     // delete each apply their soonest-erasing rule instead. The database
     // refuses the pair too.
@@ -371,7 +392,7 @@ export const requestErasure = (
               "restore",
             ),
             choices: bound(storedChoices, deletionJobs.choices),
-            jobId: bound(newJobId(), deletionJobs.jobId),
+            jobId: bound(jobId, deletionJobs.jobId),
             deleteEverything: bound(deleteEverything, deletionJobs.deleteEverything),
           })
           .from(accounts)
@@ -477,17 +498,18 @@ export const requestErasure = (
       // job alone is not enough to answer from: on bun:sqlite this request's
       // own job insert may have run before a later statement failed. The
       // tombstone, written last, says the deletion that job stands for was
-      // written whole.
+      // written whole. A standing job with this request's own `job_id` is
+      // this batch, committed though its call failed: this request scheduled it.
       Effect.catch((error) =>
         standingDeletion(accountId).pipe(
-          Effect.flatMap((scheduledFor) =>
-            scheduledFor === null ? Effect.fail(error) : Effect.succeed(scheduledFor),
+          Effect.flatMap((standing) =>
+            standing === null ? Effect.fail(error) : Effect.succeed(standing),
           ),
         ),
       ),
     );
-    if (raced !== null) {
-      return { accountId, scheduledFor: raced, newlyScheduled: false, profileIds: [] };
+    if (raced !== null && raced.jobId !== jobId) {
+      return { accountId, scheduledFor: raced.hardDeleteAt, newlyScheduled: false, profileIds: [] };
     }
 
     // Side-effect metrics outside the tx so a failed metric never aborts the
@@ -537,9 +559,19 @@ const otherEnrolment = alias(appEnrollments, "other_enrolment");
  * job written before the restore record existed (`restore` NULL) cancels with
  * none of this.
  */
-export const cancelErasure = (
+export const cancelErasure = <E = never>(
   accountId: string,
-): Effect.Effect<{ cancelled: boolean }, AccountErasureDbError, Db> =>
+  /**
+   * Runs once the cancel is accepted — a job stands, inside its window, with
+   * no purge begun — and before anything is written, with the job it cancels
+   * (`jobId` null for a job written before jobs had one). The route records
+   * the withdrawal here; a caller re-applying a recorded one passes none.
+   */
+  beforeWrite: (job: {
+    readonly jobId: string | null;
+    readonly at: number;
+  }) => Effect.Effect<void, E> = () => Effect.void,
+): Effect.Effect<{ cancelled: boolean }, AccountErasureDbError | E, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const existing = yield* Effect.tryPromise({
@@ -549,7 +581,8 @@ export const cancelErasure = (
     });
     if (!existing[0]) return { cancelled: false };
 
-    const now = Math.floor(Date.now() / 1_000);
+    const nowMs = Date.now();
+    const now = Math.floor(nowMs / 1_000);
 
     // Cancellation is only honoured INSIDE the grace window and before any
     // purge. Once `hardDeleteAt` has passed, the fan-out sweep may already be
@@ -573,6 +606,7 @@ export const cancelErasure = (
     // writes nothing, whether a sweep, another cancel or a new request came
     // first.
     const { softDeletedAt, jobId, restore: record } = existing[0];
+    yield* beforeWrite({ jobId, at: nowMs });
     const jobGone = notExists(
       db
         .select({ one: sql`1` })

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 
-import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
+import type { D1Database as DrizzleD1, R2Bucket } from "@cloudflare/workers-types";
 import { createD1Db } from "@shared/db-utils";
 import { chatMembers, chats, messages, zapAccountPurges } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
@@ -9,6 +9,7 @@ import { eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import worker, { type Env } from "../../src/index";
 import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
 import { DELETED_SENDER, purgeAccount } from "../../src/services/accountErasure";
 import {
@@ -23,6 +24,7 @@ import type { ConsentDenied } from "../../src/services/consent";
 import { resetConsentGate, setConsentGate } from "../../src/services/consent";
 import { listMessages, sendMessage } from "../../src/services/messages";
 import { holdQueries } from "../helpers/held-query";
+import { OSN_ISSUER, osnArc } from "../helpers/osn-arc";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
 // The rest of the Zap suite runs on synchronous bun:sqlite; these exercise the
@@ -39,6 +41,7 @@ const BOB = "usr_bob";
 let mf: Miniflare;
 let layer: Layer.Layer<Db>;
 let rawDb: ReturnType<typeof createD1Db>;
+let entryD1: DrizzleD1;
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));
@@ -48,8 +51,10 @@ beforeAll(async () => {
     modules: true,
     script: "export default { fetch() { return new Response('ok'); } };",
     d1Databases: { DB: ":memory:" },
+    r2Buckets: ["DELETION_RECORDS"],
   });
   const d1 = (await mf.getD1Database("DB")) as unknown as DrizzleD1;
+  entryD1 = d1;
   // Apply the reflected schema statement-by-statement — D1's `exec` splits on
   // newlines, which breaks multi-line CREATE TABLEs, so prepare/run each.
   for (const stmt of createSchemaSql()) {
@@ -261,5 +266,50 @@ describe("zap/api over real D1 (Miniflare)", () => {
       await rawDb.select({ id: messages.id, sender: messages.senderProfileId }).from(messages),
     ).toEqual([{ id: "msg_2", sender: DELETED_SENDER }]);
     expect((await run(purgeAccount("acc_gone", ["usr_gone"]))).alreadyProcessed).toBe(true);
+  });
+});
+
+/**
+ * The Worker's own `fetch` hands its `DELETION_RECORDS` binding to the
+ * routes, so osn-api's erasure lands in the bucket production binds. The rest
+ * of the suite builds the routes with an in-memory store, so without this a
+ * broken binding would show first as every erasure answering 503 on dev.
+ */
+describe("zap-api's Worker entry and its deletion records", () => {
+  it("records osn-api's erasure in the bucket bound as DELETION_RECORDS", async () => {
+    const osn = await osnArc();
+    try {
+      const bucket = (await mf.getR2Bucket("DELETION_RECORDS")) as unknown as R2Bucket;
+      const env: Env = {
+        DB: entryD1,
+        DELETION_RECORDS: bucket,
+        OSN_ISSUER_URL: OSN_ISSUER,
+        OSN_JWKS_URL: `${OSN_ISSUER}/.well-known/jwks.json`,
+      };
+      const res = await worker.fetch(
+        new Request("http://localhost/internal/account-deleted", {
+          method: "POST",
+          headers: {
+            authorization: await osn.token("account:erase"),
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ accountId: "acc_entry", profileIds: ["usr_entry"], choices: {} }),
+        }),
+        env,
+      );
+      expect(res.status).toBe(200);
+      const listed = await bucket.list({ prefix: "records/" });
+      expect(listed.objects).toHaveLength(1);
+      const stored = await bucket.get(listed.objects[0]!.key);
+      expect(JSON.parse((await stored?.text()) ?? "null")).toEqual({
+        v: 1,
+        kind: "account_erased",
+        at: expect.any(Number),
+        accountId: "acc_entry",
+        profileIds: ["usr_entry"],
+      });
+    } finally {
+      osn.restore();
+    }
   });
 });

@@ -6,6 +6,7 @@ import {
   exportKeyToJwk,
   generateArcKeyPair,
 } from "@shared/crypto";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { Effect } from "effect";
 import { exportJWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -49,6 +50,7 @@ async function signedIn() {
     dbAndEmailLayer: layer,
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,
+    deletionRecords: memoryDeletionRecordStore(),
   });
   const auth = createAuthService(built.deps.authConfig);
   const profile = await Effect.runPromise(

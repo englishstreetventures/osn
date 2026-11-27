@@ -21,6 +21,10 @@
 
 import type { RsvpChangeKind } from "@cire/db";
 import type { DietaryPreset } from "@cire/dietary";
+import type {
+  DeletionRecordKind,
+  DeletionRecordWriteResult,
+} from "@shared/db-utils/deletion-records";
 import {
   BYTE_BUCKETS,
   createCounter,
@@ -244,6 +248,10 @@ export const CIRE_METRICS = {
   // wrong answer, so nothing else notices it. Should read zero on a deployed
   // tier; `entry` names the Worker entry point whose client lost the session.
   d1SessionMissing: "cire.d1.session_missing",
+  // Erasure requests and withdrawals recorded outside the database
+  // (lib/deletion-records.ts). `kind` is the record's; `result` how its write
+  // ended.
+  deletionRecordWrites: "cire.deletion.record.writes",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -1978,6 +1986,20 @@ export const measureAccountLinkResolve = measureSecondsHelper((seconds, outcome)
 export const measureHostResolve = measureSecondsHelper((seconds, outcome) =>
   hostResolveDuration.record(seconds, { result: outcome }),
 );
+
+const deletionRecordWrites = createCounter<{
+  kind: DeletionRecordKind;
+  result: DeletionRecordWriteResult;
+}>({
+  name: CIRE_METRICS.deletionRecordWrites,
+  description: "Records of erasure requests and withdrawals written to the deletion-record bucket",
+  unit: "{record}",
+});
+
+export const metricDeletionRecordWrite = (
+  kind: DeletionRecordKind,
+  result: DeletionRecordWriteResult,
+): void => deletionRecordWrites.inc({ kind, result });
 
 /** Re-export the canonical `Result` union for any future cire metric that needs
  *  the full HTTP-shaped outcome set rather than the bespoke unions above. */

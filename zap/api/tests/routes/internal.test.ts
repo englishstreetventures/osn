@@ -1,5 +1,12 @@
 import * as sharedCrypto from "@shared/crypto";
 import { exportKeyToJwk, generateArcKeyPair, signArcToken } from "@shared/crypto/jwk";
+import {
+  type DeletionRecordStore,
+  memoryDeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
+import { chatMembers } from "@zap/db/schema";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
@@ -8,6 +15,7 @@ import { MAX_EXPORT_PROFILE_IDS } from "../../src/lib/limits";
 import { createInternalRoutes } from "../../src/routes/internal";
 import {
   createCapturingTestLayer,
+  createTestDb,
   createTestLayer,
   seedChat,
   seedMember,
@@ -658,7 +666,11 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
 
   for (const route of ROUTES) {
     it(`${route.path} refuses no token, another issuer, another audience, another scope, and cire-api's key`, async () => {
-      const app = createInternalRoutes(createTestLayer(), osn.verification);
+      const app = createInternalRoutes(
+        createTestLayer(),
+        osn.verification,
+        memoryDeletionRecordStore(),
+      );
       const pair = await generateArcKeyPair();
       const cire = await registerC2bAndMintToken(
         app,
@@ -819,7 +831,7 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
 
   it("after an erasure, the other side reads the person's consumer-to-business message as empty and unnamed, and exports only its own", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer, osn.verification);
+    const app = createInternalRoutes(layer, osn.verification, memoryDeletionRecordStore());
     const pair = await generateArcKeyPair();
     const cire = `ARC ${await registerC2bAndMintToken(app, pair.privateKey, await exportKeyToJwk(pair.publicKey))}`;
     const provisioned = await post(
@@ -891,7 +903,7 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
 
   it("the preview answers no actions, and the erasure what Zap kept", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer, osn.verification);
+    const app = createInternalRoutes(layer, osn.verification, memoryDeletionRecordStore());
     const preview = await post(
       app,
       "/internal/account-deletion-preview",
@@ -927,5 +939,98 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
         },
       ],
     });
+  });
+});
+
+/**
+ * Each erasure osn-api's fan-out asks of Zap is recorded outside Zap's
+ * database before anything is erased (`lib/deletion-records.ts`), so a
+ * restore of Zap's database alone cannot bring the person's data back once
+ * osn-api has marked Zap done. The other member of their chat is checked
+ * untouched each time.
+ */
+describe("zap internal routes — the deletion record of an erasure", () => {
+  const ERASED = "usr_erased";
+  const STAYS = "usr_stays";
+  const BODY = { accountId: "acc_erased", profileIds: [ERASED], choices: {} };
+
+  async function seeded(store: DeletionRecordStore) {
+    const { layer, db } = createTestDb();
+    const chat = await Effect.runPromise(
+      Effect.gen(function* () {
+        const made = yield* seedChat({ type: "group", createdByProfileId: ERASED });
+        yield* seedMember(made.id, ERASED, "admin");
+        yield* seedMember(made.id, STAYS);
+        return made;
+      }).pipe(Effect.provide(layer)),
+    );
+    const app = createInternalRoutes(layer, osn.verification, store);
+    const membersOf = async (profileId: string) =>
+      (await db.select().from(chatMembers).where(eq(chatMembers.profileId, profileId))).length;
+    return { app, chat, membersOf };
+  }
+
+  it("records the erasure it accepts, with the account's and its profiles' ids only", async () => {
+    const store = memoryDeletionRecordStore();
+    const { app, membersOf } = await seeded(store);
+    const res = await post(
+      app,
+      "/internal/account-deleted",
+      BODY,
+      await osn.token("account:erase"),
+    );
+    expect(res.status).toBe(200);
+    expect(store.records()).toEqual([
+      {
+        v: 1,
+        kind: "account_erased",
+        at: expect.any(Number),
+        accountId: "acc_erased",
+        profileIds: [ERASED],
+      },
+    ]);
+    expect(JSON.stringify(store.records())).not.toContain(STAYS);
+    expect(await membersOf(ERASED)).toBe(0);
+    expect(await membersOf(STAYS)).toBe(1);
+  });
+
+  it("records nothing for a caller refused at the token check", async () => {
+    const store = memoryDeletionRecordStore();
+    const { app, membersOf } = await seeded(store);
+    for (const auth of [undefined, await osn.token("account:erase", { iss: "cire-api" })]) {
+      expect((await post(app, "/internal/account-deleted", BODY, auth)).status).toBe(401);
+    }
+    expect(store.records()).toEqual([]);
+    expect(await membersOf(ERASED)).toBe(1);
+  });
+
+  it("answers 500, erasing nothing, for an account id the record refuses", async () => {
+    const store = memoryDeletionRecordStore();
+    const { app, membersOf } = await seeded(store);
+    const res = await post(
+      app,
+      "/internal/account-deleted",
+      { ...BODY, accountId: "acc erased" },
+      await osn.token("account:erase"),
+    );
+    expect(res.status).toBe(500);
+    expect(store.records()).toEqual([]);
+    expect(await membersOf(ERASED)).toBe(1);
+  });
+
+  it("answers 503, erasing nothing, when the record cannot be written, so osn-api calls again", async () => {
+    const { app, membersOf } = await seeded(missingDeletionRecordStore());
+    const res = await post(
+      app,
+      "/internal/account-deleted",
+      BODY,
+      await osn.token("account:erase"),
+    );
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 503,
+      body: { error: "not_recorded" },
+    });
+    expect(await membersOf(ERASED)).toBe(1);
+    expect(await membersOf(STAYS)).toBe(1);
   });
 });

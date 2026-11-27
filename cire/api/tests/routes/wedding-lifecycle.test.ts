@@ -8,6 +8,12 @@ import {
   weddings,
   weddingUpgradePurchases,
 } from "@cire/db";
+import {
+  DeletionRecordRefused,
+  type DeletionRecordStore,
+  memoryDeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
@@ -26,11 +32,12 @@ import { CIRE_METRICS } from "../../src/metrics";
 import { CLAIM_TTL_MS } from "../../src/services/changes";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { weddingLifecycleService } from "../../src/services/wedding-lifecycle";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, failStatements, jsonBody } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * An owner deletes a wedding (soft), any owner restores it inside the window.
@@ -74,6 +81,7 @@ function buildApp(lifecycleLimit = 1000, overrides: Partial<AppOptions> = {}) {
       .run();
   }
   const app = createApp(db, {
+    deletionRecords: memoryDeletionRecordStore(),
     osnTestKey: auth.key,
     weddingLifecycleLimiter: createRateLimiter({ maxRequests: lifecycleLimit, windowMs: 60_000 }),
     claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
@@ -84,6 +92,16 @@ function buildApp(lifecycleLimit = 1000, overrides: Partial<AppOptions> = {}) {
 }
 
 type App = ReturnType<typeof buildApp>["app"];
+
+/** A second app over `db`, recording into `deletionRecords`. */
+function buildAppOn(db: TestDb, deletionRecords: DeletionRecordStore) {
+  const app = createApp(db, {
+    deletionRecords,
+    osnTestKey: auth.key,
+    weddingLifecycleLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+  });
+  return { app };
+}
 
 async function organiser(
   app: App,
@@ -734,5 +752,236 @@ describe("the delete notice", () => {
     const res = await del(app, CREATOR, { confirmSlug: "not-the-slug" });
     expect(res.status).toBe(400);
     expect(mail.recorded()).toEqual([]);
+  });
+});
+
+/**
+ * A delete and a restore are recorded outside the database before they are
+ * written (`lib/deletion-records.ts`), so a D1 restore cannot lose them. A
+ * second wedding, with an owner of its own, is checked untouched each time.
+ */
+describe("the deletion record of a wedding's delete and restore", () => {
+  const OTHER = "wed_other_owners";
+
+  function recorded(store: DeletionRecordStore = memoryDeletionRecordStore()) {
+    const built = buildApp(1000, { deletionRecords: store });
+    insertWedding(built.db, {
+      id: OTHER,
+      slug: "other-wedding",
+      displayName: "Other",
+      owners: ["usr_other_owner"],
+    });
+    const otherUntouched = () =>
+      expect(
+        built.db
+          .select({ deletedAt: weddings.deletedAt })
+          .from(weddings)
+          .where(eq(weddings.id, OTHER))
+          .get(),
+      ).toEqual({ deletedAt: null });
+    return { ...built, otherUntouched };
+  }
+
+  it("records the delete it accepts, with the wedding and the owner's ids only", async () => {
+    const store = memoryDeletionRecordStore();
+    const { app, otherUntouched } = recorded(store);
+    const written = { kind: "wedding_deleted", result: "ok" } as const;
+    const before = await counterValue(CIRE_METRICS.deletionRecordWrites, written);
+    expect((await del(app, CREATOR)).status).toBe(200);
+    expect(await counterValue(CIRE_METRICS.deletionRecordWrites, written)).toBe(before + 1);
+    expect(store.records()).toEqual([
+      {
+        v: 1,
+        kind: "wedding_deleted",
+        at: expect.any(Number),
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        profileId: CREATOR,
+      },
+    ]);
+    expect(JSON.stringify(store.records())).not.toContain(SLUG);
+    otherUntouched();
+  });
+
+  it("records nothing for a delete refused on its slug, nor by a non-owner", async () => {
+    const store = memoryDeletionRecordStore();
+    const { app, db } = recorded(store);
+    expect((await del(app, CREATOR, { confirmSlug: "not-the-slug" })).status).toBe(400);
+    expect((await del(app, "usr_editor")).status).toBe(403);
+    expect(store.records()).toEqual([]);
+    expect(weddingRow(db)?.deletedAt).toBeNull();
+  });
+
+  it("refuses the delete with 503, writing nothing, when the record cannot be written", async () => {
+    const { app, db, otherUntouched } = recorded(missingDeletionRecordStore());
+    const res = await del(app, CREATOR);
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 503,
+      body: { error: "Could not delete wedding, try again" },
+    });
+    expect(weddingRow(db)?.deletedAt).toBeNull();
+    otherUntouched();
+  });
+
+  it("records the restore it accepts, and none for one refused once the window has passed", async () => {
+    const store = memoryDeletionRecordStore();
+    const { app, db, otherUntouched } = recorded(store);
+    await del(app, CREATOR);
+    expect((await restore(app, SECOND)).status).toBe(200);
+    expect(store.records().map(({ kind }) => kind)).toEqual([
+      "wedding_deleted",
+      "wedding_restored",
+    ]);
+    expect(store.records()[1]).toEqual({
+      v: 1,
+      kind: "wedding_restored",
+      at: expect.any(Number),
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      profileId: SECOND,
+    });
+
+    await del(app, CREATOR);
+    backdateDeletion(db, RESTORE_WINDOW_S / (24 * 60 * 60) + 1);
+    expect((await restore(app, SECOND)).status).toBe(409);
+    expect(store.records().map(({ kind }) => kind)).toEqual([
+      "wedding_deleted",
+      "wedding_restored",
+      "wedding_deleted",
+    ]);
+    otherUntouched();
+  });
+
+  it("answers 500, deleting nothing, when the record refuses a value", async () => {
+    const memory = memoryDeletionRecordStore();
+    const store: DeletionRecordStore = {
+      write: (record) => Effect.fail(new DeletionRecordRefused({ kind: record.kind })),
+      discard: memory.discard,
+      rewrite: memory.rewrite,
+    };
+    const { app, db } = recorded(store);
+    const res = await del(app, CREATOR);
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 500,
+      body: { error: "Could not delete wedding" },
+    });
+    expect(weddingRow(db)?.deletedAt).toBeNull();
+  });
+
+  /** A store that, as it takes a record, removes `profileId`'s owner seat: a change landing between the read ahead of the write and the guarded write. */
+  function racing(db: TestDb, profileId: string) {
+    const memory = memoryDeletionRecordStore();
+    let writes = 0;
+    const store: DeletionRecordStore = {
+      write: (record) =>
+        memory.write(record).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              writes += 1;
+              db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, profileId)).run();
+            }),
+          ),
+        ),
+      discard: memory.discard,
+      rewrite: memory.rewrite,
+    };
+    return { store, records: memory.records, writes: () => writes };
+  }
+
+  it("keeps no record of a delete the guarded write refuses after the record was written", async () => {
+    const built = buildApp(1000);
+    const race = racing(built.db, CREATOR);
+    const { app } = buildAppOn(built.db, race.store);
+    const res = await del(app, CREATOR);
+    expect(res.status).toBe(403);
+    expect(race.writes()).toBe(1);
+    expect(race.records()).toEqual([]);
+    expect(weddingRow(built.db)?.deletedAt).toBeNull();
+  });
+
+  it("keeps no record of a restore the guarded write refuses after the record was written", async () => {
+    const built = buildApp(1000);
+    await del(built.app, CREATOR);
+    const race = racing(built.db, SECOND);
+    const { app } = buildAppOn(built.db, race.store);
+    const res = await restore(app, SECOND);
+    expect(res.status).toBe(403);
+    expect(race.writes()).toBe(1);
+    expect(race.records()).toEqual([]);
+    expect(weddingRow(built.db)?.deletedAt).not.toBeNull();
+  });
+
+  it("restores only the deletion its read saw, and keeps no record when another replaced it", async () => {
+    const built = buildApp(1000);
+    await del(built.app, CREATOR);
+    const memory = memoryDeletionRecordStore();
+    const store: DeletionRecordStore = {
+      // As the restore records, the wedding's deletion is replaced by a later one.
+      write: (record) =>
+        memory.write(record).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              built.db
+                .update(weddings)
+                .set({ deletedAt: new Date(Date.now() + 60_000) })
+                .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+                .run();
+            }),
+          ),
+        ),
+      discard: memory.discard,
+      rewrite: memory.rewrite,
+    };
+    const { app } = buildAppOn(built.db, store);
+    const res = await restore(app, SECOND);
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 409,
+      body: { error: "change_in_progress" },
+    });
+    expect(memory.records()).toEqual([]);
+    expect(weddingRow(built.db)?.deletedAt).not.toBeNull();
+  });
+
+  it("keeps the record of a delete whose write fails, since it may have landed", async () => {
+    const built = buildApp(1000);
+    const store = memoryDeletionRecordStore();
+    const { app } = buildAppOn(built.db, store);
+    const failing = failStatements(built.db, (statement) =>
+      /^update "weddings" set "deleted_at"/i.test(statement),
+    );
+    expect((await del(app, CREATOR)).status).toBe(500);
+    expect(store.records().map(({ kind }) => kind)).toEqual(["wedding_deleted"]);
+    failing.restore();
+  });
+
+  it("writes no record at all for a delete its read refuses", async () => {
+    const built = buildApp(1000);
+    const race = racing(built.db, "usr_nobody");
+    const { app } = buildAppOn(built.db, race.store);
+    expect((await del(app, CREATOR, { confirmSlug: "not-the-slug" })).status).toBe(400);
+    expect(race.writes()).toBe(0);
+  });
+
+  it("writes no record at all for a restore its read refuses", async () => {
+    const built = buildApp(1000);
+    await del(built.app, CREATOR);
+    backdateDeletion(built.db, RESTORE_WINDOW_S / (24 * 60 * 60) + 1);
+    const race = racing(built.db, "usr_nobody");
+    const { app } = buildAppOn(built.db, race.store);
+    expect((await restore(app, SECOND)).status).toBe(409);
+    expect(race.writes()).toBe(0);
+  });
+
+  it("restores even when the restore's record cannot be written", async () => {
+    const memory = memoryDeletionRecordStore();
+    const missing = missingDeletionRecordStore();
+    const store: DeletionRecordStore = {
+      write: (record) =>
+        record.kind === "wedding_restored" ? missing.write(record) : memory.write(record),
+      discard: memory.discard,
+      rewrite: memory.rewrite,
+    };
+    const { app, db } = recorded(store);
+    await del(app, CREATOR);
+    expect((await restore(app, CREATOR)).status).toBe(200);
+    expect(weddingRow(db)?.deletedAt).toBeNull();
   });
 });

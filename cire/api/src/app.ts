@@ -1,6 +1,7 @@
 import type { DesignMeta } from "@cire/invite-designs";
 import { cors } from "@elysiajs/cors";
 import { arcKidMacSecret } from "@shared/crypto/arc-kid";
+import type { DeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
@@ -547,6 +548,13 @@ export interface AppOptions {
   directoryLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
+  /**
+   * Where each erasure request and withdrawal cire accepts is recorded
+   * outside the database (`lib/deletion-records.ts`): the
+   * `cire-deletion-records` bucket on Workers, memory on the Bun entry and in
+   * tests. Absent, every such route answers 503.
+   */
+  deletionRecords?: DeletionRecordStore;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
   assets?: AssetsBucket;
   /**
@@ -908,6 +916,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     vendorPortalLimiter = defaultVendorPortalLimiter,
     directoryLimiter = defaultDirectoryLimiter,
     r2,
+    deletionRecords,
     assets,
     images,
     oidc = null,
@@ -1217,6 +1226,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           osnArc: { osnIssuer: osnIssuerUrl, kidSecret: osnArcKidSecret },
           organiserOrigin,
           ownerNotices,
+          deletionRecords,
         }),
       )
       // osn-api's account export, cire's section of it: the same reasons.
@@ -1282,7 +1292,13 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       // "Who are you?": choose or clear the household member this session
       // says it is. The restore's page-load-sized limiter; after the origin
       // guard, like every route here.
-      .use(createClaimMemberRoutes(db, { limiter: claimSessionLimiter, accountLinking }))
+      .use(
+        createClaimMemberRoutes(db, {
+          limiter: claimSessionLimiter,
+          accountLinking,
+          deletionRecords,
+        }),
+      )
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
@@ -1599,9 +1615,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           weddingLifecycleLimiter,
           ownerNotices,
           weddingSignals,
+          deletionRecords,
         ),
       )
-      .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+      .use(
+        createOrganiserWeddingRestoreRoute(
+          db,
+          osnAuthOptions,
+          weddingLifecycleLimiter,
+          deletionRecords,
+        ),
+      )
       // A host removing their Cire data and keeping their Musubi account.
       .use(
         createOrganiserAccountRoutes(db, osnAuthOptions, {
@@ -1611,6 +1635,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           signals: weddingSignals,
           organiserOrigin,
           secureCookies: webOrigin.startsWith("https://"),
+          deletionRecords,
         }),
       )
       .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter))

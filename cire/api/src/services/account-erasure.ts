@@ -19,9 +19,11 @@
  * unless it holds it ({@link purgeHeld}).
  *
  * **Everything else, once per account.** Seats below owner, notice rows,
- * organiser sessions, guest account links, Stripe OAuth states and the
- * profile's budget rows are deleted; every column that names one of the
- * profiles is cleared ({@link DELETED_PROFILE}).
+ * guest account links, Stripe OAuth states and the profile's budget rows are
+ * deleted; every column that names one of the profiles is cleared
+ * ({@link DELETED_PROFILE}). Organiser sessions end before the weddings, on
+ * every call, for an account's erasure; for a host's removal, in this
+ * clean-up once no seat of theirs is left.
  *
  * **What it answers it keeps.** The soft delete names the profile whose owner
  * seat it took as the wedding's deleter, so the call that finishes can find
@@ -58,8 +60,9 @@
  * stops before the account's clean-up. An account's erasure takes the seat.
  *
  * **Safe to repeat.** Each wedding the person owns is one D1 batch, at most
- * {@link MAX_OWNED_WEDDINGS_PER_CALL} a call; a call that leaves more answers
- * `not_finished`, and osn-api calls again on its next pass. Every statement is
+ * {@link MAX_OWNED_WEDDINGS_PER_CALL} a call, and the account's clean-up takes
+ * at most {@link MAX_LOWER_SEATS_PER_CALL} seats below owner; a call that
+ * leaves more answers `not_finished`, and osn-api calls again on its next pass. Every statement is
  * guarded on the state it moves rows out of, so a repeat writes nothing more.
  */
 import {
@@ -113,11 +116,20 @@ export const DELETED_PROFILE = "deleted";
 /**
  * Weddings the person owns that one erasure call takes, each its own batch.
  * Counting every statement singly, a call makes at most 1 (the read of owned
- * weddings) + 3 per wedding + 22 (the account's clean-up), inside the 50 D1
- * queries one Worker invocation may make on Workers Free; a host's removal,
- * 1 + 3 per wedding + 19.
+ * weddings) + 1 (ending the person's organiser sessions) + 3 per wedding + 21
+ * (the account's clean-up), inside the 50 D1 queries one Worker invocation may
+ * make on Workers Free; a host's removal, 1 + 3 per wedding + 19.
  */
 export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
+
+/**
+ * Seats below owner the account's clean-up takes in one call, so that every
+ * seat a call removes fits its deletion record: with at most one seat per
+ * profile on a wedding, a call removes at most
+ * `MAX_OWNED_WEDDINGS_PER_CALL × profiles + MAX_LOWER_SEATS_PER_CALL` seats.
+ * A call that leaves more answers `not_finished`.
+ */
+export const MAX_LOWER_SEATS_PER_CALL = 200;
 
 /** Sole-owned weddings a preview lists one by one; past it, one action stands for all. */
 const MAX_PREVIEW_ACTIONS = 100;
@@ -210,11 +222,45 @@ export interface OwnedOutcome {
    * after it, so another owner remains.
    */
   readonly payoutHolderLeft: boolean;
+  /**
+   * Every profile of the account whose seat on it this call removed, owner or
+   * below: what a replay of the call's deletion record takes there, and no
+   * other seat. A seat the holder rule kept is not among them.
+   */
+  readonly seatHolders: ReadonlyArray<string>;
 }
 
 class AccountErasureError extends Data.TaggedError("AccountErasureError")<{
   readonly reason: string;
 }> {}
+
+/**
+ * What a call of {@link eraseWithOutcomes} has done so far, filled in only
+ * from the answers of batches that answered: what each statement's
+ * `RETURNING` confirmed. Each wedding's batch and the clean-up commit on their
+ * own, so a caller whose call failed part way reads here what stands, and
+ * which batch it had sent without an answer: that one is in doubt, and the
+ * deletion record leaves it to a person. It stays with the caller and never
+ * rides on the error, so no id reaches a span or a log line through the
+ * failure.
+ */
+export interface ErasureProgress {
+  /** Each wedding the person owned whose batch answered and took a seat of the account or deleted it. */
+  readonly owned: OwnedOutcome[];
+  /** Each seat below owner the account's clean-up removed. */
+  readonly lowerSeats: { readonly weddingId: string; readonly profileId: string }[];
+  /** The batch sent and not yet answered: a wedding's, the clean-up's, or none. */
+  writing: { readonly weddingId: string } | "clean_up" | null;
+  /** The account's clean-up batch answered. */
+  cleanedUp: boolean;
+}
+
+export const erasureProgress = (): ErasureProgress => ({
+  owned: [],
+  lowerSeats: [],
+  writing: null,
+  cleanedUp: false,
+});
 
 /** The name as a label quotes it, cut to its write-time limit. */
 const quoted = (name: string): string =>
@@ -512,19 +558,29 @@ interface EraseInput {
  * owner. A wedding already deleted only loses the seats. Each statement is
  * guarded, so a repeat changes nothing.
  *
+ * Only the seats the call's first read found go (`seats`, by id), with their
+ * profiles' notice rows: a seat added since is left for the account's
+ * clean-up (below owner) or the next call (an owner seat, which the
+ * clean-up's count reports), each of which records the seats it takes.
+ *
  * With `keepHeldSeat` (a host's removal), an owner seat whose profile holds
  * the wedding's payout account ({@link payoutHeldSeat}) stays, with its notice
  * row, under a guard in both deletes. The caller tells it stayed from the
- * owner seats the batch returns, against those its first read counted.
+ * seats the batch returns, against the owner seats its first read found.
  */
 function eraseOwnedWedding(
   weddingId: string,
+  seats: ReadonlyArray<FirstReadSeat>,
   profileIds: ReadonlyArray<string>,
   now: Date,
   keepHeldSeat: boolean,
 ): Effect.Effect<OwnedOutcome | null, AccountErasureError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
+    const seatIds = seats.map((seat) => seat.id);
+    // One seat per profile on a wedding, so these are the first read's seats'
+    // profiles: their notice rows go with those seats and no other.
+    const seatProfiles = seats.map((seat) => seat.profileId);
     // An owner seat of `profile` here that the holder rule keeps.
     const heldSeatOf = (profile: SQL) =>
       sql`EXISTS (SELECT 1 FROM ${weddingHosts} held_seat WHERE held_seat.wedding_id = ${weddingId} AND held_seat.osn_profile_id = ${profile} AND held_seat.role = 'owner' AND ${payoutHeldSeat(weddingId, profile, profileIds)})`;
@@ -550,7 +606,7 @@ function eraseOwnedWedding(
             .where(
               and(
                 eq(hostRsvpNotices.weddingId, weddingId),
-                inProfiles(hostRsvpNotices.osnProfileId, profileIds),
+                inProfiles(hostRsvpNotices.osnProfileId, seatProfiles),
                 keepHeldSeat
                   ? sql`NOT ${heldSeatOf(outerColumn(hostRsvpNotices.osnProfileId))}`
                   : undefined,
@@ -561,6 +617,7 @@ function eraseOwnedWedding(
             .where(
               and(
                 eq(weddingHosts.weddingId, weddingId),
+                inArray(weddingHosts.id, jsonEachIn(seatIds)),
                 inProfiles(weddingHosts.osnProfileId, profileIds),
                 keepHeldSeat
                   ? sql`NOT ${heldSeatOf(outerColumn(weddingHosts.osnProfileId))}`
@@ -587,13 +644,13 @@ function eraseOwnedWedding(
       ),
     );
     const deleted = (results[0] as ReadonlyArray<{ id: string }>).length > 0;
-    const seats = results[2] as ReadonlyArray<{
+    const taken = results[2] as ReadonlyArray<{
       role: string;
       osnProfileId: string;
       payoutHolder: number;
     }>;
-    if (seats.length === 0) return null;
-    const owners = seats.filter((seat) => seat.role === "owner");
+    if (!deleted && taken.length === 0) return null;
+    const owners = taken.filter((seat) => seat.role === "owner");
     const leavers = owners.map((seat) => seat.osnProfileId);
     const payoutHolderLeft = owners.some((seat) => Number(seat.payoutHolder) === 1);
     const outcome = deleted ? "deleted" : "seat_removed";
@@ -601,8 +658,16 @@ function eraseOwnedWedding(
     yield* Effect.logInfo("account erasure: a wedding the person owned").pipe(
       Effect.annotateLogs({ weddingId, outcome, payoutHolderLeft }),
     );
-    return { weddingId, outcome, leavers, payoutHolderLeft } as const;
+    const seatHolders = taken.map((seat) => seat.osnProfileId);
+    return { weddingId, outcome, leavers, payoutHolderLeft, seatHolders } as const;
   }).pipe(Effect.withSpan("cire.account_deletion.wedding", { attributes: { weddingId } }));
+}
+
+/** One seat of the account as the call's first read found it. */
+interface FirstReadSeat {
+  readonly id: string;
+  readonly profileId: string;
+  readonly role: string;
 }
 
 /** A nullable column cleared where it names one of `profiles`. */
@@ -612,7 +677,8 @@ const clearedIn = (column: AnySQLiteColumn, profiles: ReadonlyArray<string>, to:
 /**
  * Everything of the account outside the weddings it owns, in one batch: seats
  * below owner and every notice row with no owner seat behind it, organiser
- * sessions, guest account links (by the account or a profile; not for the
+ * sessions (the `host` scope's only: an account's erasure ended them before
+ * its weddings), guest account links (by the account or a profile; not for the
  * `host` scope), Stripe OAuth states, the profiles' budget rows, and every
  * column that names a profile (a vendor listing's claim columns not for the
  * `host` scope),
@@ -625,10 +691,11 @@ const clearedIn = (column: AnySQLiteColumn, profiles: ReadonlyArray<string>, to:
  * and not for the `host` scope, whose caller answers no kept item, a count of
  * the deleted weddings with no owner left whose deleter is one of the
  * profiles and that the purge holds: what the erasure answers it keeps.
- * A wedding's deleter is cleared only once no owner seat of the profiles is
- * left, so a call that answers not finished leaves it for the next one to
- * count. Last, a count of the owner seats the profiles still hold (one made
- * owner since the call's first read), which the call must take first.
+ * A wedding's deleter is cleared only once no seat of the profiles is left,
+ * so a call that answers not finished leaves it for the next one to count.
+ * Last, a count of the seats the profiles still hold: owner seats (one made
+ * owner since the call's first read), which the call must take first, and
+ * seats below owner past this call's {@link MAX_LOWER_SEATS_PER_CALL}.
  *
  * Most of these UPDATEs scan their table: the columns are not indexed, and
  * they can name the person on weddings they left long ago. It runs once per
@@ -640,8 +707,10 @@ function eraseAccountRows(input: EraseInput, now: Date) {
     const p = input.profileIds;
     const host = input.scope === "host";
     const ownerSeatOfRow = sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(hostRsvpNotices.weddingId)} AND ${weddingHosts.osnProfileId} = ${outerColumn(hostRsvpNotices.osnProfileId)} AND ${weddingHosts.role} = 'owner')`;
-    // True once this call has taken every owner seat of the profiles.
-    const noOwnerSeatLeft = sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${inProfiles(weddingHosts.osnProfileId, p)} AND ${weddingHosts.role} = 'owner')`;
+    // True once no seat of the profiles is left: every owner seat taken, and
+    // every seat below owner, which this batch takes at most
+    // MAX_LOWER_SEATS_PER_CALL of.
+    const noSeatLeft = sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${inProfiles(weddingHosts.osnProfileId, p)})`;
 
     const results = yield* Effect.tryPromise({
       try: () =>
@@ -651,8 +720,23 @@ function eraseAccountRows(input: EraseInput, now: Date) {
             .where(and(inProfiles(hostRsvpNotices.osnProfileId, p), sql`NOT ${ownerSeatOfRow}`)),
           db
             .delete(weddingHosts)
-            .where(and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner")))
-            .returning({ weddingId: weddingHosts.weddingId }),
+            .where(
+              inArray(
+                weddingHosts.id,
+                db
+                  .select({ id: weddingHosts.id })
+                  .from(weddingHosts)
+                  .where(
+                    and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner")),
+                  )
+                  .orderBy(asc(weddingHosts.id))
+                  .limit(MAX_LOWER_SEATS_PER_CALL),
+              ),
+            )
+            .returning({
+              weddingId: weddingHosts.weddingId,
+              osnProfileId: weddingHosts.osnProfileId,
+            }),
           // Read before the deleter is cleared below; third in the batch.
           ...(host
             ? []
@@ -669,12 +753,18 @@ function eraseAccountRows(input: EraseInput, now: Date) {
                     ),
                   ),
               ]),
-          // Only once no owner seat of the profiles is left: a seat made owner
-          // since the call's first read answers not finished, and the person
-          // keeps a session to call again with.
-          db
-            .delete(organiserSessions)
-            .where(and(inProfiles(organiserSessions.osnProfileId, p), noOwnerSeatLeft)),
+          // A host's removal ends the sessions only once no seat of the
+          // profiles is left: a seat made owner since the call's first read,
+          // or seats below owner past this call's share, answer not finished,
+          // and the person keeps a session to call again with. An account's
+          // erasure ended them before its weddings ({@link eraseWithOutcomes}).
+          ...(host
+            ? [
+                db
+                  .delete(organiserSessions)
+                  .where(and(inProfiles(organiserSessions.osnProfileId, p), noSeatLeft)),
+              ]
+            : []),
           // A guest's link to their account: guest data, not the host's, so a
           // host leaving cire keeps it.
           ...(host
@@ -707,7 +797,7 @@ function eraseAccountRows(input: EraseInput, now: Date) {
             .update(weddings)
             .set({
               updatedByOsnProfileId: clearedIn(weddings.updatedByOsnProfileId, p, null),
-              deletedByOsnProfileId: sql`CASE WHEN ${inProfiles(weddings.deletedByOsnProfileId, p)} AND ${noOwnerSeatLeft} THEN NULL ELSE ${weddings.deletedByOsnProfileId} END`,
+              deletedByOsnProfileId: sql`CASE WHEN ${inProfiles(weddings.deletedByOsnProfileId, p)} AND ${noSeatLeft} THEN NULL ELSE ${weddings.deletedByOsnProfileId} END`,
             })
             .where(
               or(
@@ -827,9 +917,12 @@ function eraseAccountRows(input: EraseInput, now: Date) {
             .set({ createdByOsnProfileId: DELETED_PROFILE })
             .where(inProfiles(weddingUpgradePurchases.createdByOsnProfileId, p)),
           db
-            .select({ owned: sql<number>`count(*)` })
+            .select({
+              owned: sql<number>`coalesce(sum(${weddingHosts.role} = 'owner'), 0)`,
+              lower: sql<number>`coalesce(sum(${weddingHosts.role} <> 'owner'), 0)`,
+            })
             .from(weddingHosts)
-            .where(and(inProfiles(weddingHosts.osnProfileId, p), eq(weddingHosts.role, "owner"))),
+            .where(inProfiles(weddingHosts.osnProfileId, p)),
         ]),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
@@ -840,17 +933,57 @@ function eraseAccountRows(input: EraseInput, now: Date) {
       ),
     );
     // By position: the lower seats second, the held count third (none for the
-    // `host` scope), the owner seats left last.
-    const lower = results[1] as ReadonlyArray<{ weddingId: string }>;
+    // `host` scope), the seats left last.
+    const lower = results[1] as ReadonlyArray<{ weddingId: string; osnProfileId: string }>;
     const [held] = host ? [] : (results[2] as ReadonlyArray<{ held: number }>);
-    const [owned] = results[results.length - 1] as ReadonlyArray<{ owned: number }>;
+    const [left] = results[results.length - 1] as ReadonlyArray<{ owned: number; lower: number }>;
     return {
-      ownerSeatsLeft: Number(owned?.owned ?? 0),
+      ownerSeatsLeft: Number(left?.owned ?? 0),
+      lowerSeatsLeft: Number(left?.lower ?? 0),
+      lowerSeats: lower.map((row) => ({ weddingId: row.weddingId, profileId: row.osnProfileId })),
       lowerSeatWeddings: [...new Set(lower.map((row) => row.weddingId))],
       heldWeddings: Number(held?.held ?? 0),
     };
   }).pipe(Effect.withSpan("cire.account_deletion.cleanup"));
 }
+
+/**
+ * The first read's seats as the weddings they sit on, in the read's order:
+ * oldest owner seat first, then by id. Each carries every seat of the
+ * profiles there.
+ */
+const ownedWeddings = (
+  rows: ReadonlyArray<{
+    id: string;
+    weddingId: string;
+    profileId: string;
+    role: string;
+    createdAt: Date;
+  }>,
+) => {
+  const byWedding = new Map<string, { firstOwnerAt: number; seats: FirstReadSeat[] }>();
+  for (const row of rows) {
+    const entry = byWedding.get(row.weddingId) ?? { firstOwnerAt: Infinity, seats: [] };
+    entry.seats.push({ id: row.id, profileId: row.profileId, role: row.role });
+    if (row.role === "owner") {
+      entry.firstOwnerAt = Math.min(entry.firstOwnerAt, row.createdAt.getTime());
+    }
+    byWedding.set(row.weddingId, entry);
+  }
+  return [...byWedding]
+    .map(([weddingId, { firstOwnerAt, seats }]) => ({
+      weddingId,
+      firstOwnerAt,
+      seats,
+    }))
+    .toSorted((a, b) =>
+      a.firstOwnerAt !== b.firstOwnerAt
+        ? a.firstOwnerAt - b.firstOwnerAt
+        : a.weddingId < b.weddingId
+          ? -1
+          : 1,
+    );
+};
 
 /**
  * Erases the account in cire, at the end of its deletion window or when the
@@ -859,8 +992,9 @@ function eraseAccountRows(input: EraseInput, now: Date) {
  * no other owner is left), then, once none is left, everything else of the
  * account. A finished call of the `account` scope answers, as kept, the
  * deleted weddings of the person's the purge still holds ({@link keptItems});
- * cire keeps nothing else about them. Answers `not_finished` while owned weddings remain or a seat was
- * made owner since the first read; the caller calls again. Beside the result,
+ * cire keeps nothing else about them. Answers `not_finished` while owned
+ * weddings remain, a seat was made owner since the first read, or seats below
+ * owner remain past the call's share; the caller calls again. Beside the result,
  * what the call did to each wedding the person owned, for the notices a
  * removal sends.
  *
@@ -870,8 +1004,14 @@ function eraseAccountRows(input: EraseInput, now: Date) {
  * weddings in `payoutHeld`, so its route can refuse with them. The route reads
  * the same rule before it calls; the writes hold it for a connect that lands
  * between the two.
+ *
+ * What the call has done so far is kept in `progress`, which the caller passes
+ * when it must know what stands after a failure part way.
  */
-function eraseWithOutcomes(input: EraseInput): Effect.Effect<
+function eraseWithOutcomes(
+  input: EraseInput,
+  progress: ErasureProgress = erasureProgress(),
+): Effect.Effect<
   {
     readonly result: ErasureResult;
     readonly owned: ReadonlyArray<OwnedOutcome>;
@@ -885,44 +1025,99 @@ function eraseWithOutcomes(input: EraseInput): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    // With how many owner seats the profiles hold on each: the owner seats a
-    // wedding's batch returns are counted against it.
-    const owned = yield* Effect.tryPromise({
+    // Every seat of the profiles on the first weddings they own, oldest owner
+    // seat first, in one statement: each wedding's batch takes these seats, by
+    // id, and the owner seats it returns are counted against them.
+    const seatRows = yield* Effect.tryPromise({
       try: () =>
         Promise.resolve(
           db
-            .select({ weddingId: weddingHosts.weddingId, ownerSeats: sql<number>`count(*)` })
+            .select({
+              id: weddingHosts.id,
+              weddingId: weddingHosts.weddingId,
+              profileId: weddingHosts.osnProfileId,
+              role: weddingHosts.role,
+              createdAt: weddingHosts.createdAt,
+            })
             .from(weddingHosts)
             .where(
               and(
                 inProfiles(weddingHosts.osnProfileId, input.profileIds),
-                eq(weddingHosts.role, "owner"),
+                inArray(
+                  weddingHosts.weddingId,
+                  db
+                    .select({ weddingId: weddingHosts.weddingId })
+                    .from(weddingHosts)
+                    .where(
+                      and(
+                        inProfiles(weddingHosts.osnProfileId, input.profileIds),
+                        eq(weddingHosts.role, "owner"),
+                      ),
+                    )
+                    .groupBy(weddingHosts.weddingId)
+                    .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddingHosts.weddingId))
+                    .limit(MAX_OWNED_WEDDINGS_PER_CALL + 1),
+                ),
               ),
             )
-            .groupBy(weddingHosts.weddingId)
-            .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddingHosts.weddingId))
-            .limit(MAX_OWNED_WEDDINGS_PER_CALL + 1)
             .all(),
         ),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     });
+    const owned = ownedWeddings(seatRows);
+
+    // An account's erasure ends the person's organiser sessions first, on
+    // every call, so one that stops before its clean-up still ends them:
+    // osn-api, not the person, makes the next call. A host's removal keeps
+    // them for the portal's next call, and its clean-up ends them.
+    if (input.scope !== "host") {
+      yield* Effect.tryPromise({
+        try: () =>
+          Promise.resolve(
+            db
+              .delete(organiserSessions)
+              .where(inProfiles(organiserSessions.osnProfileId, input.profileIds))
+              .run(),
+          ),
+        catch: (e) => new AccountErasureError({ reason: String(e) }),
+      });
+    }
 
     const now = input.now ?? new Date();
     const keepHeldSeat = input.scope === "host";
-    const outcomes: OwnedOutcome[] = [];
+    const outcomes = progress.owned;
     const payoutHeld: string[] = [];
-    for (const { weddingId, ownerSeats } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
-      const outcome = yield* eraseOwnedWedding(weddingId, input.profileIds, now, keepHeldSeat);
+    for (const { weddingId, seats } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
+      progress.writing = { weddingId };
+      // A batch that fails may have committed with its answer lost: it stays
+      // the one being written, which the record lists as unsettled.
+      const outcome = yield* eraseOwnedWedding(
+        weddingId,
+        seats,
+        input.profileIds,
+        now,
+        keepHeldSeat,
+      );
+      progress.writing = null;
       if (outcome) outcomes.push(outcome);
       // Here, not after the loop: a later batch or the clean-up can fail the
       // call, and the call that finishes removes no seat, so it would not send.
+      // After the outcome is in the progress, so the record holds what the
+      // batch confirmed whatever the email does.
       if (outcome?.payoutHolderLeft && input.onPayoutHolderLeft) {
         yield* input.onPayoutHolderLeft(weddingId);
       }
-      // Fewer owner seats went than the first read counted: the holder rule
-      // kept one. An owner seat another request took or demoted in between
-      // reads the same, and costs only the portal's next call.
-      if (keepHeldSeat && (outcome?.leavers.length ?? 0) < Number(ownerSeats)) {
+      // An owner seat the first read found that the batch did not take: the
+      // holder rule kept it. One another request took in between reads the
+      // same, and costs only the portal's next call; the deletion record
+      // lists the seats that went, not this. Matched by profile (one seat per
+      // profile on a wedding), so a seat whose role changed in between counts
+      // by the role the first read saw.
+      const taken = new Set(outcome?.seatHolders ?? []);
+      if (
+        keepHeldSeat &&
+        seats.some((seat) => seat.role === "owner" && !taken.has(seat.profileId))
+      ) {
         payoutHeld.push(weddingId);
       }
     }
@@ -934,8 +1129,13 @@ function eraseWithOutcomes(input: EraseInput): Effect.Effect<
     });
     if (payoutHeld.length > 0 || owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return notFinished([]);
 
-    const { ownerSeatsLeft, lowerSeatWeddings, heldWeddings } = yield* eraseAccountRows(input, now);
-    if (ownerSeatsLeft > 0) return notFinished(lowerSeatWeddings);
+    progress.writing = "clean_up";
+    const { ownerSeatsLeft, lowerSeatsLeft, lowerSeats, lowerSeatWeddings, heldWeddings } =
+      yield* eraseAccountRows(input, now);
+    progress.writing = null;
+    progress.cleanedUp = true;
+    progress.lowerSeats.push(...lowerSeats);
+    if (ownerSeatsLeft > 0 || lowerSeatsLeft > 0) return notFinished(lowerSeatWeddings);
     yield* Effect.annotateCurrentSpan({ heldWeddings });
     if (heldWeddings > 0) {
       yield* Effect.logInfo("account erasure: deleted weddings the purge holds").pipe(

@@ -3,6 +3,12 @@ import { createHash } from "node:crypto";
 
 import { BOOTSTRAP_WEDDING_ID, emailSuppressions, families, guests, weddings } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
+import {
+  DeletionRecordRefused,
+  type DeletionRecordStore,
+  memoryDeletionRecordStore,
+  missingDeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -17,7 +23,7 @@ import { CIRE_METRICS } from "../../src/metrics";
 import { hashGuestEmail } from "../../src/services/email-suppression";
 import { guestEmailService, MAX_OPT_OUTS_PER_SEAT } from "../../src/services/guest-email";
 import { hostCodeService } from "../../src/services/host-code";
-import { jsonBody } from "../test-helpers";
+import { failStatements, jsonBody } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
@@ -31,11 +37,15 @@ const ORIGIN = "http://localhost:4321";
 const PATH = "/api/claim/member/email";
 const ADDRESS = "cleo.sampleton@example.test";
 
-function buildApp(memberStepExcludedWeddings?: ReadonlySet<string>) {
+function buildApp(
+  memberStepExcludedWeddings?: ReadonlySet<string>,
+  deletionRecords: DeletionRecordStore = memoryDeletionRecordStore(),
+) {
   const db = createDb(":memory:");
   seedDb(db);
   const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
   const app = createApp(db, {
+    deletionRecords,
     claimLimiter: limiter(),
     claimSessionLimiter: limiter(),
     rsvpLimiter: limiter(),
@@ -736,6 +746,7 @@ describe("guest email routes — the member step and opt-outs", () => {
     seedDb(db);
     const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
     const app = createApp(db, {
+      deletionRecords: memoryDeletionRecordStore(),
       claimLimiter: limiter(),
       claimSessionLimiter: limiter(),
       rsvpLimiter: limiter(),
@@ -970,5 +981,87 @@ describe("guest email metrics", () => {
     expect(await blocked("consent_outdated")).toBe(before.outdated + 1);
     expect(await changed("set")).toBe(before.set + 1);
     expect(await changed("cleared")).toBe(before.cleared + 1);
+  });
+});
+
+/**
+ * A guest's removal of their own address is recorded outside the database
+ * before it is written (`lib/deletion-records.ts`), so a D1 restore cannot
+ * bring the address back unrecorded. Another member's address, saved first,
+ * is checked untouched each time.
+ */
+describe("guest email routes — the deletion record", () => {
+  const BO_ADDRESS = "bo.sampleton@example.test";
+
+  async function seated(store: DeletionRecordStore) {
+    const { db, app } = buildApp(undefined, store);
+    const bo = await answeringAs(app, db, "Bo");
+    expect((await save(app, bo, guestId(db, "Bo"), BO_ADDRESS)).status).toBe(200);
+    const cleo = await answeringAs(app, db, "Cleo");
+    expect((await save(app, cleo, guestId(db, "Cleo"))).status).toBe(200);
+    const boUntouched = () => expect(emailRow(db, guestId(db, "Bo"))?.email).toBe(BO_ADDRESS);
+    return { db, app, cleo, boUntouched };
+  }
+
+  it("records the removal it accepts, with the wedding's and the guest's ids only", async () => {
+    const store = memoryDeletionRecordStore();
+    const { db, app, cleo, boUntouched } = await seated(store);
+    expect((await remove(app, cleo, guestId(db, "Cleo"))).status).toBe(200);
+    expect(store.records()).toEqual([
+      {
+        v: 1,
+        kind: "guest_email_removed",
+        at: expect.any(Number),
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        guestId: guestId(db, "Cleo"),
+      },
+    ]);
+    expect(JSON.stringify(store.records())).not.toContain(ADDRESS);
+    boUntouched();
+  });
+
+  it("records nothing for a seat with no address to remove", async () => {
+    const store = memoryDeletionRecordStore();
+    const { db, app } = buildApp(undefined, store);
+    const dot = await answeringAs(app, db, "Dot");
+    expect((await remove(app, dot, guestId(db, "Dot"))).status).toBe(200);
+    expect(store.records()).toEqual([]);
+  });
+
+  it("keeps the record when the removal's write fails, since it may have landed", async () => {
+    const store = memoryDeletionRecordStore();
+    const { db, app, cleo } = await seated(store);
+    const failing = failStatements(db, (statement) => /^update "guests"/i.test(statement));
+    expect((await remove(app, cleo, guestId(db, "Cleo"))).status).toBe(500);
+    expect(store.records().map(({ kind }) => kind)).toEqual(["guest_email_removed"]);
+    failing.restore();
+  });
+
+  it("answers 500, removing nothing, when the record refuses a value", async () => {
+    const memory = memoryDeletionRecordStore();
+    const refusing: DeletionRecordStore = {
+      write: (record) => Effect.fail(new DeletionRecordRefused({ kind: record.kind })),
+      discard: memory.discard,
+      rewrite: memory.rewrite,
+    };
+    const { db, app, cleo } = await seated(refusing);
+    const res = await remove(app, cleo, guestId(db, "Cleo"));
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 500,
+      body: { error: "Could not remove your email" },
+    });
+    expect(emailRow(db, guestId(db, "Cleo"))?.email).toBe(ADDRESS);
+  });
+
+  it("refuses the removal with 503, removing nothing, when the record cannot be written", async () => {
+    const { db, app, cleo, boUntouched } = await seated(missingDeletionRecordStore());
+    const res = await remove(app, cleo, guestId(db, "Cleo"));
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 503,
+      body: { error: "Could not remove your email, try again" },
+    });
+    expect(emailRow(db, guestId(db, "Cleo"))?.email).toBe(ADDRESS);
+    expect(db.select().from(emailSuppressions).all()).toEqual([]);
+    boUntouched();
   });
 });

@@ -28,6 +28,7 @@ import {
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { makeLogEmailLive } from "@shared/email";
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -147,6 +148,10 @@ function makeApp(overrides: Partial<AuthConfig> = {}) {
     undefined,
     cookieConfig,
     proxied,
+    undefined,
+    undefined,
+    undefined,
+    memoryDeletionRecordStore(),
   );
   const exporter = createAccountExportRoutes(
     merged,

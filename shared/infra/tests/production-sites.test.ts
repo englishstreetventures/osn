@@ -50,13 +50,16 @@ describe("production-sites.ts", () => {
       [
         "osn-api-production",
         "osn-db-prod",
+        "osn-deletion-records",
         "cire-api-production",
         "cire-invites",
         "cire-db",
         "cire-assets",
         "cire-sheets",
+        "cire-deletion-records",
         "zap-api-production",
         "zap-db-prod",
+        "zap-deletion-records",
       ].toSorted(),
     );
   });

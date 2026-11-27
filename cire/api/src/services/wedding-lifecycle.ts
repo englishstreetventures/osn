@@ -121,18 +121,40 @@ type DeleteRefusalRow = {
   claimed: number;
 };
 
-/** The first reason, in the order an owner can act on them. */
-function deleteRefusal(row: DeleteRefusalRow | undefined, confirmSlug: string): LifecycleRefusal {
+/** The first reason a delete is refused, in the order an owner can act on them; null when none. */
+function deleteBlock(
+  row: DeleteRefusalRow | undefined,
+  confirmSlug: string,
+): LifecycleRefusal | null {
   if (!row || row.deletedAt !== null) return "not_found";
   if (!row.owner) return "forbidden";
   if (row.slug !== confirmSlug) return "confirmation_mismatch";
   if (row.purchase) return "purchase_in_flight";
   if (row.gift) return "gift_in_flight";
   if (row.claimed) return "change_in_progress";
-  // Every guard passed on the read and yet the write matched nothing: the
-  // wedding moved between the two statements of one batch, which D1 does not
-  // allow. Answered as the most conservative refusal rather than a success.
-  return "change_in_progress";
+  return null;
+}
+
+/** Why a delete's guarded write matched nothing, from a read of its guards after it. */
+function deleteRefusal(row: DeleteRefusalRow | undefined, confirmSlug: string): LifecycleRefusal {
+  // Every guard passing on that read while the write matched nothing means
+  // the wedding moved between the write and the read. Answered as the most
+  // conservative refusal rather than a success.
+  return deleteBlock(row, confirmSlug) ?? "change_in_progress";
+}
+
+type RestoreRefusalRow = { deletedAt: Date | null; owner: number };
+
+/** The first reason a restore is refused; null when none. `windowStartS` in seconds. */
+function restoreBlock(
+  row: RestoreRefusalRow | undefined,
+  windowStartS: number,
+): LifecycleRefusal | null {
+  if (!row) return "not_found";
+  if (!row.owner) return "forbidden";
+  if (row.deletedAt === null) return "not_deleted";
+  if (epochSeconds(row.deletedAt) <= windowStartS) return "restore_window_passed";
+  return null;
 }
 
 const deletedResult = (reason: LifecycleRefusal): WeddingDeletedResult =>
@@ -154,50 +176,80 @@ export const weddingLifecycleService = {
    * caller holds an owner seat, no upgrade payment can still land, no gift
    * checkout is recent enough to settle, and no change is mid-apply.
    */
-  softDelete(input: {
+  softDelete<E = never>(input: {
     weddingId: string;
     osnProfileId: string;
     confirmSlug: string;
     now?: Date;
-  }): Effect.Effect<SoftDeleted, WeddingLifecycleRefused | WeddingLifecycleWriteError, DbService> {
+    /**
+     * Runs once the delete is accepted — every guard holds on a read just
+     * before the write — and before anything is written; its failure fails
+     * the delete with nothing written. The route records the deletion here; a
+     * caller re-applying a recorded one passes none. The guarded write still
+     * re-proves every guard.
+     */
+    beforeWrite?: (deletion: { readonly at: number }) => Effect.Effect<void, E>;
+  }): Effect.Effect<
+    SoftDeleted,
+    WeddingLifecycleRefused | WeddingLifecycleWriteError | E,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = input.now ?? new Date();
       const nowS = epochSeconds(now);
       const nowMs = now.getTime();
-      const { weddingId, osnProfileId, confirmSlug } = input;
+      const { weddingId, osnProfileId, confirmSlug, beforeWrite } = input;
+      const guards = () =>
+        db
+          .select({
+            slug: weddings.slug,
+            deletedAt: weddings.deletedAt,
+            owner: sql<number>`${ownerSeat(weddingId, osnProfileId)}`,
+            purchase: sql<number>`${purchaseInFlight(weddingId, nowS)}`,
+            gift: sql<number>`${giftInFlight(weddingId, nowS)}`,
+            claimed: sql<number>`${changeClaimLive(nowMs)}`,
+          })
+          .from(weddings)
+          .where(eq(weddings.id, weddingId));
+      const refuse = (reason: LifecycleRefusal) =>
+        Effect.logWarning("wedding delete refused").pipe(
+          Effect.annotateLogs({ weddingId, profileId: osnProfileId, reason }),
+          Effect.andThen(Effect.fail(new WeddingLifecycleRefused({ reason }))),
+        );
 
+      if (beforeWrite) {
+        const [ahead] = yield* Effect.tryPromise({
+          try: () => guards(),
+          catch: (e) => new WeddingLifecycleWriteError({ op: "delete", reason: String(e) }),
+        });
+        const blocked = deleteBlock(ahead, confirmSlug);
+        if (blocked !== null) return yield* refuse(blocked);
+        yield* beforeWrite({ at: nowMs });
+      }
+
+      const update = db
+        .update(weddings)
+        .set({ deletedAt: now, deletedByOsnProfileId: osnProfileId })
+        .where(
+          and(
+            eq(weddings.id, weddingId),
+            eq(weddings.slug, confirmSlug),
+            isNull(weddings.deletedAt),
+            ownerSeat(weddingId, osnProfileId),
+            not(purchaseInFlight(weddingId, nowS)),
+            not(giftInFlight(weddingId, nowS)),
+            not(changeClaimLive(nowMs)),
+          ),
+        )
+        .returning({ id: weddings.id, deletedAt: weddings.deletedAt });
+      const writeFailed = (e: unknown) =>
+        new WeddingLifecycleWriteError({ op: "delete", reason: String(e) });
+      // With the guards read ahead, the batch is the write alone, and the
+      // guards are read again only when it matches nothing.
       const results = yield* Effect.tryPromise({
-        try: () =>
-          commitBatchResults(db, [
-            db
-              .update(weddings)
-              .set({ deletedAt: now, deletedByOsnProfileId: osnProfileId })
-              .where(
-                and(
-                  eq(weddings.id, weddingId),
-                  eq(weddings.slug, confirmSlug),
-                  isNull(weddings.deletedAt),
-                  ownerSeat(weddingId, osnProfileId),
-                  not(purchaseInFlight(weddingId, nowS)),
-                  not(giftInFlight(weddingId, nowS)),
-                  not(changeClaimLive(nowMs)),
-                ),
-              )
-              .returning({ id: weddings.id, deletedAt: weddings.deletedAt }),
-            db
-              .select({
-                slug: weddings.slug,
-                deletedAt: weddings.deletedAt,
-                owner: sql<number>`${ownerSeat(weddingId, osnProfileId)}`,
-                purchase: sql<number>`${purchaseInFlight(weddingId, nowS)}`,
-                gift: sql<number>`${giftInFlight(weddingId, nowS)}`,
-                claimed: sql<number>`${changeClaimLive(nowMs)}`,
-              })
-              .from(weddings)
-              .where(eq(weddings.id, weddingId)),
-          ]),
-        catch: (e) => new WeddingLifecycleWriteError({ op: "delete", reason: String(e) }),
+        try: () => commitBatchResults(db, beforeWrite ? [update] : [update, guards()]),
+        catch: writeFailed,
       }).pipe(
         Effect.tapError((err) =>
           Effect.logError("wedding delete failed", { weddingId, reason: err.reason }),
@@ -206,12 +258,10 @@ export const weddingLifecycleService = {
 
       const [written] = results[0] as readonly { id: string; deletedAt: Date | null }[];
       if (!written?.deletedAt) {
-        const [row] = results[1] as readonly DeleteRefusalRow[];
-        const reason = deleteRefusal(row, confirmSlug);
-        yield* Effect.logWarning("wedding delete refused").pipe(
-          Effect.annotateLogs({ weddingId, profileId: osnProfileId, reason }),
-        );
-        return yield* new WeddingLifecycleRefused({ reason });
+        const [row] = beforeWrite
+          ? yield* Effect.tryPromise({ try: () => guards(), catch: writeFailed })
+          : (results[1] as readonly DeleteRefusalRow[]);
+        return yield* refuse(deleteRefusal(row, confirmSlug));
       }
 
       yield* Effect.logInfo("wedding soft-deleted").pipe(
@@ -227,7 +277,7 @@ export const weddingLifecycleService = {
       Effect.tapError((err) =>
         Effect.sync(() =>
           metricWeddingDeleted(
-            err._tag === "WeddingLifecycleRefused" ? deletedResult(err.reason) : "error",
+            err instanceof WeddingLifecycleRefused ? deletedResult(err.reason) : "error",
           ),
         ),
       ),
@@ -241,45 +291,71 @@ export const weddingLifecycleService = {
    * clears both columns; nothing else was ever changed, so nothing else needs
    * putting back.
    */
-  restore(input: {
+  restore<E = never>(input: {
     weddingId: string;
     osnProfileId: string;
     now?: Date;
+    /**
+     * Runs once the restore is accepted — every guard holds on a read just
+     * before the write — and before anything is written. The route records
+     * the restore here; a caller re-applying a recorded one passes none.
+     */
+    beforeWrite?: (restore: { readonly at: number }) => Effect.Effect<void, E>;
   }): Effect.Effect<
     { weddingId: string },
-    WeddingLifecycleRefused | WeddingLifecycleWriteError,
+    WeddingLifecycleRefused | WeddingLifecycleWriteError | E,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = input.now ?? new Date();
       const windowStartS = epochSeconds(now) - RESTORE_WINDOW_S;
-      const { weddingId, osnProfileId } = input;
+      const { weddingId, osnProfileId, beforeWrite } = input;
+      const guards = () =>
+        db
+          .select({
+            deletedAt: weddings.deletedAt,
+            owner: sql<number>`${ownerSeat(weddingId, osnProfileId)}`,
+          })
+          .from(weddings)
+          .where(eq(weddings.id, weddingId));
+      const refuse = (reason: LifecycleRefusal) =>
+        Effect.logWarning("wedding restore refused").pipe(
+          Effect.annotateLogs({ weddingId, profileId: osnProfileId, reason }),
+          Effect.andThen(Effect.fail(new WeddingLifecycleRefused({ reason }))),
+        );
 
+      const writeFailed = (e: unknown) =>
+        new WeddingLifecycleWriteError({ op: "restore", reason: String(e) });
+      // The deletion the read ahead saw: with it, the write restores that
+      // deletion and no later one, so its record names what it undid.
+      let seen: Date | null = null;
+      if (beforeWrite) {
+        const [ahead] = yield* Effect.tryPromise({ try: () => guards(), catch: writeFailed });
+        const blocked = restoreBlock(ahead, windowStartS);
+        if (blocked !== null) return yield* refuse(blocked);
+        seen = ahead?.deletedAt ?? null;
+        yield* beforeWrite({ at: now.getTime() });
+      }
+
+      const update = db
+        .update(weddings)
+        .set({ deletedAt: null, deletedByOsnProfileId: null })
+        .where(
+          and(
+            eq(weddings.id, weddingId),
+            isNotNull(weddings.deletedAt),
+            sql`${weddings.deletedAt} > ${windowStartS}`,
+            ownerSeat(weddingId, osnProfileId),
+            seen === null ? undefined : eq(weddings.deletedAt, seen),
+          ),
+        )
+        .returning({ id: weddings.id });
+      // With the guards read ahead, the batch is the write alone, and the
+      // guards are read again only when it matches nothing.
       const results = yield* Effect.tryPromise({
-        try: () =>
-          commitBatchResults(db, [
-            db
-              .update(weddings)
-              .set({ deletedAt: null, deletedByOsnProfileId: null })
-              .where(
-                and(
-                  eq(weddings.id, weddingId),
-                  isNotNull(weddings.deletedAt),
-                  sql`${weddings.deletedAt} > ${windowStartS}`,
-                  ownerSeat(weddingId, osnProfileId),
-                ),
-              )
-              .returning({ id: weddings.id }),
-            db
-              .select({
-                deletedAt: weddings.deletedAt,
-                owner: sql<number>`${ownerSeat(weddingId, osnProfileId)}`,
-              })
-              .from(weddings)
-              .where(eq(weddings.id, weddingId)),
-          ]),
-        catch: (e) => new WeddingLifecycleWriteError({ op: "restore", reason: String(e) }),
+        try: () => commitBatchResults(db, beforeWrite ? [update] : [update, guards()]),
+        catch: writeFailed,
       }).pipe(
         Effect.tapError((err) =>
           Effect.logError("wedding restore failed", { weddingId, reason: err.reason }),
@@ -288,18 +364,12 @@ export const weddingLifecycleService = {
 
       const [written] = results[0] as readonly { id: string }[];
       if (!written) {
-        const [row] = results[1] as readonly { deletedAt: Date | null; owner: number }[];
-        const reason: LifecycleRefusal = !row
-          ? "not_found"
-          : !row.owner
-            ? "forbidden"
-            : row.deletedAt === null
-              ? "not_deleted"
-              : "restore_window_passed";
-        yield* Effect.logWarning("wedding restore refused").pipe(
-          Effect.annotateLogs({ weddingId, profileId: osnProfileId, reason }),
-        );
-        return yield* new WeddingLifecycleRefused({ reason });
+        const [row] = beforeWrite
+          ? yield* Effect.tryPromise({ try: () => guards(), catch: writeFailed })
+          : (results[1] as readonly RestoreRefusalRow[]);
+        // The write matched nothing while the guards read as restorable: the
+        // wedding's deletion changed between the read and the write.
+        return yield* refuse(restoreBlock(row, windowStartS) ?? "change_in_progress");
       }
 
       yield* Effect.logInfo("wedding restored").pipe(
@@ -311,7 +381,7 @@ export const weddingLifecycleService = {
       Effect.tapError((err) =>
         Effect.sync(() =>
           metricWeddingRestored(
-            err._tag === "WeddingLifecycleRefused" ? restoredResult(err.reason) : "error",
+            err instanceof WeddingLifecycleRefused ? restoredResult(err.reason) : "error",
           ),
         ),
       ),

@@ -1,3 +1,7 @@
+import {
+  missingDeletionRecordStore,
+  r2DeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import { makeResendEmailLive } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
 import { parseDeploymentEnvironment } from "@shared/observability/config";
@@ -75,6 +79,10 @@ export interface Env {
   // lifecycle: binary, served publicly). Absent ⇒ image upload/serve fail at
   // use, text customisation still works.
   ASSETS?: R2Bucket;
+  // The `cire-deletion-records` R2 bucket: each erasure request and withdrawal
+  // cire accepts is recorded here before it is written, so a D1 restore cannot
+  // lose it. Absent ⇒ those routes answer 503, on every tier.
+  DELETION_RECORDS?: R2Bucket;
   // Cloudflare Workers Images binding — transforms the R2 originals into
   // responsive, modern-format variants on the public serve path. Absent (local
   // `wrangler dev` / miniflare / unit tests, or an account without the Images
@@ -560,6 +568,11 @@ const handler: ExportedHandler<Env> = {
         r2: env.SHEETS,
         assets: env.ASSETS,
         images: env.IMAGES,
+        // No bucket bound ⇒ a store that refuses every write: an erasure is
+        // refused rather than accepted unrecorded.
+        deletionRecords: env.DELETION_RECORDS
+          ? r2DeletionRecordStore(env.DELETION_RECORDS)
+          : missingDeletionRecordStore(),
         // A deployed tier never serves a shop's bytes un-encoded: with no
         // Images binding the thumbnail route answers 503 instead.
         registryThumbRequireTransform: isDeployedTier(env),

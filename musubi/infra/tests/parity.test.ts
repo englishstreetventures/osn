@@ -22,6 +22,7 @@ interface WranglerTier {
     readonly simple: { readonly limit: number; readonly period: number };
   }[];
   readonly d1_databases: readonly { readonly binding: string; readonly database_name: string }[];
+  readonly r2_buckets: readonly { readonly binding: string; readonly bucket_name: string }[];
   readonly durable_objects: {
     readonly bindings: readonly { readonly name: string; readonly class_name: string }[];
   };
@@ -79,6 +80,7 @@ describe("osn-api on dev against Wrangler's production config", () => {
       ...Object.keys(production.vars),
       ...production.ratelimits.map((limit) => limit.name),
       ...production.d1_databases.map((database) => database.binding),
+      ...production.r2_buckets.map((bucket) => bucket.binding),
       ...production.durable_objects.bindings.map((binding) => binding.name),
       ...secrets.secrets,
       ...secrets.optional,
@@ -142,12 +144,15 @@ describe("PA: osn-api on production against Wrangler's production config", () =>
     for (const name of [...row.secrets, ...row.optional]) expect(env).not.toHaveProperty(name);
   });
 
-  test("PA2: osn-api's bindings are [env.production]'s: the database by name, the coordination store's class, and each limiter's id and budget", () => {
+  test("PA2: osn-api's bindings are [env.production]'s: the database and the deletion-record bucket by name, the coordination store's class, and each limiter's id and budget", () => {
     const production_ = wrangler.env.production;
     const resources = resourcesOf(production);
     const env = resources.OsnApi?.Props.env ?? {};
     expect(env.DB).toBe(resources.OsnDb);
     expect(resources.OsnDb?.Props.name).toBe(production_.d1_databases[0]?.database_name);
+    expect(production_.r2_buckets.map((bucket) => bucket.binding)).toEqual(["DELETION_RECORDS"]);
+    expect(env.DELETION_RECORDS).toBe(resources.OsnDeletionRecords);
+    expect(resources.OsnDeletionRecords?.Props.name).toBe(production_.r2_buckets[0]?.bucket_name);
     for (const binding of production_.durable_objects.bindings) {
       expect({ [binding.name]: env[binding.name] }).toMatchObject({
         [binding.name]: { kind: "Cloudflare.DurableObject", className: binding.class_name },
@@ -166,6 +171,7 @@ describe("PA: osn-api on production against Wrangler's production config", () =>
       [
         ...Object.keys(production_.vars),
         ...production_.d1_databases.map((d) => d.binding),
+        ...production_.r2_buckets.map((b) => b.binding),
         ...production_.durable_objects.bindings.map((b) => b.name),
         ...production_.ratelimits.map((r) => r.name),
       ].toSorted(),

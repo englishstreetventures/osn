@@ -101,15 +101,18 @@ export const PRODUCTION_ADOPTIONS: readonly string[] = [
   // musubi
   "osn-api-production",
   "osn-db-prod",
+  "osn-deletion-records",
   // cire
   "cire-api-production",
   "cire-invites",
   "cire-db",
   "cire-assets",
   "cire-sheets",
+  "cire-deletion-records",
   // zap
   "zap-api-production",
   "zap-db-prod",
+  "zap-deletion-records",
 ];
 
 /**

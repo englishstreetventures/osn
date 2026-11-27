@@ -1,3 +1,6 @@
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
+
+import { createAccountErasureRoutes as createAccountErasureRoutesRaw } from "../../src/routes/account-erasure";
 import { createArcJwksRoutes as createArcJwksRoutesRaw } from "../../src/routes/arc-jwks";
 import {
   createAuthRoutes as createAuthRoutesRaw,
@@ -69,7 +72,8 @@ export function createAuthRoutes(...args: Parameters<typeof createAuthRoutesRaw>
 
 /** `createProfileRoutes` with XFF-trusting client-IP config + default-XFF patch. */
 export function createProfileRoutes(...args: Parameters<typeof createProfileRoutesRaw>) {
-  const [authConfig, dbLayer, loggerLayer, rateLimiters, clientIpConfig, runtime] = args;
+  const [authConfig, dbLayer, loggerLayer, rateLimiters, clientIpConfig, runtime, deletionRecords] =
+    args;
   return withDefaultXff(
     createProfileRoutesRaw(
       authConfig,
@@ -78,6 +82,7 @@ export function createProfileRoutes(...args: Parameters<typeof createProfileRout
       rateLimiters,
       clientIpConfig ?? { trustedProxyCount: 1 },
       runtime,
+      deletionRecords ?? memoryDeletionRecordStore(),
     ),
   );
 }
@@ -95,6 +100,39 @@ export function createArcJwksRoutes(...args: Parameters<typeof createArcJwksRout
       appHosts,
       kidSecrets,
     ),
+  );
+}
+
+/**
+ * `createAccountErasureRoutes` recording each deletion and cancel in memory
+ * unless the test gives a store: the route refuses every deletion without one.
+ */
+export function createAccountErasureRoutes(
+  ...args: Parameters<typeof createAccountErasureRoutesRaw>
+) {
+  const [
+    authConfig,
+    dbLayer,
+    loggerLayer,
+    rateLimiters,
+    cookieConfig,
+    clientIpConfig,
+    runtime,
+    deletionApps,
+    cireOrganiserRevoke,
+    deletionRecords,
+  ] = args;
+  return createAccountErasureRoutesRaw(
+    authConfig,
+    dbLayer,
+    loggerLayer,
+    rateLimiters,
+    cookieConfig,
+    clientIpConfig,
+    runtime,
+    deletionApps,
+    cireOrganiserRevoke,
+    deletionRecords ?? memoryDeletionRecordStore(),
   );
 }
 

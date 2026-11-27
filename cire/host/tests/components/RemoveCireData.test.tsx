@@ -15,6 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *    it: kept from an earlier visit, or carried in memory past a failure that
  *    left one such wedding, it is dropped, and that wedding's box is the
  *    person's to tick.
+ * 4. A removal cire-api could not record (503 `deletion_not_recorded`, nothing
+ *    erased) asks the person to try again; it is not Musubi out of reach. A 503
+ *    `unavailable`, osn-api out of reach, still says so.
  */
 
 const { authFetch, haptic } = vi.hoisted(() => ({ authFetch: vi.fn(), haptic: vi.fn() }));
@@ -172,6 +175,25 @@ describe("RemoveCireData's removal loop", () => {
     expect(boxOf(ROSA).checked).toBe(false);
     expect(boxOf(ROSA).disabled).toBe(false);
     expect(keptAnswers()?.deleteEverything).toBe(false);
+  });
+
+  it("asks to try again when the removal could not be recorded, not that Musubi is unreachable", async () => {
+    serve([plan([ROSA], true)], [json({ error: "deletion_not_recorded" }, 503)]);
+    show({ code: "code_ok" });
+    expect(await screen.findByText(ROSA.name)).toBeTruthy();
+    fireEvent.click(boxOf(ROSA));
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    expect(await screen.findByText(/Cire couldn't finish this\. Try again\./)).toBeTruthy();
+    expect(screen.queryByText(/Cire can't reach Musubi/)).toBeNull();
+  });
+
+  it("says Musubi is out of reach when the removal answers 503 unavailable", async () => {
+    serve([plan([ROSA], true)], [json({ error: "unavailable" }, 503)]);
+    show({ code: "code_ok" });
+    expect(await screen.findByText(ROSA.name)).toBeTruthy();
+    fireEvent.click(boxOf(ROSA));
+    fireEvent.click(screen.getByRole("button", { name: "Remove my Cire data" }));
+    expect(await screen.findByText(/Cire can't reach Musubi right now\./)).toBeTruthy();
   });
 });
 

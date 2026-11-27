@@ -2269,3 +2269,46 @@ describe("account-erasure: successor candidates", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
+
+describe("account-erasure: a soft delete whose batch committed though its call failed", () => {
+  // On D1 a batch can commit and its call still fail. The standing job is
+  // then this request's own, recognised by its `job_id`: the request
+  // scheduled the deletion, and its record of it stays.
+  it.effect("answers the deletion it scheduled, not another request's", () =>
+    Effect.gen(function* () {
+      const { db } = createTestLayerWithSqlite();
+      const lost = new Proxy(db, {
+        has: (target, prop) => prop === "batch" || Reflect.has(target, prop),
+        get(target, prop, receiver) {
+          if (prop !== "batch") return Reflect.get(target, prop, receiver);
+          return async (statements: readonly PromiseLike<unknown>[]) => {
+            for (const statement of statements) await statement;
+            throw new Error("the answer was lost");
+          };
+        },
+      });
+      const layer = Layer.succeed(Db, { db: lost });
+      const { accountId } = yield* seedAccountAndProfile().pipe(Effect.provide(layer));
+      let ahead: string | null = null;
+      const result = yield* accountErasure
+        .requestErasure({
+          accountId,
+          cancel: null,
+          heldHandleDigest: makeHeldHandleDigest(undefined),
+          beforeWrite: (job) =>
+            Effect.sync(() => {
+              ahead = job.jobId;
+            }),
+        })
+        .pipe(Effect.provide(layer));
+      expect(result.newlyScheduled).toBe(true);
+      const [job] = yield* Effect.promise(() =>
+        db
+          .select({ jobId: deletionJobs.jobId })
+          .from(deletionJobs)
+          .where(eq(deletionJobs.accountId, accountId)),
+      );
+      expect(job?.jobId).toBe(ahead);
+    }),
+  );
+});

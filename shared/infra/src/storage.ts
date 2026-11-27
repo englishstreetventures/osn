@@ -3,7 +3,7 @@ import { Data } from "effect";
 
 import { refuseUnadopted } from "./production";
 import { PRODUCTION_ADOPTIONS } from "./production-sites";
-import { tierOf } from "./stage";
+import { physicalName, type StageNames, tierOf } from "./stage";
 
 export class ProductionSeedError extends Data.TaggedError("ProductionSeedError")<{
   /** The database name. */
@@ -129,3 +129,57 @@ export function retainedBucketProps(
   };
   return input.locationHint === null ? declared : { ...declared, locationHint: input.locationHint };
 }
+
+/**
+ * Days a deletion record is kept: D1 Time Travel restores a production
+ * database to any minute of the last 30 days, and the records made after the
+ * restore point are applied again after the restore, so each outlives that
+ * window by a day.
+ */
+export const DELETION_RECORD_DAYS = 31;
+
+/**
+ * The lifecycle rules of every product's deletion-record bucket: the
+ * multipart-abort rule Cloudflare gives a new bucket, kept so an adopted one
+ * compares equal, and the rule that deletes each record
+ * {@link DELETION_RECORD_DAYS} days after it is written.
+ */
+export const DELETION_RECORD_LIFECYCLE: NonNullable<Cloudflare.R2.BucketProps["lifecycleRules"]> = [
+  {
+    id: "Default Multipart Abort Rule",
+    enabled: true,
+    prefix: "",
+    abortMultipartUploadsTransition: { condition: { type: "Age", maxAge: 7 * 24 * 60 * 60 } },
+  },
+  {
+    id: "Expire deletion records",
+    enabled: true,
+    prefix: "",
+    deleteObjectsTransition: {
+      condition: { type: "Age", maxAge: DELETION_RECORD_DAYS * 24 * 60 * 60 },
+    },
+  },
+];
+
+/**
+ * A product's deletion-record bucket (`<product>-deletion-records`): where its
+ * API Worker records each erasure request it accepts, outside the database a
+ * restore can rewind (`@shared/db-utils/deletion-records`). Private, with no
+ * CORS and no custom domain; bound to that Worker alone. Standard, default
+ * jurisdiction; placed in ENAM on a stage that creates it, and declared with
+ * no location hint on production, where it is adopted.
+ */
+export const deletionRecordsBucket = (base: string, stage: string): RetainedBucketInput => {
+  const names: StageNames = { base, dev: `${base}-dev`, production: base };
+  return {
+    name: physicalName(names, stage),
+    stage,
+    storageClass: "Standard",
+    jurisdiction: "default",
+    locationHint: tierOf(stage) === "production" ? null : "enam",
+    publicAccess: false,
+    lifecycleRules: DELETION_RECORD_LIFECYCLE,
+    cors: [],
+    domains: [],
+  };
+};

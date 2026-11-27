@@ -1,5 +1,6 @@
 import { deletionJobs } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -186,6 +187,8 @@ async function throughRoute(req: Req): Promise<{ verdict: string; scheduled: boo
     undefined,
     apps.config(),
     DISABLED_CIRE_ORGANISER_REVOKE,
+    // A records stand-in: the route refuses every deletion without a store.
+    memoryDeletionRecordStore(),
   );
   const stepUp = await runOn(
     layer,

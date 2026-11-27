@@ -10,6 +10,7 @@ import {
   weddingHosts,
 } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -77,6 +78,7 @@ function buildApp() {
   // Room for the guest sessions some tests open, whatever the file runs first.
   const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
   const app = createApp(db, {
+    deletionRecords: memoryDeletionRecordStore(),
     r2,
     osnTestKey: auth.key,
     claimLimiter: limiter(),

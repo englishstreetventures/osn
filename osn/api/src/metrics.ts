@@ -9,6 +9,10 @@
  */
 
 import type { CoordinationOp } from "@shared/coordination";
+import type {
+  DeletionRecordKind,
+  DeletionRecordWriteResult,
+} from "@shared/db-utils/deletion-records";
 import {
   createCounter,
   createHistogram,
@@ -144,6 +148,8 @@ export const OSN_METRICS = {
   accountDeletionFanoutOldestAge: "osn.account.deletion.fanout_oldest_age",
   accountDeletionAppPreview: "osn.account.deletion.app_preview",
   accountDeletionAppSessionsEnded: "osn.account.deletion.app_sessions_ended",
+  // Erasure requests recorded outside the database (lib/deletion-records.ts)
+  deletionRecordWrites: "osn.deletion.record.writes",
   accountDeletionOrganisation: "osn.account.deletion.organisation",
   // App enrollments
   appEnrollmentJoined: "osn.account.app_enrollment.joined",
@@ -1492,6 +1498,14 @@ const accountDeletionAppSessionsEnded = createCounter<DeletionAppCallAttrs>({
   unit: "{call}",
 });
 
+type DeletionRecordWriteAttrs = { kind: DeletionRecordKind; result: DeletionRecordWriteResult };
+
+const deletionRecordWrites = createCounter<DeletionRecordWriteAttrs>({
+  name: OSN_METRICS.deletionRecordWrites,
+  description: "Records of erasure requests and withdrawals written to the deletion-record bucket",
+  unit: "{record}",
+});
+
 const accountDeletionOrganisation = createCounter<DeletionOrganisationAttrs>({
   name: OSN_METRICS.accountDeletionOrganisation,
   description: "Organisations an erased account owned, passed on or deleted at its hard delete",
@@ -1564,6 +1578,11 @@ export const metricAccountDeletionAppSessionsEnded = (
   service: DeletionFanoutService,
   result: DeletionFanoutResult,
 ): void => accountDeletionAppSessionsEnded.inc({ service, result });
+
+export const metricDeletionRecordWrite = (
+  kind: DeletionRecordKind,
+  result: DeletionRecordWriteResult,
+): void => deletionRecordWrites.inc({ kind, result });
 
 export const metricAccountDeletionOrganisation = (
   outcome: DeletionOrganisationOutcome,

@@ -27,6 +27,10 @@
 
 import { deletionJobs } from "@osn/db/schema";
 import type { Db } from "@osn/db/service";
+import {
+  DELETION_ACTION_ID_PATTERN,
+  DELETION_CHOICE_PATTERN,
+} from "@shared/db-utils/deletion-records";
 import type { DeletionFanoutService } from "@shared/observability/metrics";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
@@ -275,18 +279,27 @@ const HttpUrlOrNull = Schema.NullOr(
   Schema.String.check(Schema.isMaxLength(2048), Schema.isPattern(/^https?:\/\/[^\s]+$/)),
 );
 
+/**
+ * An action's id and a choice token keep the shapes a deletion record takes
+ * (`@shared/db-utils/deletion-records`): an app answering another shape is
+ * outside the contract and cannot be checked, rather than accepted and then
+ * refused by the record after the person's step-up.
+ */
+const ActionId = Text(128).check(Schema.isPattern(DELETION_ACTION_ID_PATTERN));
+const ChoiceToken = Text(32).check(Schema.isPattern(DELETION_CHOICE_PATTERN));
+
 const AppChoice = Schema.Struct({
-  choice: Text(32),
+  choice: ChoiceToken,
   description: Text(500),
   erasedOn: UnixSecondsOrNull,
 });
 
 const AppOpenActionSchema = Schema.Struct({
-  id: Text(128),
+  id: ActionId,
   kind: Text(64),
   label: Text(500),
   choices: Schema.Array(AppChoice).check(Schema.isMaxLength(10)),
-  defaultChoice: Schema.NullOr(Text(32)),
+  defaultChoice: Schema.NullOr(ChoiceToken),
   link: HttpUrlOrNull,
 });
 

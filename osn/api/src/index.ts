@@ -1,6 +1,15 @@
-import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
+import type {
+  D1Database,
+  ExecutionContext,
+  R2Bucket,
+  ScheduledController,
+} from "@cloudflare/workers-types";
 import { makeDbD1Live, type Db } from "@osn/db/service";
 import type { CoordinationNamespace } from "@shared/coordination";
+import {
+  missingDeletionRecordStore,
+  r2DeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import type { EmailService } from "@shared/email";
 import { installWorkersTracing } from "@shared/observability/tracing";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
@@ -53,6 +62,10 @@ export interface Env {
   // ceremony store, step-up token guard and lockout counter that must be
   // shared across isolates. Required in every tier; absent ⇒ 503.
   COORDINATION?: CoordinationNamespace;
+  // The `osn-deletion-records` R2 bucket: each accepted account deletion, its
+  // cancel and each profile deletion is recorded here before it is written, so
+  // a D1 restore cannot lose it. Absent ⇒ those requests answer 503.
+  DELETION_RECORDS?: R2Bucket;
   // Cloudflare Workers native Rate Limiting bindings. Declared as
   // `[[ratelimits]]` blocks in wrangler.toml (one per 60s budget tier), mirrored
   // into every named env. Present ONLY on the Workers runtime; when present the
@@ -242,6 +255,11 @@ export async function buildAll(env: Env): Promise<BuiltWorker> {
     // The native Workers rate-limit bindings, when declared. Absent ⇒ those
     // limiters stay on the coordination store.
     rateLimitBindings: readOsnRateLimitBindings(env),
+    // No bucket bound ⇒ a store that refuses every write, whatever the tier:
+    // a deletion is refused rather than accepted unrecorded.
+    deletionRecords: env.DELETION_RECORDS
+      ? r2DeletionRecordStore(env.DELETION_RECORDS)
+      : missingDeletionRecordStore(),
   });
 
   const { appRuntime, deletionApps } = built.deps;

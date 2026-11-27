@@ -1,3 +1,4 @@
+import { DeletionRecordRefused, DeletionRecordWriteError } from "@shared/db-utils/deletion-records";
 import { Data, Effect, Layer } from "effect";
 import { describe, it, expect } from "vitest";
 
@@ -20,6 +21,18 @@ describe("publicError", () => {
     expect(publicError(err)).toEqual({
       status: 503,
       body: { error: "temporarily_unavailable" },
+    });
+  });
+
+  it("answers a deletion record the store could not write with 503, and one it refused with 500", () => {
+    // The route refused the erasure request before writing anything; a
+    // record holding a value that is not an id is a bug, not the caller's 400.
+    expect(
+      publicError(new DeletionRecordWriteError({ kind: "profile_deleted", reason: "failed" })),
+    ).toEqual({ status: 503, body: { error: "temporarily_unavailable" } });
+    expect(publicError(new DeletionRecordRefused({ kind: "profile_deleted" }))).toEqual({
+      status: 500,
+      body: { error: "internal_error" },
     });
   });
 

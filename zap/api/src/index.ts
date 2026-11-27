@@ -1,4 +1,8 @@
-import type { D1Database } from "@cloudflare/workers-types";
+import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import {
+  missingDeletionRecordStore,
+  r2DeletionRecordStore,
+} from "@shared/db-utils/deletion-records";
 import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
 import { makeLoggerLayer } from "@shared/observability/logger";
 import { makeDbD1Live } from "@zap/db/service";
@@ -22,6 +26,12 @@ export { createApp } from "./app";
  */
 export interface Env {
   DB?: D1Database;
+  /**
+   * The `zap-deletion-records` R2 bucket: each account erasure is recorded
+   * here before Zap erases anything, so a D1 restore cannot lose it. Absent ⇒
+   * every erasure answers 503, on every tier.
+   */
+  DELETION_RECORDS?: R2Bucket;
   /**
    * JWKS endpoint of the OSN issuer that signs access tokens (W1/W2 — ES256
    * verification). Required in deployed envs so the Worker verifies Bearer
@@ -112,6 +122,9 @@ function buildApp(env: Env): App {
     dbLayer: makeDbD1Live(env.DB as D1Database),
     verification: { jwksUrl: jwksUrl ?? DEFAULT_JWKS_URL, issuer },
     corsOrigins,
+    deletionRecords: env.DELETION_RECORDS
+      ? r2DeletionRecordStore(env.DELETION_RECORDS)
+      : missingDeletionRecordStore(),
   });
 }
 

@@ -174,6 +174,26 @@ describe("previewDeletionApps", () => {
           "a link that is not https",
           () => ({ body: { openActions: [{ ...action, link: "http://pulse.example/e/1" }] } }),
         ],
+        // The shapes a deletion record takes: an answer in another shape
+        // would be refused by the record after the person's step-up.
+        [
+          "an action id a deletion record refuses",
+          () => ({ body: { openActions: [{ ...action, id: "pulse:event:Ann's party" }] } }),
+        ],
+        [
+          "a choice a deletion record refuses",
+          () => ({
+            body: {
+              openActions: [
+                {
+                  ...action,
+                  choices: [{ choice: "Cancel it", description: "x", erasedOn: null }],
+                  defaultChoice: null,
+                },
+              ],
+            },
+          }),
+        ],
       ];
       for (const [label, answer] of cases) {
         pulseAnswer = answer;

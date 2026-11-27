@@ -1,4 +1,10 @@
 import { DbLive, type Db } from "@osn/db/service";
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+  withDeletionRecord,
+} from "@shared/db-utils/deletion-records";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
 import {
   getClientIp,
@@ -10,6 +16,7 @@ import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccountId } from "../lib/auth-derive";
+import { instrumentDeletionRecords } from "../lib/deletion-records";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAuthRateLimited } from "../metrics";
@@ -54,6 +61,11 @@ export function createProfileRoutes(
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
+  /**
+   * Where each profile deletion is recorded outside the database
+   * (`lib/deletion-records.ts`). None given refuses every deletion.
+   */
+  deletionRecords: DeletionRecordStore = missingDeletionRecordStore(),
 ) {
   for (const [key, backend] of Object.entries(rateLimiters)) {
     if (typeof (backend as RateLimiterBackend)?.check !== "function") {
@@ -63,6 +75,7 @@ export function createProfileRoutes(
 
   const auth = createAuthService(authConfig);
   const profile = createProfileService(auth);
+  const records = instrumentDeletionRecords(deletionRecords);
 
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
@@ -174,8 +187,25 @@ export function createProfileRoutes(
             set.status = 401;
             return { error: "unauthorized" };
           }
+          // Recorded outside the database once every refusal has passed; a
+          // record it cannot write refuses the delete (503), and a delete
+          // refused after the write keeps no record.
           const { defaultProfileId } = await run(
-            profile.deleteProfile(principal.accountId, body.profile_id),
+            withDeletionRecord(records, {
+              build: (deletion: { readonly at: number }): DeletionRecord => ({
+                v: 1,
+                kind: "profile_deleted",
+                at: deletion.at,
+                accountId: principal.accountId,
+                profileId: body.profile_id,
+              }),
+              perform: (beforeWrite) =>
+                profile.deleteProfile(principal.accountId, body.profile_id, beforeWrite),
+              accepted: () => true,
+              // Every refusal is an AuthError; a database error may have
+              // landed the deletion, and its record stays.
+              refused: (error) => error._tag === "AuthError",
+            }),
           );
           return { deleted: true, default_profile_id: defaultProfileId };
         } catch (e) {
@@ -203,6 +233,9 @@ export function createProfileRoutes(
           401: errorResponse,
           429: errorResponse,
           500: errorResponse,
+          // `temporarily_unavailable`: the deletion could not be recorded
+          // outside the database, so nothing was deleted; try again.
+          503: errorResponse,
         },
         detail: { operationId: "deleteProfile", security: [{ bearerAuth: [] }] },
       },

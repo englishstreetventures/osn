@@ -169,8 +169,10 @@ owners, each with an `owner` seat. Two consequences:
     is not an action.
   - *Soft delete.* Only the person's organiser sessions end. The weddings and
     seats are untouched, so a cancel loses nothing.
-  - *Erasure,* per wedding the account has an owner seat in, one D1 batch:
-    the seats and their `host_rsvp_notices` rows go, and the wedding is
+  - *Erasure.* First, on every call, the person's organiser sessions end.
+    Then, per wedding the account has an owner seat in, one D1 batch:
+    the seats the call's first read found there and those seats'
+    `host_rsvp_notices` rows go (a seat added since goes in a later step), and the wedding is
     soft-deleted in that batch when no owner is left, whatever was answered,
     since the rules run on the rows as they stand, naming as its deleter the
     profile whose owner seat went. The purge takes a deleted wedding with no
@@ -181,7 +183,8 @@ owners, each with an `owner` seat. Two consequences:
     new Stripe account (`registry-payout-holder-erased`): the wedding's name
     and a portal link, naming no one. Then, once per
     account:
-    seats below owner and the notice rows left; organiser sessions; guest
+    seats below owner, at most 200 a call (a call that leaves more answers not
+    finished, and the next call goes on), and the notice rows left; guest
     account links (by the account or a
     profile); `registry_stripe_oauth_states`, `realtime_subscribe_budget` and
     the `actor:` rows of `owner_notice_budget`; an enquiry the person opened
@@ -189,7 +192,7 @@ owners, each with an `owner` seat. Two consequences:
     as the entries below say (`'deleted'` where the column cannot be NULL, or
     beside a time that stays or where NULL would say the guest or household
     wrote it), the deleter of every wedding the erasure deleted among them,
-    once no owner seat of the profiles is left. A wedding the erasure deleted
+    once no seat of the profiles is left. A wedding the erasure deleted
     is hidden from every reader at once but stays in cire's database, with its
     guest data, until the daily purge takes it: at most three weddings a run,
     and none while an upgrade purchase or gift from the last 14 days is still
@@ -224,7 +227,9 @@ owners, each with an `owner` seat. Two consequences:
     It runs with the `host` scope, which leaves their vendor listing claims and
     their guest account links as they are; everything else above goes, their
     organiser sessions included, and the other owners of each wedding they
-    leave are emailed. A wedding left with no owner is deleted at once and the
+    leave are emailed. Their organiser sessions end only once no seat of
+    theirs is left, so a call that answers not finished leaves them signed
+    in to call again. A wedding left with no owner is deleted at once and the
     purge takes it, later while a payment for it settles; the removal clears
     its deleter, counts nothing and answers no kept item, since the removal
     screen says this before the person confirms. They can sign in

@@ -118,7 +118,7 @@ describe("the wedding archive on workerd", () => {
       compatibilityDate: wrangler.compatibility_date,
       compatibilityFlags: PRODUCTION_FLAGS,
       d1Databases: { DB: "cire-test-archive" },
-      r2Buckets: ["ASSETS", "SHEETS"],
+      r2Buckets: ["ASSETS", "SHEETS", "DELETION_RECORDS"],
       durableObjects: { REALTIME_HUB: { className: "TopicHub", useSQLite: true } },
       bindings: {
         OSN_ENV: "local",
@@ -159,5 +159,35 @@ describe("the wedding archive on workerd", () => {
     expect(names).toContain(`cire-wedding-slug-${W}/manifest.json`);
     expect(names.filter((name) => name.includes("/files/"))).toHaveLength(7);
     expect(entries.every((entry) => entry.crcMatches)).toBe(true);
+  });
+
+  // The Worker entry hands its `DELETION_RECORDS` binding to the routes, so an
+  // owner's delete lands in the bucket production binds: every other record
+  // test runs the routes under Bun with an in-memory store.
+  it("records an owner's wedding delete in the bucket bound as DELETION_RECORDS", async () => {
+    const res = await archiveMf.dispatchFetch(
+      `https://api.example.test/api/organiser/weddings/${W}`,
+      {
+        method: "DELETE",
+        headers: {
+          cookie,
+          Origin: "https://host.example.test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ confirmSlug: `slug-${W}` }),
+      },
+    );
+    expect(res.status).toBe(200);
+    const bucket = await archiveMf.getR2Bucket("DELETION_RECORDS");
+    const listed = await bucket.list({ prefix: "records/" });
+    expect(listed.objects).toHaveLength(1);
+    const stored = await bucket.get(listed.objects[0]!.key);
+    expect(JSON.parse((await stored?.text()) ?? "null")).toEqual({
+      v: 1,
+      kind: "wedding_deleted",
+      at: expect.any(Number),
+      weddingId: W,
+      profileId: OWNER,
+    });
   });
 });

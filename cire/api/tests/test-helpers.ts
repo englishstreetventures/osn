@@ -227,6 +227,48 @@ export function failStatements(
 }
 
 /**
+ * From here on, each statement whose SQL `matches` runs and then throws: a
+ * write that committed but whose answer was lost, as a D1 batch can commit and
+ * the Worker still see an error. `failed()` counts the throws; `restore()` puts
+ * the client back.
+ */
+export function failAfterRunning(
+  db: TestDb,
+  matches: (sql: string) => boolean,
+): { failed: () => number; restore: () => void } {
+  const client = db.$client;
+  const own = Object.getOwnPropertyDescriptor(client, "query");
+  const prepare = client.prepare.bind(client);
+  let failed = 0;
+  Object.defineProperty(client, "query", {
+    configurable: true,
+    value: (sql: string) => {
+      const statement = prepare(sql);
+      if (!matches(sql)) return statement;
+      for (const method of ["run", "all", "get", "values"] as const) {
+        const original = statement[method].bind(statement) as (...params: unknown[]) => unknown;
+        Object.defineProperty(statement, method, {
+          configurable: true,
+          value: (...params: unknown[]) => {
+            original(...params);
+            failed += 1;
+            throw new Error("injected failure after the write ran");
+          },
+        });
+      }
+      return statement;
+    },
+  });
+  return {
+    failed: () => failed,
+    restore: () => {
+      if (own) Object.defineProperty(client, "query", own);
+      else Reflect.deleteProperty(client, "query");
+    },
+  };
+}
+
+/**
  * From here on, a statement `db` runs that fails, fails the way a single
  * statement fails on D1, as drizzle's `DrizzleQueryError`, whose message
  * names only the statement, around a `D1_ERROR: <reason>` error, around the

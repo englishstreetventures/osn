@@ -1,4 +1,5 @@
 import { cors } from "@elysiajs/cors";
+import type { DeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
 import { DbLive, type Db } from "@zap/db/service";
 import type { Layer } from "effect";
@@ -41,6 +42,13 @@ interface AppOptions {
    * permissive `cors()` default (tests only).
    */
   corsOrigins?: string[];
+  /**
+   * Where each account erasure is recorded outside the database
+   * (`lib/deletion-records.ts`): the `zap-deletion-records` bucket on
+   * Workers, memory on the Bun entry and in tests. Absent, every erasure
+   * answers 503.
+   */
+  deletionRecords?: DeletionRecordStore;
 }
 
 /**
@@ -54,6 +62,7 @@ export function createApp(options: AppOptions = {}) {
     verification = DEFAULT_VERIFICATION,
     rateLimiters = createDefaultZapRateLimiters(),
     corsOrigins,
+    deletionRecords,
   } = options;
 
   return (
@@ -65,7 +74,7 @@ export function createApp(options: AppOptions = {}) {
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
       .use(createChatsRoutes(dbLayer, verification, undefined, rateLimiters))
-      .use(createInternalRoutes(dbLayer, verification))
+      .use(createInternalRoutes(dbLayer, verification, deletionRecords))
   );
 }
 

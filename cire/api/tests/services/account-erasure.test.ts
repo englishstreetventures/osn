@@ -23,6 +23,7 @@ import { createOwnerNotices } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
 import {
   accountErasureService,
+  MAX_LOWER_SEATS_PER_CALL,
   MAX_OWNED_WEDDINGS_PER_CALL,
 } from "../../src/services/account-erasure";
 import { beforeStatement, failStatements, recordStatements } from "../test-helpers";
@@ -99,13 +100,17 @@ const preview = (db: TestDb, profileIds: readonly string[] = [P], origin = PORTA
     }),
   );
 
-function erase(db: TestDb, opts: { profileIds?: readonly string[]; now?: Date } = {}) {
+function erase(
+  db: TestDb,
+  opts: { profileIds?: readonly string[]; now?: Date; scope?: "account" | "host" } = {},
+) {
   const result = run(
     db,
     accountErasureService.erase({
       accountId: ACCOUNT,
       profileIds: opts.profileIds ?? [P],
       now: opts.now ?? NOW,
+      ...(opts.scope ? { scope: opts.scope } : {}),
     }),
   );
   return { result };
@@ -315,6 +320,66 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(seatsOf(db, "w2")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
 
+  it("takes the weddings by their oldest owner seat, then by id, whatever seats below owner say", async () => {
+    const db = makeDb();
+    const at = (seconds: number) => new Date(NOW.getTime() - 60 * DAY_S * 1000 + seconds * 1000);
+    const sit = (weddingId: string, profile: string, role: "owner" | "viewer", seconds: number) =>
+      db
+        .insert(weddingHosts)
+        .values({
+          id: `whost_${weddingId}_${profile}`,
+          weddingId,
+          osnProfileId: profile,
+          addedByOsnProfileId: profile,
+          role,
+          createdAt: at(seconds),
+        })
+        .run();
+    for (const id of ["w_a", "w_b", "w_c", "w_d"]) wedding(db, id, []);
+    // w_a's owner seat is the newest, though a seat below owner there is older
+    // than every other; w_c's oldest owner seat counts, not its newest.
+    sit("w_a", P, "owner", 30);
+    sit("w_a", P2, "viewer", 1);
+    sit("w_b", P, "owner", 10);
+    sit("w_d", P, "owner", 10);
+    sit("w_c", P, "owner", 20);
+    sit("w_c", P2, "owner", 50);
+
+    const { result, owned } = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P, P2],
+        now: NOW,
+      }),
+    );
+    expect(result).toEqual({ status: "not_finished" });
+    expect(owned.map((o) => o.weddingId)).toEqual(["w_b", "w_d", "w_c"]);
+    expect(seatsOf(db, "w_a")).toHaveLength(2);
+  });
+
+  it("takes the notice rows of the seats each wedding's batch takes, before any clean-up", async () => {
+    const db = makeDb();
+    const count = MAX_OWNED_WEDDINGS_PER_CALL + 1;
+    for (let i = 0; i < count; i += 1) {
+      wedding(db, `w${i}`, [P, OTHER]);
+      for (const profile of [P, OTHER]) {
+        db.insert(hostRsvpNotices)
+          .values({ weddingId: `w${i}`, osnProfileId: profile, updatedAt: NOW })
+          .run();
+      }
+    }
+    // The cap stops the call before the account's clean-up.
+    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    const notices = db
+      .select({ weddingId: hostRsvpNotices.weddingId, profile: hostRsvpNotices.osnProfileId })
+      .from(hostRsvpNotices)
+      .all();
+    const mine = notices.filter((n) => n.profile === P).map((n) => n.weddingId);
+    expect(mine).toHaveLength(count - MAX_OWNED_WEDDINGS_PER_CALL);
+    expect(notices.filter((n) => n.profile === OTHER)).toHaveLength(count);
+  });
+
   it("past the per-call cap, the call does part of the work and answers not finished", async () => {
     const db = makeDb();
     const count = MAX_OWNED_WEDDINGS_PER_CALL + 1;
@@ -337,7 +402,9 @@ describe("accountErasureService.erase — weddings the person owns", () => {
       seatsOf(db, id).some((s) => s.profile === P),
     );
     expect(stillSeated).toHaveLength(count - MAX_OWNED_WEDDINGS_PER_CALL);
-    expect(db.select().from(organiserSessions).all()).toHaveLength(1);
+    // The person's sessions end on this first call, though it stops before
+    // the account's clean-up.
+    expect(db.select().from(organiserSessions).all()).toEqual([]);
 
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
     expect(db.select().from(organiserSessions).all()).toEqual([]);
@@ -357,8 +424,9 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P]);
     const statements = recordStatements(db);
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
-    // 1 read of owned weddings + 3 per wedding + 22 in the account's clean-up.
-    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 22);
+    // 1 read of owned weddings + 1 ending the sessions + 3 per wedding + 21 in
+    // the account's clean-up.
+    expect(statements).toHaveLength(1 + 1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 21);
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 
@@ -485,7 +553,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
   });
 
-  it("a seat made owner after the pre-read keeps the person's organiser sessions, so the next call can run", async () => {
+  it("a seat made owner after the pre-read keeps a host's organiser sessions, so the next call can run", async () => {
     // Red on ending the sessions in a call that answers not finished: a host
     // removing their own data would be signed out with a seat left behind
     // and no way to finish. Another person's session stays either way.
@@ -508,7 +576,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
       db.update(weddingHosts).set({ role: "owner" }).where(eq(weddingHosts.osnProfileId, P)).run();
     });
 
-    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    expect(await erase(db, { scope: "host" }).result).toEqual({ status: "not_finished" });
     const sessions = () =>
       db
         .select({ p: organiserSessions.osnProfileId })
@@ -518,8 +586,35 @@ describe("accountErasureService.erase — weddings the person owns", () => {
         .toSorted();
     expect(sessions()).toEqual([OTHER, P].toSorted());
 
-    expect((await erase(db).result).status).toBe("done");
+    expect((await erase(db, { scope: "host" }).result).status).toBe("done");
     expect(sessions()).toEqual([OTHER]);
+  });
+
+  it("an account's erasure ends the person's organiser sessions even on a call that leaves a seat", async () => {
+    // osn-api makes the next call, not the person, so no session needs to
+    // outlive the account's deletion while seats are left.
+    const db = makeDb();
+    wedding(db, "w1", [OTHER]);
+    seat(db, "w1", P, "editor", OTHER);
+    for (const profile of [P, OTHER]) {
+      db.insert(organiserSessions)
+        .values({
+          id: `oss_${profile}`,
+          token: `tok_${profile}`,
+          osnProfileId: profile,
+          osnSub: "sub",
+          expiresAt: new Date(NOW.getTime() + DAY_S * 1000),
+          createdAt: NOW,
+        })
+        .run();
+    }
+    beforeStatement(db, /delete from "host_rsvp_notices"/i, () => {
+      db.update(weddingHosts).set({ role: "owner" }).where(eq(weddingHosts.osnProfileId, P)).run();
+    });
+    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    expect(db.select({ p: organiserSessions.osnProfileId }).from(organiserSessions).all()).toEqual([
+      { p: OTHER },
+    ]);
   });
 
   it("names, for each wedding, the profiles whose owner seat went: never a profile that held none there", async () => {
@@ -539,8 +634,20 @@ describe("accountErasureService.erase — weddings the person owns", () => {
       }),
     );
     expect(owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
-      { weddingId: "w_mine", outcome: "seat_removed", leavers: [P], payoutHolderLeft: false },
-      { weddingId: "w_sibling", outcome: "seat_removed", leavers: [P2], payoutHolderLeft: false },
+      {
+        weddingId: "w_mine",
+        outcome: "seat_removed",
+        leavers: [P],
+        payoutHolderLeft: false,
+        seatHolders: [P],
+      },
+      {
+        weddingId: "w_sibling",
+        outcome: "seat_removed",
+        leavers: [P2],
+        payoutHolderLeft: false,
+        seatHolders: [P2],
+      },
     ]);
     expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
@@ -757,6 +864,24 @@ describe("accountErasureService.erase — deleted weddings the purge holds", () 
       kept: [{ what: manyHeld(count), erasedOn: null, requestUrl: null }],
     });
     expect(deleterOf(db, "w_other_account")).toBe(OTHER_ACCOUNT_PROFILE);
+  });
+
+  it("keeps a held wedding's deleter through a call that leaves seats below owner, and reports it at the end", async () => {
+    const db = makeDb();
+    wedding(db, "w_held", [P]);
+    gift(db, "w_held", "disputed");
+    for (let i = 0; i <= MAX_LOWER_SEATS_PER_CALL; i += 1) {
+      wedding(db, `wv${i}`, [OTHER]);
+      seat(db, `wv${i}`, P, "viewer", OTHER);
+    }
+    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    // The finishing call counts the wedding by its deleter.
+    expect(deleterOf(db, "w_held")).toBe(P);
+    expect(await eraseToDone(db)).toEqual({
+      status: "done",
+      kept: [{ what: ONE_HELD, erasedOn: null, requestUrl: null }],
+    });
+    expect(deleterOf(db, "w_held")).toBeNull();
   });
 
   it("past a hundred held weddings the answer is still one item, inside the contract's 500 characters", async () => {
@@ -1107,8 +1232,20 @@ describe("accountErasureService.eraseWithOutcomes — a host leaving cire", () =
     );
     expect(finished.result).toEqual({ status: "done", kept: [] });
     expect(finished.owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
-      { weddingId: "w_alone", outcome: "deleted", leavers: [P], payoutHolderLeft: false },
-      { weddingId: "w_shared", outcome: "seat_removed", leavers: [P], payoutHolderLeft: false },
+      {
+        weddingId: "w_alone",
+        outcome: "deleted",
+        leavers: [P],
+        payoutHolderLeft: false,
+        seatHolders: [P],
+      },
+      {
+        weddingId: "w_shared",
+        outcome: "seat_removed",
+        leavers: [P],
+        payoutHolderLeft: false,
+        seatHolders: [P],
+      },
     ]);
     // The other person's wedding is untouched.
     expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);
@@ -1551,7 +1688,14 @@ describe("accountErasureService.erase — the remaining owners of a payout accou
       }),
     );
     expect(owned).toEqual([
-      { weddingId: "w1", outcome: "seat_removed", leavers: [P], payoutHolderLeft: false },
+      {
+        weddingId: "w1",
+        outcome: "seat_removed",
+        leavers: [P],
+        payoutHolderLeft: false,
+        // Both seats went, the owner's and the holder's below it.
+        seatHolders: expect.arrayContaining([P, P2]),
+      },
     ]);
     expect(sent).toEqual([]);
   });
@@ -1588,9 +1732,10 @@ describe("accountErasureService.erase — the remaining owners of a payout accou
     const statements = recordStatements(db);
     expect(await eraseNotifying(db, hook)).toEqual({ status: "done", kept: [] });
     expect(sent).toHaveLength(MAX_OWNED_WEDDINGS_PER_CALL);
-    // 1 read of owned weddings + 3 per wedding + 22 in the clean-up, and per
-    // notice the owners' read and the budget's two statements.
-    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 22 + 3 * 3);
+    // 1 read of owned weddings + 1 ending the sessions + 3 per wedding + 21 in
+    // the clean-up, and per notice the owners' read and the budget's two
+    // statements: 41.
+    expect(statements).toHaveLength(1 + 1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 21 + 3 * 3);
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 });

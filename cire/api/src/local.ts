@@ -1,3 +1,4 @@
+import { memoryDeletionRecordStore } from "@shared/db-utils/deletion-records";
 import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
@@ -148,6 +149,9 @@ const appOptions: Parameters<typeof createApp>[1] = {
   allowedOrigins: origins,
   r2,
   assets,
+  // No bucket in a local run: the records of erasure requests are kept in
+  // this process and go with it.
+  deletionRecords: memoryDeletionRecordStore(),
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,

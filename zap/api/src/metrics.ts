@@ -8,6 +8,10 @@
  * See `CLAUDE.md` "Observability" section for the full rules.
  */
 
+import type {
+  DeletionRecordKind,
+  DeletionRecordWriteResult,
+} from "@shared/db-utils/deletion-records";
 import {
   BYTE_BUCKETS,
   createCounter,
@@ -28,6 +32,7 @@ const ZAP_METRICS = {
   wsMessagesDelivered: "zap.ws.messages.delivered",
   accessDenied: "zap.access.denied",
   accountErased: "zap.account.erased",
+  deletionRecordWrites: "zap.deletion.record.writes",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -179,3 +184,17 @@ const accountErased = createCounter<AccountErasedAttrs>({
 
 export const metricAccountErased = (result: AccountErasedAttrs["result"]): void =>
   accountErased.inc({ result });
+
+const deletionRecordWrites = createCounter<{
+  kind: DeletionRecordKind;
+  result: DeletionRecordWriteResult;
+}>({
+  name: ZAP_METRICS.deletionRecordWrites,
+  description: "Records of account erasures written to the deletion-record bucket",
+  unit: "{record}",
+});
+
+export const metricDeletionRecordWrite = (
+  kind: DeletionRecordKind,
+  result: DeletionRecordWriteResult,
+): void => deletionRecordWrites.inc({ kind, result });

@@ -1,4 +1,10 @@
 import { DbLive, type Db } from "@osn/db/service";
+import {
+  type DeletionRecord,
+  type DeletionRecordStore,
+  missingDeletionRecordStore,
+  withDeletionRecord,
+} from "@shared/db-utils/deletion-records";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { DeletionPlanLine } from "@shared/email/templates";
 import {
@@ -13,6 +19,7 @@ import { Elysia, t } from "elysia";
 import { resolveAccessTokenPrincipal, resolveAccountWindowPrincipal } from "../lib/auth-derive";
 import { forkBackground } from "../lib/background";
 import type { CookieSessionConfig } from "../lib/cookie-session";
+import { instrumentDeletionRecords, neverBlocking } from "../lib/deletion-records";
 import { createLiveSessionCheck } from "../lib/live-session";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
@@ -176,9 +183,16 @@ export function createAccountErasureRoutes(
   deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
   /** The back-channel that ends the person's cire organiser sessions at the soft delete. */
   cireOrganiserRevoke: CireOrganiserRevokeConfig = DISABLED_CIRE_ORGANISER_REVOKE,
+  /**
+   * Where each accepted deletion and cancel is recorded outside the database
+   * (`lib/deletion-records.ts`). None given refuses every deletion, so a
+   * deployment that forgets it records nothing it accepted.
+   */
+  deletionRecords: DeletionRecordStore = missingDeletionRecordStore(),
 ) {
   const auth = createAuthService(authConfig);
   const rl = rateLimiters;
+  const records = instrumentDeletionRecords(deletionRecords);
 
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
   const { liveSession, liveSessionGate } = createLiveSessionCheck({ auth, run, cookieConfig });
@@ -542,13 +556,41 @@ export function createAccountErasureRoutes(
               return { error: "step_up_required", detail: errBody };
             }
 
+            // Recorded outside the database first, once the service has
+            // accepted it; a record it cannot write refuses the deletion
+            // (503), and a request that then loses a race keeps no record.
             const result = await run(
-              accountErasure.requestErasure({
-                accountId: profile.accountId,
-                cancel: { sessionId: live.sessionHash, familyId: live.familyId },
-                heldHandleDigest: auth.heldHandleDigest,
-                choices,
-                deleteEverything,
+              withDeletionRecord(records, {
+                build: (job: accountErasure.ErasureJobAhead): DeletionRecord => ({
+                  v: 1,
+                  kind: "account_deletion_requested",
+                  at: job.at,
+                  accountId: profile.accountId,
+                  jobId: job.jobId,
+                  hardDeleteAt: job.hardDeleteAt,
+                  deleteEverything,
+                  choices: Object.entries(choices).map(([action, answer]) =>
+                    answer.successorProfileId === undefined
+                      ? { action, choice: answer.choice }
+                      : {
+                          action,
+                          choice: answer.choice,
+                          successorProfileId: answer.successorProfileId,
+                        },
+                  ),
+                }),
+                perform: (beforeWrite) =>
+                  accountErasure.requestErasure({
+                    accountId: profile.accountId,
+                    cancel: { sessionId: live.sessionHash, familyId: live.familyId },
+                    heldHandleDigest: auth.heldHandleDigest,
+                    choices,
+                    deleteEverything,
+                    beforeWrite,
+                  }),
+                accepted: (scheduled) => scheduled.newlyScheduled,
+                // A database error may have landed the deletion: its record stays.
+                refused: (error) => error._tag === "AccountNotFoundError",
               }),
             );
 
@@ -647,6 +689,9 @@ export function createAccountErasureRoutes(
             403: stepUpRequiredResponse,
             429: errorResponse,
             500: errorResponse,
+            // `temporarily_unavailable`: the request could not be recorded
+            // outside the database, so nothing was scheduled; try again.
+            503: errorResponse,
           },
           detail: { operationId: "requestAccountDeletion", security: [{ bearerAuth: [] }] },
         },
@@ -723,7 +768,29 @@ export function createAccountErasureRoutes(
               return { error: "step_up_required", detail: errBody };
             }
 
-            const result = await run(accountErasure.cancelErasure(profile.accountId));
+            // The cancel is recorded too, so a deletion it withdrew is not
+            // applied again after a restore. A record it cannot write does
+            // not block it (`neverBlocking`); a cancel refused after the
+            // write keeps no record.
+            const result = await run(
+              withDeletionRecord(records, {
+                build: (job: {
+                  readonly jobId: string | null;
+                  readonly at: number;
+                }): DeletionRecord => ({
+                  v: 1,
+                  kind: "account_deletion_withdrawn",
+                  at: job.at,
+                  accountId: profile.accountId,
+                  jobId: job.jobId,
+                }),
+                perform: (write) =>
+                  accountErasure.cancelErasure(profile.accountId, neverBlocking(write)),
+                accepted: (cancelled) => cancelled.cancelled,
+                // A database error may have landed the cancel: its record stays.
+                refused: () => false,
+              }),
+            );
             // To the address this request read with the profile.
             if (result.cancelled && profile.email.length > 0) {
               await run(

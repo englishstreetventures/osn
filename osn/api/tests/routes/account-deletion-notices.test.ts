@@ -5,10 +5,7 @@ import { Effect, type Layer } from "effect";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import * as metrics from "../../src/metrics";
-import {
-  createAccountErasureRoutes,
-  type AccountErasureRateLimiters,
-} from "../../src/routes/account-erasure";
+import { type AccountErasureRateLimiters } from "../../src/routes/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { createOrganisationService } from "../../src/services/organisation";
@@ -17,6 +14,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { appStandIns } from "../helpers/deletion-apps";
+import { createAccountErasureRoutes } from "../helpers/routes";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
