@@ -138,14 +138,22 @@ jobs:
             else
               gh release upload "$tag" "$RUNNER_TEMP/out/$asset" --repo "$GITHUB_REPOSITORY"
             fi
-          elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
-            echo "::error::tag $tag exists with no release, so a release would sit on that tag's commit, not on $GITHUB_SHA"
-            exit 1
           else
-            gh release create "$tag" "$RUNNER_TEMP/out/$asset" --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --latest=false \
-              --title "BendTT kernel for Bend $(sed -n 's/^BEND_VERSION=//p' tools/bend/bend.env | tail -n 1) and Lean $(sed -n 's/^LEAN_VERSION=//p' tools/bend/lean.env | tail -n 1)" \
-              --notes "The BendTT kernel the Bend proofs job in .github/workflows/ci.yml rechecks every law set with, built by .github/workflows/bendtt-release.yml at $GITHUB_SHA. SHA-256 $want, as tools/bend/lean.env pins; CI checks that hash before it runs the file."
+            # Exit 2 is "no such tag", 0 a tag with no release (a release
+            # would sit on that tag's commit, not on $GITHUB_SHA), anything
+            # else a failed question: only 2 creates a release.
+            tagged=0
+            git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || tagged=$?
+            case $tagged in
+              2) gh release create "$tag" "$RUNNER_TEMP/out/$asset" --repo "$GITHUB_REPOSITORY" \
+                  --target "$GITHUB_SHA" --latest=false \
+                  --title "BendTT kernel for Bend $(sed -n 's/^BEND_VERSION=//p' tools/bend/bend.env | tail -n 1) and Lean $(sed -n 's/^LEAN_VERSION=//p' tools/bend/lean.env | tail -n 1)" \
+                  --notes "The BendTT kernel the Bend proofs job in .github/workflows/ci.yml rechecks every law set with, built by .github/workflows/bendtt-release.yml at $GITHUB_SHA. SHA-256 $want, as tools/bend/lean.env pins; CI checks that hash before it runs the file." ;;
+              0) echo "::error::tag $tag exists with no release, so a release would sit on that tag's commit, not on $GITHUB_SHA"
+                exit 1 ;;
+              *) echo "::error::could not ask origin whether tag $tag exists (git ls-remote exit $tagged)"
+                exit 1 ;;
+            esac
           fi
 
       # As the Bend proofs job will: the public URL, the pinned SHA-256.

@@ -55,6 +55,7 @@ jobs:
     outputs:
       docs-only: ${{ steps.classify.outputs.docs-only }}
       bend: ${{ steps.classify.outputs.bend }}
+      bend-pins: ${{ steps.classify.outputs.bend-pins }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,15 +90,27 @@ jobs:
             else
               bend=false
             fi
+            # A change to a pin names a BendTT kernel only a build from source
+            # has shown; the Bend proofs then build it rather than fetch one.
+            if printf '%s\n' "$changed" | grep -qE '^tools/bend/(bend|lean)\.env$'; then
+              bend_pins=true
+            else
+              bend_pins=false
+            fi
           else
             echo "::notice::No diff or no classifier at '$base'; every job runs."
             docs_only=false
             bend=true
+            bend_pins=true
           fi
           echo "Prose only: $docs_only"
           echo "Bend proofs: $bend"
-          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
-          echo "bend=$bend" >> "$GITHUB_OUTPUT"
+          echo "Bend pins changed: $bend_pins"
+          {
+            echo "docs-only=$docs_only"
+            echo "bend=$bend"
+            echo "bend-pins=$bend_pins"
+          } >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint & Format
@@ -1310,10 +1323,13 @@ jobs:
       # (.github/workflows/bendtt-release.yml publishes one per pin set), taken
       # only with the SHA-256 lean.env pins; any other bytes or a failed
       # download fail the step. Exit 3 means nothing is published under these
-      # pins, as on a pull request that changes one: the steps below then build
-      # it from source and check it against the same pin.
+      # pins: the steps below then build it from source and check it against
+      # the same pin. Skipped when the change touches a pin, so the run that
+      # brings a pin in (its pull request, queue group and push to main)
+      # always builds the kernel it names, whatever was published first.
       - name: Fetch the BendTT kernel
         id: kernel-fetch
+        if: needs.changes.outputs.bend-pins != 'true'
         env:
           BEND_NO_TELEMETRY: "1"
         run: |
@@ -1325,7 +1341,7 @@ jobs:
             *) exit "$status" ;;
           esac
 
-      # Only when no kernel is published. tools/bend/install-lean.sh checks the
+      # Only when no kernel was fetched. tools/bend/install-lean.sh checks the
       # tarball's SHA-256 before it unpacks anything. Lean stays in
       # $RUNNER_TEMP/lean, never on $GITHUB_PATH: only the next step, which
       # builds the kernel, sees it, so no later step can build a kernel nobody

@@ -1396,7 +1396,8 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
       true,
       true,
     ]);
-    expect(steps[fetch]?.if).toBeUndefined();
+    expect(steps[fetch]?.if).toBe("needs.changes.outputs.bend-pins != 'true'");
+    expect(ci.jobs.changes?.outputs?.["bend-pins"]).toBe("${{ steps.classify.outputs.bend-pins }}");
     expect(steps[fetch]?.run).toContain(
       'bash tools/bend/bend.sh fetch "$RUNNER_TEMP/bendtt" || status=$?',
     );
@@ -1460,6 +1461,12 @@ describe("bendtt-release.yml publishes the BendTT kernel only from main, by hand
     expect(download?.with).toEqual({ name: "bendtt", path: "${{ runner.temp }}/bendtt-artifact" });
     expect(runs).toContain('if [ "$(ls -A "$artifact")" != "bendtt" ]; then');
     expect(runs).toContain("sha256sum -c -");
+    // `git ls-remote --exit-code` exits 2 for no such tag and 128 when it
+    // cannot ask: only 2 may lead to creating the release.
+    expect(runs).toContain(
+      'git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || tagged=$?',
+    );
+    expect(runs).toMatch(/^\s*2\) gh release create /m);
     expect(text).not.toContain("--clobber");
     expect(text).not.toMatch(/gh release (delete|edit)/);
     const upload = stepsOf(release.jobs.build).find(
@@ -1532,6 +1539,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
     readonly output: string;
     readonly verdict: string;
     readonly bend: string;
+    readonly bendPins: string;
   } {
     const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
     const git = (...args: string[]) => {
@@ -1584,6 +1592,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
       output: result.stdout.toString() + result.stderr.toString(),
       verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
       bend: /^bend=(.*)$/m.exec(written)?.[1] ?? "<none>",
+      bendPins: /^bend-pins=(.*)$/m.exec(written)?.[1] ?? "<none>",
     };
   }
 
@@ -1641,13 +1650,14 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   });
 
   test("a base with no classifier yet runs every job", () => {
-    const { exitCode, output, verdict, bend } = classify([["wiki/a.md"]], pullRequest, {
+    const { exitCode, output, verdict, bend, bendPins } = classify([["wiki/a.md"]], pullRequest, {
       classifierOnBase: false,
     });
-    expect({ exitCode, verdict, bend }, output).toEqual({
+    expect({ exitCode, verdict, bend, bendPins }, output).toEqual({
       exitCode: 0,
       verdict: "false",
       bend: "true",
+      bendPins: "true",
     });
   });
 
@@ -1666,6 +1676,37 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   ] as const)("%s: the Bend proofs run is %s", (_, expected, commits) => {
     const { exitCode, output, bend } = classify(commits, pullRequest);
     expect({ exitCode, bend }, output).toEqual({ exitCode: 0, bend: expected });
+  });
+
+  // A change to a pin names a kernel only a build from source has shown, so
+  // the Bend proofs build it rather than fetch whatever a writer may have
+  // published under that name first: on the pull request, its queue group and
+  // its push to main.
+  test.each([
+    ["a change to the Bend pin", "true", [["tools/bend/bend.env"]], pullRequest],
+    ["a change to the Lean and kernel pins", "true", [["tools/bend/lean.env"]], pullRequest],
+    [
+      "a queue group with a pin change ahead of it",
+      "true",
+      [["tools/bend/lean.env"], ["wiki/a.md"]],
+      queue,
+    ],
+    [
+      "a push that changes a pin",
+      "true",
+      [["tools/bend/lean.env"]],
+      (shas: readonly string[]) => ({ EVENT: "push", BEFORE: shas[0] ?? "" }),
+    ],
+    ["a change to bend.sh alone", "false", [["tools/bend/bend.sh"]], pullRequest],
+    [
+      "a change to a law set alone",
+      "false",
+      [["osn/api/laws/account-deletion/account.bend"]],
+      pullRequest,
+    ],
+  ] as const)("%s: the kernel is built from source is %s", (_, expected, commits, event) => {
+    const { exitCode, output, bendPins } = classify(commits, event);
+    expect({ exitCode, bendPins }, output).toEqual({ exitCode: 0, bendPins: expected });
   });
 });
 

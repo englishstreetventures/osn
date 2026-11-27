@@ -126,8 +126,9 @@ sha256() {
 # The release that holds CI's BendTT kernel. One tag per Bend and Lean
 # version; one asset per platform and per set of the three pins the kernel is
 # built from and checked against (this platform's Bend tarball, Lean tarball
-# and kernel), so a change to any pin names an asset nobody has published and
-# CI builds and checks the kernel instead. .github/workflows/bendtt-release.yml
+# and kernel), so a change to any pin names a new asset; a CI run whose change
+# touches a pin file skips `fetch` and builds the kernel from source, whatever
+# was published under that name. .github/workflows/bendtt-release.yml
 # publishes it; it never replaces an asset, though a repository writer could:
 # the pinned SHA-256 is what guards the bytes.
 RELEASES=https://github.com/englishstreetventures/osn/releases/download
