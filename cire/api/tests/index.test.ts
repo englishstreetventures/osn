@@ -36,8 +36,7 @@ import { ownerSeat } from "./test-helpers/wedding";
 // `process.env` is unpopulated during module evaluation and only fills lazily,
 // so `index.ts` reads `env.OSN_ENV`. These tests therefore set the tier in the
 // env object passed to `handler.fetch`, and clear `process.env.OSN_ENV` in
-// `beforeAll` so the two can never disagree (`loadConfig` throws when
-// `process.env` says production and the tier it is handed does not).
+// `beforeAll`, so each case's tier comes from its binding alone, as on workerd.
 
 let mf: Miniflare;
 let DB: D1Database;
@@ -46,6 +45,9 @@ let savedOsnEnv: string | undefined;
 
 const MF_HOOK_TIMEOUT_MS = 30_000;
 
+// The start of the line a Worker logs when its OSN_ENV names no tier.
+const UNNAMED_TIER = "OSN_ENV is absent or names no tier";
+
 // A stand-in for the native Workers rate-limit binding — matches
 // `WorkersRateLimitBinding` (`{ limit({ key }): Promise<{ success }> }`).
 // `success: true` = never limited, which is all these boot tests need.
@@ -53,7 +55,8 @@ const fakeRateLimiter = { limit: async () => ({ success: true }) };
 
 const BASE_ENV = {
   // Deployed tier, carried on the binding exactly as wrangler's [env.*.vars]
-  // deliver it. `isDeployedTier()` parses this; absent ⇒ `local`.
+  // deliver it. `isDeployedTier()` reads only `local` as local; absent or any
+  // other value is deployed.
   OSN_ENV: "production",
   WEB_ORIGIN: "https://app.example.com",
   OSN_JWKS_URL: "https://id.example.com/.well-known/jwks.json",
@@ -110,11 +113,8 @@ const ctx: ExecutionContext = {
 };
 
 beforeAll(async () => {
-  // Clear the ambient tier so every case is driven purely by its `env` binding.
-  // Leaving `process.env.OSN_ENV = "production"` here would trip `loadConfig`'s
-  // tier-mismatch guard the moment a case asks for a non-production tier — the
-  // guard is right to throw, since on a real Worker both values come from the
-  // same wrangler [vars] and can never disagree.
+  // Clear the ambient tier so every case is driven purely by its `env` binding,
+  // and the logger, which reads `process.env`, keeps one format for the file.
   savedOsnEnv = process.env.OSN_ENV;
   delete process.env.OSN_ENV;
   delete process.env.BOOTSTRAP_OWNER_PROFILE_ID;
@@ -198,20 +198,24 @@ describe("WEB_ORIGIN boot check", () => {
   });
 
   it("serves with http://localhost in the local tier", async () => {
-    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321", OSN_ENV: undefined });
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321", OSN_ENV: "local" });
     expect(res.status).toBe(401);
+  });
+
+  it("refuses http://localhost when OSN_ENV is absent", async () => {
+    const res = await fetchWith({ WEB_ORIGIN: "http://localhost:4321", OSN_ENV: undefined });
+    expect(res.status).toBe(503);
   });
 });
 
-// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
-// any deployed tier. Absent, createApp would silently fall back to a per-isolate
-// in-memory limiter — no real cross-request brute-force defence on the guest
-// claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
-// in-memory fallback in `local` so `bun run dev` / tests boot without it.
-// Tier is read from the `OSN_ENV` BINDING (parsed by @shared/observability's
-// `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
-// the env object — not `process.env`, which is empty on workerd at the moment
-// this decision is made.
+// Fail-closed guard: the native claim rate-limit binding is MANDATORY unless
+// the Worker is a local run. Absent, createApp would fall back to a per-isolate
+// in-memory limiter, which is no cross-request brute-force defence on the guest
+// claim endpoint, so the guard answers 503 at the edge instead. Only an explicit
+// `OSN_ENV="local"` keeps the in-memory fallback; an absent, empty or
+// unrecognised value is a deployed tier. The tier is read from the `OSN_ENV`
+// BINDING, so each case drives it by setting OSN_ENV in the env object — not
+// `process.env`, which is empty on workerd at the moment this decision is made.
 describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -251,22 +255,79 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
     expect(res.status).toBe(401);
   });
 
-  it("treats an ABSENT OSN_ENV binding as `local` (in-memory fallback)", async () => {
-    // With the tier unset the Worker must not pretend to be deployed. It is the
-    // wrangler [env.*.vars] entry, present in every deployed env block, that
-    // flips this — so an env block that forgets OSN_ENV degrades the
-    // claim-endpoint defence silently. That is why the deploy runbook checks the tier in `wrangler tail`.
+  it("fail-closes 503 when the OSN_ENV binding is absent", async () => {
     const { OSN_ENV: _omit, ...withoutTier } = withoutBindingAt("local");
     void _omit;
     const res = await runFetch(withoutTier);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({
+      error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
+    });
   });
+
+  it.each(["", "Local", "prodution", "prod-eu"])(
+    "fail-closes 503 when OSN_ENV is %p, a value that names no tier",
+    async (tier) => {
+      const res = await runFetch(withoutBindingAt(tier));
+      expect(res.status).toBe(503);
+      expect(await jsonBody(res)).toEqual({
+        error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
+      });
+    },
+  );
 
   it("boots (native binding) in a deployed tier when the binding is present", async () => {
     const res = await runFetch(BASE_ENV);
     // Binding present ⇒ no guard 503; app boots and the route answers 401.
     expect(res.status).not.toBe(503);
     expect(res.status).toBe(401);
+  });
+});
+
+// A Worker whose OSN_ENV names no tier serves as a deployed one, and says so
+// once when it builds the app (once per isolate). The app is cached per D1
+// binding, so each case hands the Worker a binding it has not seen.
+describe("an OSN_ENV that names no tier, on the Worker", () => {
+  async function buildAndRead(tier: Record<string, unknown>) {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...tier, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    const statuses: number[] = [];
+    const logs = await captureLogs(async () => {
+      for (let i = 0; i < 2; i++) {
+        const res = await handler.fetch!(
+          new Request("https://api.example.com/api/organiser/weddings"),
+          env,
+          ctx,
+        );
+        statuses.push(res.status);
+      }
+    });
+    return { statuses, logs };
+  }
+
+  // Serving as deployed is what the 503 cases above prove; these prove it says so.
+  it.each([undefined, "prodution"])(
+    "logs once, over two requests, that OSN_ENV %p names no tier",
+    async (tier) => {
+      const { statuses, logs } = await buildAndRead({ OSN_ENV: tier });
+      expect(statuses).toEqual([401, 401]);
+      expect(logs.split(UNNAMED_TIER).length - 1).toBe(1);
+    },
+  );
+
+  it("logs nothing about the tier when it is named", async () => {
+    const { statuses, logs } = await buildAndRead({});
+    expect(statuses).toEqual([401, 401]);
+    expect(logs).not.toContain(UNNAMED_TIER);
+    const local = await buildAndRead({ OSN_ENV: "local", WEB_ORIGIN: "http://localhost:4321" });
+    expect(local.statuses).toEqual([401, 401]);
+    expect(local.logs).not.toContain(UNNAMED_TIER);
   });
 });
 
@@ -665,7 +726,7 @@ describe("upgrades need the platform webhook secret on the Worker", () => {
   it("mounts the routes on the local tier, where one stripe listen signs for both", async () => {
     const { statuses, logs } = await catalogueThroughWorker({
       ...oneValueForBoth,
-      OSN_ENV: undefined,
+      OSN_ENV: "local",
     });
     expect(statuses).toEqual([401, 401]);
     expect(logs).not.toContain(SHARED);
@@ -1123,6 +1184,18 @@ describe("D1 session routing at the entry points", () => {
     );
   }, 30_000);
 
+  // A named tier saying nothing is checked in the `production` case of the
+  // RESEND_API_URL cron test below, which captures a whole cron run's logs.
+  it("says once per cron run, after every sweep is handed off, that an absent OSN_ENV names no tier", async () => {
+    const handedOff = "<sweep handed to waitUntil>";
+    const sink = (globalThis as typeof globalThis & { console: Console }).console;
+    const logs = await captureLogs(() =>
+      runCron({ OSN_ENV: undefined }, () => sink.log(handedOff)),
+    );
+    expect(logs.split(UNNAMED_TIER).length - 1).toBe(1);
+    expect(logs.indexOf(UNNAMED_TIER)).toBeGreaterThan(logs.lastIndexOf(handedOff));
+  }, 30_000);
+
   it("gives each scheduled sweep its own session", async () => {
     // One session per sweep — deliberately NOT one shared by all of them.
     // Sharing would couple unrelated delete-heavy sweeps to a single bookmark
@@ -1575,53 +1648,65 @@ describe("D1 session routing at the entry points", () => {
     30_000,
   );
 
-  it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
-    // A cron-only isolate never runs the `fetch` check, and the digest builds
-    // its portal links from WEB_ORIGIN.
-    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
-    let result: Awaited<ReturnType<typeof runCron>> | undefined;
-    const logs = await captureLogs(async () => {
-      result = await runCron({
-        RESEND_API_KEY: "re_test",
-        OSN_API_URL: "https://osn.example.test",
-        CIRE_API_ARC_PRIVATE_KEY: jwk,
-        CIRE_API_ARC_KEY_ID: "kid_test",
-        WEB_ORIGIN: "http://localhost:4321",
-      });
-    });
-    expect(result?.pending).toHaveLength(11);
-    expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
-  }, 30_000);
-
-  it("sends no cron mail, and logs why after every sweep is handed off, when a deployed tier carries RESEND_API_URL", async () => {
-    // Everything the digest needs is present except a transport it may use:
-    // the override is refused in a deployed tier, so no mail goes anywhere and
-    // every sweep still runs. The reason is logged last, so no sweep waits on
-    // the logger.
-    const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
-    const handedOff = "<sweep handed to waitUntil>";
-    const sink = (globalThis as typeof globalThis & { console: Console }).console;
-    let result: Awaited<ReturnType<typeof runCron>> | undefined;
-    const logs = await captureLogs(async () => {
-      result = await runCron(
-        {
+  // `undefined` is a Worker whose OSN_ENV is absent: a deployed tier too.
+  it.each(["production", undefined])(
+    "skips the RSVP digest when WEB_ORIGIN fails the boot check, with OSN_ENV %p",
+    async (tier) => {
+      // A cron-only isolate never runs the `fetch` check, and the digest builds
+      // its portal links from WEB_ORIGIN.
+      const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+      let result: Awaited<ReturnType<typeof runCron>> | undefined;
+      const logs = await captureLogs(async () => {
+        result = await runCron({
+          OSN_ENV: tier,
           RESEND_API_KEY: "re_test",
-          RESEND_API_URL: "http://localhost:4008",
           OSN_API_URL: "https://osn.example.test",
           CIRE_API_ARC_PRIVATE_KEY: jwk,
           CIRE_API_ARC_KEY_ID: "kid_test",
-        },
-        () => sink.log(handedOff),
+          WEB_ORIGIN: "http://localhost:4321",
+        });
+      });
+      expect(result?.pending).toHaveLength(11);
+      expect(logs).toContain("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured");
+    },
+    30_000,
+  );
+
+  it.each(["production", undefined])(
+    "sends no cron mail, and logs why after every sweep is handed off, when a deployed tier (OSN_ENV %p) carries RESEND_API_URL",
+    async (tier) => {
+      // Everything the digest needs is present except a transport it may use:
+      // the override is refused in a deployed tier, so no mail goes anywhere and
+      // every sweep still runs. The reason is logged last, so no sweep waits on
+      // the logger.
+      const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
+      const handedOff = "<sweep handed to waitUntil>";
+      const sink = (globalThis as typeof globalThis & { console: Console }).console;
+      let result: Awaited<ReturnType<typeof runCron>> | undefined;
+      const logs = await captureLogs(async () => {
+        result = await runCron(
+          {
+            OSN_ENV: tier,
+            RESEND_API_KEY: "re_test",
+            RESEND_API_URL: "http://localhost:4008",
+            OSN_API_URL: "https://osn.example.test",
+            CIRE_API_ARC_PRIVATE_KEY: jwk,
+            CIRE_API_ARC_KEY_ID: "kid_test",
+          },
+          () => sink.log(handedOff),
+        );
+      });
+      expect(result?.pending).toHaveLength(11);
+      expect(logs.split(handedOff).length - 1).toBe(11);
+      expect(logs.indexOf("email disabled: Resend misconfigured")).toBeGreaterThan(
+        logs.lastIndexOf(handedOff),
       );
-    });
-    expect(result?.pending).toHaveLength(11);
-    expect(logs.split(handedOff).length - 1).toBe(11);
-    expect(logs.indexOf("email disabled: Resend misconfigured")).toBeGreaterThan(
-      logs.lastIndexOf(handedOff),
-    );
-    expect(logs).toContain("RESEND_API_URL");
-    expect(logs).not.toContain("localhost:4008");
-  }, 30_000);
+      expect(logs).toContain("RESEND_API_URL");
+      expect(logs).not.toContain("localhost:4008");
+      expect(logs.split(UNNAMED_TIER).length - 1).toBe(tier === undefined ? 1 : 0);
+    },
+    30_000,
+  );
 
   it("asks osn-api for owners' addresses only when there is a Resend transport to mail them", async () => {
     // Owner notices with no transport would be looked up and then dropped on
@@ -1655,28 +1740,32 @@ describe("D1 session routing at the entry points", () => {
     }
   });
 
-  it("still serves, and logs why mail is off, when a deployed tier carries RESEND_API_URL", async () => {
-    // A fresh binding forces a fresh app build, which is where the reason is
-    // logged. cire's email is fail-soft: a refused override costs mail, never
-    // the Worker.
-    const probe = probeD1();
-    const env = {
-      ...BASE_ENV,
-      RESEND_API_KEY: "re_test",
-      RESEND_API_URL: "http://localhost:4008",
-      DB: probe.binding,
-    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
-    const statuses: number[] = [];
-    const logs = await captureLogs(async () => {
-      // The second request reuses the isolate's cached app, so the reason is
-      // logged once, at the build, not on every request.
-      statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
-      statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
-    });
-    expect(statuses).toEqual([404, 404]);
-    expect(logs.split("email disabled: Resend misconfigured").length - 1).toBe(1);
-    expect(logs).not.toContain("localhost:4008");
-  });
+  it.each(["production", undefined])(
+    "still serves, and logs why mail is off, when a deployed tier (OSN_ENV %p) carries RESEND_API_URL",
+    async (tier) => {
+      // A fresh binding forces a fresh app build, which is where the reason is
+      // logged. cire's email is fail-soft: a refused override costs mail, never
+      // the Worker.
+      const probe = probeD1();
+      const env = {
+        ...BASE_ENV,
+        OSN_ENV: tier,
+        RESEND_API_KEY: "re_test",
+        RESEND_API_URL: "http://localhost:4008",
+        DB: probe.binding,
+      } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+      const statuses: number[] = [];
+      const logs = await captureLogs(async () => {
+        // The second request reuses the isolate's cached app, so the reason is
+        // logged once, at the build, not on every request.
+        statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
+        statuses.push((await handler.fetch!(inviteRequest(), env, ctx)).status);
+      });
+      expect(statuses).toEqual([404, 404]);
+      expect(logs.split("email disabled: Resend misconfigured").length - 1).toBe(1);
+      expect(logs).not.toContain("localhost:4008");
+    },
+  );
 });
 
 // The CSP collector labels a report by the site its document came from, using

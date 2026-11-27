@@ -1,6 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 
-import { localResendConfig, resendEmailConfig } from "../../src/lib/resend-email";
+import { Effect } from "effect";
+
+import { sendClaimReviewAlert } from "../../src/lib/claim-review-email";
+import { localResendConfig, resendEmailConfig, workerEmailLayer } from "../../src/lib/resend-email";
+import { runCire } from "../../src/observability";
+import { captureLogs } from "../test-helpers/capture-logs";
 
 describe("resendEmailConfig", () => {
   it("has no transport and no problem without a key", () => {
@@ -61,6 +66,67 @@ describe("resendEmailConfig", () => {
     const result = resendEmailConfig({ RESEND_API_URL: "https://mail.example.com" }, false);
     expect(result.config).toBeNull();
     expect(result.problem).toContain("RESEND_API_URL");
+  });
+});
+
+describe("workerEmailLayer", () => {
+  // The cire logger runs at debug here (no OSN_ENV in the test process), as it
+  // does on a Worker whose OSN_ENV names no tier.
+  const RECIPIENT = "ops-under-test-7c1e@example.test";
+  const sendThrough = (deployed: boolean) =>
+    captureLogs(() =>
+      runCire(
+        sendClaimReviewAlert({
+          to: RECIPIENT,
+          env: "dev",
+          summary: { pending: 1, oldestWaitingDays: 2 },
+        }).pipe(Effect.provide(workerEmailLayer(null, deployed))),
+      ),
+    );
+
+  it("never writes a recipient's address to the logs on a deployed tier with no Resend transport", async () => {
+    expect(await sendThrough(true)).not.toContain(RECIPIENT);
+  });
+
+  it("shows the recipient on a local run, where the recorder stands in for mail", async () => {
+    expect(await sendThrough(false)).toContain(RECIPIENT);
+  });
+
+  it("sends through Resend whenever there is a config, on either tier", async () => {
+    const posted: string[] = [];
+    const spy = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      posted.push(input instanceof Request ? input.url : String(input));
+      void init;
+      return Promise.resolve(Response.json({ id: "email_test" }));
+    }) as typeof fetch);
+    try {
+      for (const deployed of [true, false]) {
+        await runCire(
+          sendClaimReviewAlert({
+            to: RECIPIENT,
+            env: "dev",
+            summary: { pending: 1, oldestWaitingDays: 2 },
+          }).pipe(
+            Effect.provide(
+              workerEmailLayer(
+                {
+                  apiKey: "re_x",
+                  fromAddress: "hello@cireweddings.com",
+                  apiUrl: "http://localhost:4008",
+                },
+                deployed,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      spy.mockRestore();
+    }
+    expect(posted).toEqual(["http://localhost:4008/emails", "http://localhost:4008/emails"]);
   });
 });
 

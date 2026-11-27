@@ -1,6 +1,6 @@
-import { makeLogEmailLive, makeResendEmailLive } from "@shared/email";
+import { makeResendEmailLive } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
-import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
+import { parseDeploymentEnvironment } from "@shared/observability/config";
 import { installWorkersTracing } from "@shared/observability/tracing";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
@@ -21,7 +21,7 @@ import { organiserOriginFrom } from "./lib/organiser-origin";
 import { createOwnerNotices } from "./lib/owner-notice-email";
 import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
-import { resendEmailConfig } from "./lib/resend-email";
+import { resendEmailConfig, workerEmailLayer } from "./lib/resend-email";
 import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
 import { runCire } from "./observability";
 import { createRealtimeRoute, type RealtimeRoute } from "./routes/realtime";
@@ -62,11 +62,11 @@ import { createZapChatClientFromEnv } from "./services/zap-bridge";
 // deployment must fail at the edge with a 503, not a type lie.
 export interface Env {
   // Deployment tier — `local` | `dev` | `staging` | `production`. Set as a
-  // plain var in EVERY wrangler env block; absent ⇒ `local`, which switches OFF
-  // the fail-closed rate-limiter guard below, so it is security-relevant, not
-  // just cosmetic. Read from the binding rather than `process.env` because on
-  // workerd `process.env` is empty until first access and unavailable at module
-  // scope; the binding is always correct.
+  // plain var in EVERY wrangler env block. Only `local` makes a local run;
+  // absent, empty or any other value is a deployed tier, so every deployed-tier
+  // check below applies (`isDeployedTier`). Read from the binding rather than
+  // `process.env` because on workerd `process.env` is empty until first access
+  // and unavailable at module scope; the binding is always correct.
   OSN_ENV?: string;
   DB?: D1Database;
   SHEETS?: R2Bucket;
@@ -123,14 +123,14 @@ export interface Env {
   // The ARC signing key is shared with the osn-api bridge above; no new key
   // env vars are introduced.
   ZAP_API_URL?: string;
-  // Native Workers Rate Limiting binding (C1/C4). When present, the claim
-  // limiter is the global, atomic edge limiter. Absent ⇒ the per-isolate
-  // in-memory fallback — allowed ONLY in the `local` tier (`bun run dev` /
-  // bun:sqlite tests). In any deployed tier (dev/staging/production) a missing
-  // binding is a fail-closed 503 at the edge (see the guard in `fetch`), because
-  // a per-isolate limiter is no real cross-request brute-force defence and the
-  // downgrade would otherwise be silent. Optional here so the missing-binding
-  // case surfaces as that explicit 503, not a type lie.
+  // Native Workers Rate Limiting binding. When present, the claim limiter is
+  // the global, atomic edge limiter. Absent ⇒ the per-isolate in-memory
+  // fallback, allowed ONLY on a local run (`OSN_ENV` exactly `local`). On any
+  // other tier, an absent or unknown `OSN_ENV` included, a missing binding is a
+  // fail-closed 503 at the edge (see the guard in `fetch`), because a
+  // per-isolate limiter is no real cross-request brute-force defence. Optional
+  // here so the missing-binding case surfaces as that explicit 503, not a type
+  // lie.
   CLAIM_RATE_LIMITER?: WorkersRateLimitBinding;
   // Native Workers Rate Limiting binding for the guest SESSION-RESTORE read
   // (`GET /api/claim/session`). Separate namespace from CLAIM_RATE_LIMITER on
@@ -268,30 +268,37 @@ const misconfigured = (detail: string) =>
     headers: { "Content-Type": "application/json", "X-Content-Type-Options": "nosniff" },
   });
 
-// Is this a *deployed* tier (dev/staging/production) rather than `local`? Reuse
-// the canonical four-tier signal — `OSN_ENV`, parsed by `@shared/observability`'s
-// `parseDeploymentEnvironment` into local|dev|staging|production (the same value
-// that drives the log level in observability.ts). Using the shared parser rather
-// than an ad-hoc "https WEB_ORIGIN" heuristic keeps the tier decision
-// drift-proof: it is the ONE place the repo decides the environment, so this
-// guard can never disagree with the logger about which tier we're in.
+// Whether every deployed-tier check applies: the claim limiter binding, the
+// https-only WEB_ORIGIN, the refusal of a local Resend emulator, and the rest
+// below. Only an explicit `OSN_ENV="local"` is a local run — the value the
+// top-level `[vars]` in wrangler.toml gives `wrangler dev`. An absent or empty
+// value, or one that names no tier, is deployed, so a Worker that loses or
+// mistypes its tier keeps every check. It cannot throw, so `scheduled` can call
+// it ahead of its sweeps.
 //
 // The value comes from the request-scoped `env` binding, NOT `process.env`.
 // workerd only populates `process.env` from wrangler `[vars]`/secrets on first
 // access under `nodejs_compat_populate_process_env`, and never during module
-// evaluation — so reading it here would be one flag away from silently
-// resolving `local` on a live Worker and disabling the fail-closed
-// CLAIM_RATE_LIMITER guard below. The binding has no such timing hazard.
-// `loadConfig` still runs so its production-mismatch check applies.
-const isDeployedTier = (env: Env): boolean =>
-  loadConfig({ serviceName: "cire-api", env: parseDeploymentEnvironment(env.OSN_ENV) }).env !==
-  "local";
+// evaluation, so a read there could find it empty: `wrangler dev` would then
+// read as deployed and refuse its own `http://localhost` origin. The binding
+// has no such timing hazard.
+const isDeployedTier = (env: Env): boolean => env.OSN_ENV !== "local";
 
-// The same tier signal without `loadConfig`, which can throw on a malformed
-// tier or, with an OTLP endpoint set, a malformed OTLP header. The WEB_ORIGIN
-// check runs in `scheduled` outside any catch, so it must not be able to stop
-// the sweeps that follow it.
-const isDeployedEnv = (env: Env): boolean => parseDeploymentEnvironment(env.OSN_ENV) !== "local";
+// An `OSN_ENV` that `parseDeploymentEnvironment` cannot name: absent, empty or
+// unknown. `isDeployedTier` treats it as deployed, but the logger and the
+// operator alerts need a tier's name and read it as `local`, so on such a
+// Worker the logs are in the local format and no operator alert is sent. The
+// Worker says so once per isolate and once per cron run.
+const isUnnamedTier = (env: Env): boolean =>
+  env.OSN_ENV !== "local" && parseDeploymentEnvironment(env.OSN_ENV) === "local";
+
+const logUnnamedTier = () =>
+  runCire(
+    Effect.logError("OSN_ENV is absent or names no tier: serving as a deployed tier", {
+      detail:
+        "set OSN_ENV to local, dev, staging or production; until then logs use the local format and no operator alert is sent",
+    }),
+  );
 
 const handler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
@@ -320,7 +327,7 @@ const handler: ExportedHandler<Env> = {
     // A bad WEB_ORIGIN entry would widen the CORS allowlist, the CSRF origin
     // guard and the session cookie's `Secure` flag at once, so refuse to serve
     // instead. The rule lives in lib/web-origin.ts.
-    const originProblem = webOriginProblem(env.WEB_ORIGIN, () => isDeployedEnv(env));
+    const originProblem = webOriginProblem(env.WEB_ORIGIN, () => isDeployedTier(env));
     if (originProblem) {
       return misconfigured(originProblem);
     }
@@ -328,21 +335,17 @@ const handler: ExportedHandler<Env> = {
       .map((o) => o.trim())
       .filter(Boolean);
 
-    // C1/C4 (fail-closed): in a *deployed* tier the native Workers rate-limit
-    // binding is MANDATORY. createApp otherwise silently falls back to a
-    // per-isolate in-memory limiter, so the pre-auth claim-code brute-force
-    // guard (small keyspace) would reset per cold isolate with NO signal — a
-    // silent downgrade of the only cross-request throttle on the guest claim
-    // endpoint. This is the wrangler foot-gun the config warns about: named
-    // envs do NOT inherit the top-level `[[unsafe.bindings]]`, so a missing
-    // `[[env.production.unsafe.bindings]]` block would ship prod with the
-    // limiter unbound. Fail closed instead — mirrors the Turnstile /
-    // weddingMember fail-closed convention and the other pre-cache boot checks
-    // above (so it fires on every cold isolate, not only the first app build).
-    // In `local` (the four-tier local dev / bun:sqlite tier) the in-memory
-    // fallback is kept so `bun run dev` works without the binding. The real prod
-    // Worker HAS the binding declared under `[env.production.unsafe.bindings]`
-    // in wrangler.toml, so this only ever trips on a genuine misconfiguration.
+    // Fail closed: unless this is a local run, the native Workers rate-limit
+    // binding is MANDATORY. createApp otherwise falls back to a per-isolate
+    // in-memory limiter, so the pre-auth claim-code brute-force guard (small
+    // keyspace) would reset per cold isolate — no cross-request throttle on the
+    // guest claim endpoint. Named wrangler envs do NOT inherit the top-level
+    // `[[unsafe.bindings]]`, and a deploy can drop a binding, so the Worker
+    // answers 503 instead. Like the other pre-cache boot checks above, it runs
+    // on every request, not only the first app build. Only an explicit
+    // `OSN_ENV="local"` keeps the in-memory fallback (`isDeployedTier`); every
+    // deployed Worker declares the binding, so this trips only on a
+    // misconfiguration.
     if (!env.CLAIM_RATE_LIMITER && isDeployedTier(env)) {
       await runCire(
         Effect.logError("CLAIM_RATE_LIMITER binding missing in a deployed tier", {
@@ -354,6 +357,7 @@ const handler: ExportedHandler<Env> = {
     }
 
     if (!cached || cached.dbBinding !== env.DB) {
+      if (isUnnamedTier(env)) await logUnnamedTier();
       // Built over the session-routing shim, not the binding itself: the handle
       // is baked into the cached app graph, so it must be stable for the life of
       // the isolate, while the D1 session it queries through has to be per
@@ -440,18 +444,16 @@ const handler: ExportedHandler<Env> = {
         arcKeyId: env.CIRE_API_ARC_KEY_ID,
       });
       // Email layer for vendor claim-invite emails. Uses Resend when the API key
-      // is present (deployed tiers); falls back to LogEmailLive (no network) so
-      // the worker boots cleanly without the key (local dev + bun:sqlite tests),
-      // and when a RESEND_API_URL override is refused.
-      const resend = resendEmailConfig(env, isDeployedEnv(env));
+      // is present; without it, or when a RESEND_API_URL override is refused,
+      // the Worker still boots, on a transport that sends nothing
+      // (`workerEmailLayer`).
+      const resend = resendEmailConfig(env, isDeployedTier(env));
       if (resend.problem) {
         await runCire(
           Effect.logError("email disabled: Resend misconfigured", { detail: resend.problem }),
         );
       }
-      const emailLayer = resend.config
-        ? makeResendEmailLive(resend.config)
-        : makeLogEmailLive().layer;
+      const emailLayer = workerEmailLayer(resend.config, isDeployedTier(env));
       // Vendor-enquiry c2b chat bridge (Vendors S4). Reuses cire-api's existing
       // ARC key (same signing key, new audience `zap-api` + scope `chat:c2b`).
       // Null (⇒ enquiry open/reply answer 503) when ZAP_API_URL or the ARC
@@ -811,7 +813,7 @@ const handler: ExportedHandler<Env> = {
     // "osn-api did not answer" apart from "no address", which both need: the
     // digest holds its markers on an outage, and the summary logs it, since no
     // later sweep resends a summary.
-    const resend = resendEmailConfig(env, isDeployedEnv(env));
+    const resend = resendEmailConfig(env, isDeployedTier(env));
     const resendConfig = resend.config;
     const organiserEmailLookup = await createOrganiserEmailLookupFromEnv({
       osnApiUrl: env.OSN_API_URL,
@@ -991,7 +993,7 @@ const handler: ExportedHandler<Env> = {
     // portal link uses the tier's organiser origin, the second
     // entry of WEB_ORIGIN, so the digest is skipped when WEB_ORIGIN fails the
     // same check `fetch` applies: an isolate woken only by cron never runs it.
-    const digestOriginProblem = webOriginProblem(env.WEB_ORIGIN ?? "", () => isDeployedEnv(env));
+    const digestOriginProblem = webOriginProblem(env.WEB_ORIGIN ?? "", () => isDeployedTier(env));
     if (digestOriginProblem) {
       await runCire(
         Effect.logError("scheduled rsvp digest skipped: WEB_ORIGIN misconfigured", {
@@ -1102,6 +1104,7 @@ const handler: ExportedHandler<Env> = {
         Effect.logError("email disabled: Resend misconfigured", { detail: resend.problem }),
       );
     }
+    if (isUnnamedTier(env)) await logUnnamedTier();
   },
 };
 
