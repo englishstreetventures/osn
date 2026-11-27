@@ -71,11 +71,15 @@ bun:sqlite result is a harmless no-op; D1 returns a real Promise.
   inverted two of `@osn/api`'s compare-and-swap gates in production — see
   [[sessions]].
   [`no-raw-rows-affected.test.ts`](../../shared/db-utils/tests/no-raw-rows-affected.test.ts)
-  fails on a direct `.changes` or `.rowsAffected` read in the source trees it
-  lists. It runs as `@shared/db-utils`'s `test:repo` task, which turbo reruns
-  when one of those trees changes; a new tree goes in both its `SCANNED` list
-  and the `test:repo` inputs of `shared/db-utils/turbo.json`, and the test
-  fails when a tree it lists is not one of those inputs.
+  fails on a direct `changes` or `rowsAffected` read in the source trees it
+  lists: a member (`result.changes`), a bracket (`result["changes"]`), or a
+  destructuring of anything but a plain name (`const { changes } = await
+  stmt.run()`). It also fails when a Worker whose Wrangler config binds D1 is
+  not in its `SCANNED` list. It runs as `@shared/db-utils`'s `test:repo` task,
+  which turbo reruns when one of those trees or a Wrangler config changes; a
+  new tree goes in both `SCANNED` and the `test:repo` inputs of
+  `shared/db-utils/turbo.json`, and the test fails when a tree it lists is not
+  one of those inputs.
 - `canBatch(db)` (`osn/api/src/lib/batch.ts`) — true on D1, whose `db.batch`
   answers each statement's result in order. A write set whose results matter
   (the email change commit reads its insert's change count) runs as
