@@ -1,0 +1,155 @@
+# Publishes CI's BendTT kernel as an asset of this repository's release for
+# the pins in tools/bend/bend.env and tools/bend/lean.env, so the Bend proofs
+# job in ci.yml fetches it (bash tools/bend/bend.sh fetch) instead of
+# building it. Run it by hand, from main, once a change to either pin file
+# has merged; that pull request's own CI built the kernel from source and
+# checked it against the pin:
+#
+#   gh workflow run bendtt-release.yml --repo englishstreetventures/osn --ref main
+#   gh workflow run bendtt-release.yml --repo englishstreetventures/osn --ref main -f publish=true
+#
+# The first rebuilds the kernel, checks it against the pin and the verdict on
+# every law set, and writes nothing: the same check, any time, that the build
+# still reproduces. The second also publishes it.
+#
+# `build` runs Bend and Lean with a read-only token. `publish` holds the one
+# write token and runs only gh, sha256sum and bend.sh's fetch and asset, on a
+# kernel downloaded outside its checkout. It never replaces an asset: one
+# already published is downloaded and checked against the pin instead. A
+# repository writer could still replace one by hand; the pinned SHA-256,
+# checked before CI runs the file, is what guards the bytes.
+name: BendTT kernel release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the kernel (unticked, rebuild and check it and write nothing)
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: bendtt-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the BendTT kernel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Bounded: a 580 MB Lean download whose retries alone may take ten
+    # minutes, then about a minute of building and checking.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The pins, read as data and never run, as bend.sh reads them; this
+      # runner is linux-x64.
+      - name: Read the pinned Bend and Lean releases
+        run: |
+          pin() { sed -n "s/^$2=//p" "tools/bend/$1" | tail -n 1; }
+          {
+            echo "BEND_VERSION=$(pin bend.env BEND_VERSION)"
+            echo "BEND_TARGET=linux-x64"
+            echo "BEND_SHA256=$(pin bend.env BEND_SHA256_LINUX_X64)"
+            echo "LEAN_VERSION=$(pin lean.env LEAN_VERSION)"
+            echo "LEAN_TARGET=linux-x64"
+            echo "LEAN_SHA256=$(pin lean.env LEAN_SHA256_LINUX_X64)"
+          } >> "$GITHUB_ENV"
+
+      # Both installers check their tarball's SHA-256 before they unpack it.
+      - name: Install Bend ${{ env.BEND_VERSION }}
+        run: |
+          bash tools/bend/install-bend.sh "$RUNNER_TEMP/bend-tarball" "$RUNNER_TEMP/bend"
+          echo "$RUNNER_TEMP/bend/bin" >> "$GITHUB_PATH"
+
+      - name: Install Lean ${{ env.LEAN_VERSION }}
+        run: bash tools/bend/install-lean.sh "$RUNNER_TEMP/lean"
+
+      # bend builds the kernel; `bend.sh kernel` takes it only with the
+      # SHA-256 lean.env pins, which an earlier, independent build printed.
+      - name: Build the kernel and check it against the pin
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: |
+          PATH="$RUNNER_TEMP/lean/bin:$PATH"
+          kernel=$(bash tools/bend/bend.sh kernel "$RUNNER_TEMP/bendtt")
+          echo "BENDTT=$kernel" >> "$GITHUB_ENV"
+          ls -l "$kernel"
+
+      - name: Recheck every law set with it
+        env:
+          BEND_NO_TELEMETRY: "1"
+          BENDTT: ${{ env.BENDTT }}
+        run: bash tools/bend/bend.sh verdict
+
+      # The one file, nothing else from this job's disk.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bendtt
+          path: ${{ runner.temp }}/bendtt/bendtt
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish the BendTT kernel
+    needs: build
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Outside the checkout, so nothing the build job uploaded can replace a
+      # file this job runs.
+      - uses: actions/download-artifact@v4
+        with:
+          name: bendtt
+          path: ${{ runner.temp }}/bendtt-artifact
+
+      - name: Publish the kernel, or check the one already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact="$RUNNER_TEMP/bendtt-artifact"
+          if [ "$(ls -A "$artifact")" != "bendtt" ]; then
+            echo "::error::the build job's artifact holds more than bendtt"
+            exit 1
+          fi
+          names=$(bash tools/bend/bend.sh asset)
+          tag=${names% *}
+          asset=${names#* }
+          want=$(sed -n "s/^BENDTT_SHA256_LINUX_X64=//p" tools/bend/lean.env | tail -n 1)
+          echo "$want  $artifact/bendtt" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/out"
+          cp "$artifact/bendtt" "$RUNNER_TEMP/out/$asset"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$asset"; then
+              echo "$asset is already on release $tag: the next step checks it; nothing is replaced"
+            else
+              gh release upload "$tag" "$RUNNER_TEMP/out/$asset" --repo "$GITHUB_REPOSITORY"
+            fi
+          elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::tag $tag exists with no release, so a release would sit on that tag's commit, not on $GITHUB_SHA"
+            exit 1
+          else
+            gh release create "$tag" "$RUNNER_TEMP/out/$asset" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --latest=false \
+              --title "BendTT kernel for Bend $(sed -n 's/^BEND_VERSION=//p' tools/bend/bend.env | tail -n 1) and Lean $(sed -n 's/^LEAN_VERSION=//p' tools/bend/lean.env | tail -n 1)" \
+              --notes "The BendTT kernel the Bend proofs job in .github/workflows/ci.yml rechecks every law set with, built by .github/workflows/bendtt-release.yml at $GITHUB_SHA. SHA-256 $want, as tools/bend/lean.env pins; CI checks that hash before it runs the file."
+          fi
+
+      # As the Bend proofs job will: the public URL, the pinned SHA-256.
+      - name: Fetch it as CI does
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: bash tools/bend/bend.sh fetch "$RUNNER_TEMP/check"

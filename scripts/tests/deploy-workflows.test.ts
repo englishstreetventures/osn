@@ -1375,39 +1375,45 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
 
   // The Bend proofs' second check, by the BendTT kernel, is a gate only while
   // its step runs on every run, after the plain check, with a kernel that
-  // `bend.sh kernel` checked. A Lean on $GITHUB_PATH would let `verdict`
-  // build a kernel nobody checked; a path read inside `echo "…$(…)"` turns a
-  // failed check into an empty BENDTT and a green step.
+  // `bend.sh kernel` checked: the published one, fetched, or, when none is
+  // published for the pins, one built from source. A Lean on $GITHUB_PATH
+  // would let `verdict` build a kernel nobody checked; a path read inside
+  // `echo "…$(…)"` turns a failed check into an empty BENDTT and a green step;
+  // a fetch failure other than "not published" must fail, not build.
   test("the Bend proofs job rechecks every set with the checked kernel, after the plain check, on every run", () => {
     const steps = stepsOf(ci.jobs["bend-proofs"]);
     const at = (found: (step: Step) => boolean) => steps.findIndex(found);
     const runs = (command: string) => (step: Step) => (step.run ?? "").includes(command);
     const check = at(runs("bash tools/bend/bend.sh check"));
-    const restore = at((step) => step.id === "kernel-cache");
+    const fetch = at((step) => step.id === "kernel-fetch");
     const lean = at(runs("bash tools/bend/install-lean.sh"));
     const kernel = at(runs("bash tools/bend/bend.sh kernel"));
-    const save = at(
-      (step) => step.uses === "actions/cache/save@v4" && step.with?.path === "~/.cache/bendtt",
-    );
     const verdict = at(runs("bash tools/bend/bend.sh verdict"));
-    expect([check, restore, lean, kernel, save, verdict].every((i) => i >= 0)).toBe(true);
-    expect([check < restore, restore < lean, lean < kernel, kernel < save, save < verdict]).toEqual(
-      [true, true, true, true, true],
+    expect([check, fetch, lean, kernel, verdict].every((i) => i >= 0)).toBe(true);
+    expect([check < fetch, fetch < lean, lean < kernel, kernel < verdict]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(steps[fetch]?.if).toBeUndefined();
+    expect(steps[fetch]?.run).toContain(
+      'bash tools/bend/bend.sh fetch "$RUNNER_TEMP/bendtt" || status=$?',
     );
-    const miss = "steps.kernel-cache.outputs.cache-hit != 'true'";
-    expect(steps[restore]?.with).toEqual({
-      path: "~/.cache/bendtt",
-      key: "bendtt-${{ env.BEND_SHA256 }}-${{ env.LEAN_SHA256 }}-${{ env.BENDTT_SHA256 }}",
-    });
-    expect(steps[lean]?.if).toBe(miss);
-    expect(steps[save]?.if).toBe(`github.event_name != 'merge_group' && ${miss}`);
-    expect(steps[save]?.with?.key).toBe("${{ steps.kernel-cache.outputs.cache-primary-key }}");
+    expect(steps[fetch]?.run).toContain('0) echo "published=true" >> "$GITHUB_OUTPUT" ;;');
+    expect(steps[fetch]?.run).toContain('3) echo "published=false" >> "$GITHUB_OUTPUT" ;;');
+    expect(steps[fetch]?.run).toContain('*) exit "$status" ;;');
+    expect(steps[lean]?.if).toBe("steps.kernel-fetch.outputs.published != 'true'");
     expect(steps[kernel]?.if).toBeUndefined();
-    expect(steps[kernel]?.run).toMatch(/^kernel=\$\(bash tools\/bend\/bend\.sh kernel /m);
+    expect(steps[kernel]?.run).toMatch(
+      /^kernel=\$\(bash tools\/bend\/bend\.sh kernel "\$RUNNER_TEMP\/bendtt"\)$/m,
+    );
     expect(steps[kernel]?.run).toContain('echo "BENDTT=$kernel" >> "$GITHUB_ENV"');
     expect(steps[verdict]?.if).toBeUndefined();
     expect(steps[verdict]?.run?.trim()).toBe("bash tools/bend/bend.sh verdict");
     expect(steps[verdict]?.env?.BENDTT).toBe("${{ env.BENDTT }}");
+    // The kernel comes from its release or its build, never from the cache.
+    expect(steps.filter((step) => String(step.with?.path ?? "").includes("bendtt"))).toEqual([]);
     for (const step of steps) {
       expect({
         name: step.name,
@@ -1417,6 +1423,49 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
         path: false,
       });
     }
+  });
+});
+
+// The release holding CI's BendTT kernel is the one thing in this repository
+// a workflow publishes to the public. Only the job that publishes holds a
+// write token, only on main and only when asked; the job that runs Bend and
+// Lean reads; nothing that job writes reaches the publishing job's checkout;
+// and an asset once published is never overwritten.
+describe("bendtt-release.yml publishes the BendTT kernel only from main, by hand, and replaces nothing", () => {
+  const release = load(".github/workflows/bendtt-release.yml");
+  const text = readFileSync(join(root, ".github/workflows/bendtt-release.yml"), "utf8");
+
+  test("it runs only when dispatched, publishes only when asked, and the workflow token holds nothing", () => {
+    expect(Object.keys(release.on)).toEqual(["workflow_dispatch"]);
+    expect(release.permissions).toEqual({});
+    const inputs = (release.on.workflow_dispatch as { inputs?: Record<string, unknown> }).inputs;
+    expect(inputs?.publish).toMatchObject({ type: "boolean", default: false });
+  });
+
+  test("the build job reads; the publish job alone writes, from main, when asked, after the build", () => {
+    expect(Object.keys(release.jobs).toSorted()).toEqual(["build", "publish"]);
+    expect(release.jobs.build?.permissions).toEqual({ contents: "read" });
+    expect(release.jobs.publish?.permissions).toEqual({ contents: "write" });
+    expect(release.jobs.publish?.if).toBe("inputs.publish && github.ref == 'refs/heads/main'");
+    expect(needsOf(release.jobs.publish!)).toEqual(["build"]);
+  });
+
+  test("the publish job runs no Bend or Lean, takes the kernel outside its checkout, and never overwrites an asset", () => {
+    const steps = stepsOf(release.jobs.publish);
+    const runs = steps.map((step) => step.run ?? "").join("\n");
+    expect(runs).not.toMatch(
+      /install-bend|install-lean|bend\.sh (kernel|verdict|check|prove|build|hook)/,
+    );
+    const download = steps.find((step) => step.uses === "actions/download-artifact@v4");
+    expect(download?.with).toEqual({ name: "bendtt", path: "${{ runner.temp }}/bendtt-artifact" });
+    expect(runs).toContain('if [ "$(ls -A "$artifact")" != "bendtt" ]; then');
+    expect(runs).toContain("sha256sum -c -");
+    expect(text).not.toContain("--clobber");
+    expect(text).not.toMatch(/gh release (delete|edit)/);
+    const upload = stepsOf(release.jobs.build).find(
+      (step) => step.uses === "actions/upload-artifact@v4",
+    );
+    expect(upload?.with?.path).toBe("${{ runner.temp }}/bendtt/bendtt");
   });
 });
 

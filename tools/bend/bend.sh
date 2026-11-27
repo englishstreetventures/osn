@@ -19,10 +19,16 @@
 #   bend.sh verdict [set]        bend PROOF.bend --verdict: every set rechecked
 #                                by the BendTT kernel; fails with no kernel here
 #                                (CI's gate, after check)
+#   bend.sh fetch <dir>          CI's kernel from this repository's release for
+#                                the pins, into <dir>/bendtt, only with the
+#                                SHA-256 lean.env pins; exit 3 when none is
+#                                published, so the caller builds it. Prints its
+#                                path
+#   bend.sh asset                the release tag and asset name fetch reads
 #   bend.sh kernel <dir>         CI's kernel: <dir>/bendtt, or one bend builds
 #                                with the pinned Lean and copies there; either
 #                                way only with the SHA-256 lean.env pins. Prints
-#                                its path
+#                                its path. <dir> is absolute for both
 #   bend.sh guide [topic]        bend guide: how to write Bend 2
 #   bend.sh install              install the pinned Bend into ${BEND_HOME:-~/.bend}
 #   bend.sh hook                 the pre-commit step: with no pinned Bend here,
@@ -115,6 +121,29 @@ sha256() {
   else
     shasum -a 256 "$1" | cut -d' ' -f1
   fi
+}
+
+# The release that holds CI's BendTT kernel. One tag per Bend and Lean
+# version; one asset per platform and per set of the three pins the kernel is
+# built from and checked against (this platform's Bend tarball, Lean tarball
+# and kernel), so a change to any pin names an asset nobody has published and
+# CI builds and checks the kernel instead. .github/workflows/bendtt-release.yml
+# publishes it; it never replaces an asset, though a repository writer could:
+# the pinned SHA-256 is what guards the bytes.
+RELEASES=https://github.com/englishstreetventures/osn/releases/download
+
+kernel_tag() {
+  echo "bendtt-$BEND_VERSION-lean$LEAN_VERSION"
+}
+
+# The asset's name for kernel pin $1 on this platform.
+kernel_asset() {
+  local platform key
+  platform=$(target)
+  key=$(printf '%s\n%s\n%s\n' "$(pinned BEND_SHA256)" \
+    "$(pin_in lean.env "LEAN_SHA256_$(echo "$platform" | tr 'a-z-' 'A-Z_')")" "$1" \
+    | sha256 /dev/stdin)
+  echo "bendtt-$platform-${key:0:16}"
 }
 
 find_bend() {
@@ -382,9 +411,72 @@ case ${1:-} in
       exit 1
     fi
     ;;
+  fetch)
+    # CI's BendTT kernel from this repository's release for the pins: exit 0
+    # with <dir>/bendtt in place and its path printed only when its SHA-256 is
+    # the pinned one; 3 when nothing is pinned for this platform or nothing
+    # is published under these pins (the caller builds it); 1 for a kernel
+    # with other bytes or any failed download; 2 for a usage error.
+    if [ $# -ne 2 ] || [[ $2 != /* ]]; then
+      echo "usage: bend.sh fetch <absolute dir>" >&2
+      exit 2
+    fi
+    dir=${2%/}
+    kernel="$dir/bendtt"
+    platform=$(target)
+    want=$(kernel_pin)
+    if [ -z "$want" ]; then
+      echo "bend.sh fetch: tools/bend/lean.env pins no kernel for $platform, so there is none to fetch" >&2
+      exit 3
+    fi
+    url="$RELEASES/$(kernel_tag)/$(kernel_asset "$want")"
+    mkdir -p "$dir"
+    rm -f "$kernel.part"
+    status=0
+    code=$(curl --proto '=https' --tlsv1.2 -sSL --retry 5 --retry-connrefused --retry-max-time 120 \
+      --connect-timeout 10 --max-time 120 -o "$kernel.part" -w '%{http_code}' "$url") || status=$?
+    if [ "$status" -ne 0 ]; then
+      rm -f "$kernel.part"
+      echo "::error::bend.sh fetch: could not download $url (curl exit $status)" >&2
+      exit 1
+    fi
+    case $code in
+      200) ;;
+      404)
+        rm -f "$kernel.part"
+        echo "bend.sh fetch: no kernel is published at $url; build it (bash tools/bend/bend.sh kernel), and once these pins are on main dispatch .github/workflows/bendtt-release.yml" >&2
+        exit 3
+        ;;
+      *)
+        rm -f "$kernel.part"
+        echo "::error::bend.sh fetch: $url answered HTTP $code" >&2
+        exit 1
+        ;;
+    esac
+    got=$(sha256 "$kernel.part")
+    if [ "$got" != "$want" ]; then
+      rm -f "$kernel.part"
+      echo "::error::bend.sh fetch: $url has SHA-256 $got, not the $want tools/bend/lean.env pins, so nothing was kept" >&2
+      exit 1
+    fi
+    chmod 755 "$kernel.part"
+    mv "$kernel.part" "$kernel"
+    echo "bend.sh fetch: $url, SHA-256 $got as pinned" >&2
+    echo "$kernel"
+    ;;
+  asset)
+    # The release tag and asset name `fetch` reads, for the publisher.
+    want=$(kernel_pin)
+    if [ -z "$want" ]; then
+      echo "bend.sh asset: tools/bend/lean.env pins no kernel for $(target)" >&2
+      exit 1
+    fi
+    echo "$(kernel_tag) $(kernel_asset "$want")"
+    ;;
   kernel)
-    if [ $# -ne 2 ] || [ -z "$2" ]; then
-      echo "usage: bend.sh kernel <dir>" >&2
+    # Its path becomes $BENDTT, which `verdict` takes only when absolute.
+    if [ $# -ne 2 ] || [[ $2 != /* ]]; then
+      echo "usage: bend.sh kernel <absolute dir>" >&2
       exit 2
     fi
     dir=${2%/}
@@ -465,7 +557,7 @@ case ${1:-} in
     fi
     ;;
   *)
-    echo "usage: bend.sh sets | prove [set] | build | check [set] | verdict [set] | kernel <dir> | guide [topic] | install | hook" >&2
+    echo "usage: bend.sh sets | prove [set] | build | check [set] | verdict [set] | fetch <dir> | asset | kernel <dir> | guide [topic] | install | hook" >&2
     exit 2
     ;;
 esac

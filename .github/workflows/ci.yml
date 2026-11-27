@@ -1228,7 +1228,7 @@ jobs:
   # agreement tests run in Build & Test and in the cire-api job, on every
   # change. The job installs no package dependencies: Bend is one binary, the
   # kernel another, and the Lean toolchain that builds the kernel is
-  # downloaded only when no kernel is cached.
+  # downloaded only when no kernel is published for the pins.
   bend-proofs:
     name: Bend proofs
     concurrency:
@@ -1240,10 +1240,10 @@ jobs:
     if: needs.changes.outputs.bend == 'true'
     runs-on: ubuntu-latest
     # Bounded: one checkout, one pinned Bend tarball (cached, or downloaded
-    # with retries), the kernel (restored, or built after a 580 MB Lean
-    # download whose retries alone may take ten minutes) and three Bend runs a
-    # set, each under a second. A run that builds the kernel takes about a
-    # minute.
+    # with retries), the kernel (fetched, about 5.5 MB, or built after a
+    # 580 MB Lean download whose retries alone may take ten minutes) and three
+    # Bend runs a set, each under a second. A run that builds the kernel takes
+    # about a minute.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -1266,7 +1266,10 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # The release tarball, kept under its version and SHA-256, so most runs
-      # download nothing.
+      # download nothing. The SHA-256 covers the tarball alone: a cache
+      # entry's archive can write outside its path, so the job also trusts
+      # GitHub's cache scoping (entries from this pull request's ref or from
+      # `main`, and only runs on `main` save `main`'s).
       - name: Restore Bend
         id: bend-cache
         uses: actions/cache/restore@v4
@@ -1303,28 +1306,35 @@ jobs:
           bash tools/bend/bend.sh sets
           bash tools/bend/bend.sh check
 
-      # The BendTT kernel, kept under every pin it is built from, so a run
-      # whose pins have a saved entry downloads no Lean and builds nothing.
-      # The pinned SHA-256 covers the kernel file alone: an entry's archive
-      # can write outside its path, as the Bend tarball's can, so the job
-      # trusts what GitHub's cache scoping allows, entries saved by this
-      # job on this pull request's ref or on `main`.
-      - name: Restore the BendTT kernel
-        id: kernel-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/bendtt
-          key: bendtt-${{ env.BEND_SHA256 }}-${{ env.LEAN_SHA256 }}-${{ env.BENDTT_SHA256 }}
+      # The BendTT kernel from this repository's release for the pins
+      # (.github/workflows/bendtt-release.yml publishes one per pin set), taken
+      # only with the SHA-256 lean.env pins; any other bytes or a failed
+      # download fail the step. Exit 3 means nothing is published under these
+      # pins, as on a pull request that changes one: the steps below then build
+      # it from source and check it against the same pin.
+      - name: Fetch the BendTT kernel
+        id: kernel-fetch
+        env:
+          BEND_NO_TELEMETRY: "1"
+        run: |
+          status=0
+          bash tools/bend/bend.sh fetch "$RUNNER_TEMP/bendtt" || status=$?
+          case $status in
+            0) echo "published=true" >> "$GITHUB_OUTPUT" ;;
+            3) echo "published=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
 
-      # Only on a miss. tools/bend/install-lean.sh checks the tarball's SHA-256
-      # before it unpacks anything. Lean stays in $RUNNER_TEMP/lean, never on
-      # $GITHUB_PATH: only the next step, which builds the kernel, sees it, so
-      # no later step can build a kernel nobody checked.
+      # Only when no kernel is published. tools/bend/install-lean.sh checks the
+      # tarball's SHA-256 before it unpacks anything. Lean stays in
+      # $RUNNER_TEMP/lean, never on $GITHUB_PATH: only the next step, which
+      # builds the kernel, sees it, so no later step can build a kernel nobody
+      # checked.
       - name: Install Lean ${{ env.LEAN_VERSION }}
-        if: steps.kernel-cache.outputs.cache-hit != 'true'
+        if: steps.kernel-fetch.outputs.published != 'true'
         run: bash tools/bend/install-lean.sh "$RUNNER_TEMP/lean"
 
-      # `bend.sh kernel` takes the restored kernel only with the SHA-256
+      # `bend.sh kernel` takes the fetched kernel only with the SHA-256
       # lean.env pins, or has bend build one with that Lean and takes it only
       # with that SHA-256; it fails on any other, printing the hash it found.
       # The path is assigned on a line of its own, so a failure fails the step
@@ -1334,19 +1344,9 @@ jobs:
           BEND_NO_TELEMETRY: "1"
         run: |
           PATH="$RUNNER_TEMP/lean/bin:$PATH"
-          kernel=$(bash tools/bend/bend.sh kernel "$HOME/.cache/bendtt")
+          kernel=$(bash tools/bend/bend.sh kernel "$RUNNER_TEMP/bendtt")
           echo "BENDTT=$kernel" >> "$GITHUB_ENV"
           ls -l "$kernel"
-
-      # Before the verdict, so a red verdict still keeps the kernel; only one
-      # with the pinned SHA-256 reaches here. A merge-queue group saves
-      # nothing: no later run can restore from its ref.
-      - name: Save the BendTT kernel
-        if: github.event_name != 'merge_group' && steps.kernel-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/bendtt
-          key: ${{ steps.kernel-cache.outputs.cache-primary-key }}
 
       # `verdict` runs `bend PROOF.bend --verdict` in every set, then fails
       # unless each printed ALL PROOFS CHECK alone. BENDTT is passed by name,

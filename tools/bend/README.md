@@ -23,8 +23,17 @@ bash tools/bend/bend.sh prove osn/api/laws/account-deletion   # one set
 this machine has the Lean version `lean.env` pins (elan's toolchain for it, or
 `lean` on the PATH) or `$BENDTT`, an absolute path; the first run builds the
 kernel once, and a kernel built here is not checked against a pin. Without
-that Lean they say once that they skipped it. CI's `Bend proofs` job always runs it, with a kernel
-whose SHA-256 `lean.env` pins. The pre-commit hook never runs it.
+that Lean they say once that they skipped it. The pre-commit hook never runs
+it.
+
+CI's `Bend proofs` job always runs it, with a kernel whose SHA-256 `lean.env`
+pins: `bend.sh fetch` downloads the one published on this repository's
+release for the pins, and when none is published (a pull request that changes
+a pin) the job downloads the pinned Lean and builds it. After a pin change
+merges, publish the kernel from `main` with
+`gh workflow run bendtt-release.yml --repo englishstreetventures/osn --ref main -f publish=true`
+(`.github/workflows/bendtt-release.yml`; without `-f publish=true` it only
+rebuilds and checks). `lean.env` has the whole procedure.
 
 Not a Bun workspace: it installs nothing, and adding it to the root workspaces
 would redeploy every surface.

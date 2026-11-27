@@ -849,6 +849,8 @@ describe("bend.sh kernel: CI's BendTT kernel, restored or built, only with the p
     ["no directory", ["kernel"]],
     ["an empty directory name", ["kernel", ""]],
     ["two directories", ["kernel", "a", "b"]],
+    // The path it prints becomes $BENDTT, which must be absolute.
+    ["a relative directory", ["kernel", "cache/bendtt"]],
   ])("kernel with %s is a usage error, exit 2, and runs no bend", (_, args) => {
     const w = world();
     stubBend(w);
@@ -856,8 +858,160 @@ describe("bend.sh kernel: CI's BendTT kernel, restored or built, only with the p
     pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
     const run = bendSh(w, args, { lean: true });
     expect(run.status, run.output).toBe(2);
-    expect(run.output).toContain("usage: bend.sh kernel <dir>");
+    expect(run.output).toContain("usage: bend.sh kernel <absolute dir>");
     expect(run.calls).toEqual([]);
+  });
+});
+
+/** This platform as bend.sh names it: darwin-arm64, linux-x64, … */
+const PLATFORM = TARGET.toLowerCase().replace("_", "-");
+
+/**
+ * A stub curl in the world's bin. It logs its arguments, answers with the
+ * world's HTTP status (200 by default), writes the world's served bytes to
+ * its `-o` file on a 200, prints the status as `-w '%{http_code}'` asks, or
+ * exits with `exit` and writes nothing, as a connection failure does.
+ */
+function stubCurl(w: World, opts: { status?: number; served?: string; exit?: number } = {}) {
+  const { status = 200, served = KERNEL, exit } = opts;
+  writeFileSync(join(w.bin, "served"), served);
+  writeFileSync(
+    join(w.bin, "curl"),
+    [
+      "#!/usr/bin/env bash",
+      `printf '%s\\n' "$*" >> "${w.bin}/curl.log"`,
+      exit === undefined ? "" : `echo "curl: (7) Failed to connect" >&2; exit ${exit}`,
+      'out=""',
+      'while [ $# -gt 0 ]; do case "$1" in -o) out=$2; shift 2 ;; *) shift ;; esac; done',
+      status === 200 ? `cp "${w.bin}/served" "$out"` : `echo "Not Found" > "$out"`,
+      `printf '%s' ${status}`,
+    ].join("\n"),
+  );
+  chmodSync(join(w.bin, "curl"), 0o755);
+}
+
+const curlCalls = (w: World) =>
+  existsSync(join(w.bin, "curl.log"))
+    ? readFileSync(join(w.bin, "curl.log"), "utf8").split("\n").filter(Boolean)
+    : [];
+
+describe("bend.sh fetch: CI's BendTT kernel from its release, only with the pinned SHA-256", () => {
+  const dirOf = (w: World) => join(w.repo, "..", "fetched");
+  /** A pin from the world's copy of a pin file, for this platform. */
+  const pinOf = (w: World, file: "bend.env" | "lean.env", key: string) =>
+    new RegExp(`^${key}_${TARGET}=(.*)$`, "m").exec(
+      readFileSync(join(w.tools, file), "utf8"),
+    )?.[1] ?? "";
+  // The asset is named by all three pins the kernel is built from and checked
+  // against, so a change to any of them names an asset nobody has published.
+  const url = (w: World) => {
+    const key = sha256(
+      `${pinOf(w, "bend.env", "BEND_SHA256")}\n${pinOf(w, "lean.env", "LEAN_SHA256")}\n${sha256(KERNEL)}\n`,
+    ).slice(0, 16);
+    return `https://github.com/englishstreetventures/osn/releases/download/bendtt-${PINNED}-lean${LEAN}/bendtt-${PLATFORM}-${key}`;
+  };
+
+  test("the asset with the pinned SHA-256 is kept, runnable, and its path alone printed; it comes over https from the pinned tag and asset", () => {
+    const w = world();
+    stubBend(w);
+    stubCurl(w);
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, `fetch ${dirOf(w)}`);
+    expect(run.status, run.output).toBe(0);
+    expect(run.stdout).toBe(`${join(dirOf(w), "bendtt")}\n`);
+    expect(readFileSync(join(dirOf(w), "bendtt"), "utf8")).toBe(KERNEL);
+    expect(spawnSync("test", ["-x", join(dirOf(w), "bendtt")]).status).toBe(0);
+    const calls = curlCalls(w);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.endsWith(` ${url(w)}`), calls[0]).toBe(true);
+    expect(calls[0]).toContain("--proto =https");
+    expect(calls[0]).toContain("--retry 5 --retry-connrefused");
+    // A 404 answers at once: the caller builds the kernel instead.
+    expect(calls[0]).not.toContain("--retry-all-errors");
+    expect(run.calls).toEqual([]);
+  });
+
+  test("an asset with other bytes, such as another platform's kernel, fails, names its hash, and nothing is kept", () => {
+    const w = world();
+    stubBend(w);
+    const other = "#!/bin/sh\necho ALL PROOFS CHECK\n";
+    stubCurl(w, { served: other });
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, `fetch ${dirOf(w)}`);
+    expect(run.status, run.output).toBe(1);
+    expect(run.output).toMatch(/^::error::/m);
+    expect(run.output).toContain(sha256(other));
+    expect(run.stdout).toBe("");
+    expect(existsSync(join(dirOf(w), "bendtt"))).toBe(false);
+    expect(existsSync(join(dirOf(w), "bendtt.part"))).toBe(false);
+  });
+
+  test("no asset published for these pins (404) exits 3, so the caller builds one, and nothing is kept", () => {
+    const w = world();
+    stubBend(w);
+    stubCurl(w, { status: 404 });
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, `fetch ${dirOf(w)}`);
+    expect(run.status, run.output).toBe(3);
+    expect(run.stdout).toBe("");
+    expect(existsSync(join(dirOf(w), "bendtt"))).toBe(false);
+    expect(existsSync(join(dirOf(w), "bendtt.part"))).toBe(false);
+  });
+
+  test.each([
+    ["any other HTTP status", { status: 503 }],
+    ["a failed connection", { exit: 7 }],
+    // curl's own 3 (a malformed URL) must not read as "not published".
+    ["curl exiting 3", { exit: 3 }],
+  ])("%s fails, exit 1, and nothing is kept", (_, opts) => {
+    const w = world();
+    stubBend(w);
+    stubCurl(w, opts);
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, `fetch ${dirOf(w)}`);
+    expect(run.status, run.output).toBe(1);
+    expect(run.output).toMatch(/^::error::/m);
+    expect(existsSync(join(dirOf(w), "bendtt"))).toBe(false);
+  });
+
+  test("asset prints the tag and asset name fetch reads, and fails with no pin", () => {
+    const w = world();
+    stubBend(w);
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, "asset");
+    expect(run.status, run.output).toBe(0);
+    const [tag, asset] = run.stdout.trim().split(" ");
+    expect(url(w)).toEndWith(`/releases/download/${tag}/${asset}`);
+    pinIn(w, "lean.env", "BENDTT_SHA256", "");
+    const none = bendSh(w, "asset");
+    expect(none.status, none.output).toBe(1);
+    expect(none.stdout).toBe("");
+  });
+
+  test("on a platform lean.env pins no kernel for, fetch downloads nothing and exits 3", () => {
+    const w = world();
+    stubBend(w);
+    stubCurl(w);
+    pinIn(w, "lean.env", "BENDTT_SHA256", "");
+    const run = bendSh(w, `fetch ${dirOf(w)}`);
+    expect(run.status, run.output).toBe(3);
+    expect(run.output).toContain(`pins no kernel for ${PLATFORM}`);
+    expect(curlCalls(w)).toEqual([]);
+  });
+
+  test.each([
+    ["no directory", ["fetch"]],
+    ["a relative directory", ["fetch", "fetched"]],
+    ["two directories", ["fetch", "/tmp/a", "/tmp/b"]],
+  ])("fetch with %s is a usage error, exit 2, and downloads nothing", (_, args) => {
+    const w = world();
+    stubBend(w);
+    stubCurl(w);
+    pinIn(w, "lean.env", "BENDTT_SHA256", sha256(KERNEL));
+    const run = bendSh(w, args);
+    expect(run.status, run.output).toBe(2);
+    expect(run.output).toContain("usage: bend.sh fetch <absolute dir>");
+    expect(curlCalls(w)).toEqual([]);
   });
 });
 
