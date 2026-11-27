@@ -1272,7 +1272,7 @@ export default function GuestTable(props: GuestTableProps) {
                   type="search"
                   value={searchInput()}
                   onInput={(e) => handleSearchInput(e.currentTarget.value)}
-                  placeholder={compact() ? "Search guests…" : "Search by name, household or code…"}
+                  placeholder={compact() ? "Search guests…" : "Name, household or code…"}
                 />
               )}
             </Field>
