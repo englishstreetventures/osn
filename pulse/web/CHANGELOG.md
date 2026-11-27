@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.24.119
+
+### Patch Changes
+
+- ce260f9: Pulse's terms say that a change that matters is emailed, before it takes effect, to the address of the Musubi account a person uses Pulse with.
+
 ## 0.24.118
 
 ### Patch Changes
