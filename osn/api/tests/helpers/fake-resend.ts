@@ -37,7 +37,8 @@ export type Step =
   | { readonly hold: Deferred.Deferred<void> };
 
 export function fakeResend() {
-  const delivered: { to: string; key: string; subject: string }[] = [];
+  const delivered: { to: string; key: string; subject: string; data: SendEmailInput["data"] }[] =
+    [];
   const stored = new Map<string, { payload: string; result: KeyedBatchResult }>();
   const inFlight = new Set<string>();
   const script: Step[] = [];
@@ -52,7 +53,9 @@ export function fakeResend() {
 
   const deliver = (inputs: readonly SendEmailInput[], key: string, skip: readonly number[]) => {
     inputs.forEach((input, i) => {
-      if (!skip.includes(i)) delivered.push({ to: input.to, key, subject: input.template });
+      if (!skip.includes(i)) {
+        delivered.push({ to: input.to, key, subject: input.template, data: input.data });
+      }
     });
     const result = { accepted: inputs.length - skip.length, refused: skip.length };
     stored.set(key, { payload: JSON.stringify(inputs), result });
