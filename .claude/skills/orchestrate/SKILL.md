@@ -11,6 +11,8 @@ You are the orchestrator: you order the work and drive the loop, and you **do no
 
 Every task merged into `main` as its own squash-merged pull request, or left as a draft that waits on the owner (`prep-pr` Step 9), the worktree this run created for it removed, and a closing summary: each PR (number and one line), each draft left waiting and what it waits on, each follow-up pull request a task opened to fix what its review found, each issue left open and which of the three allowed it — out of scope for the feature, unrelated and found mid-task, or a larger piece of work (`wiki/conventions/review-findings.md` §Fix findings; do not file them), any deploy-time or human action a subagent surfaced, any issue a merge did not close that the owner must close by hand, and any worktree left in place because another tool or session made it.
 
+For a feature split into phases, "every task" means the one phase this session owns: the run ends with that phase done, `HANDOFF-<feature>.md` written and the next session started (§One phase per session).
+
 ## Precondition — the local bare-repo setup, run from `main/`
 
 This skill creates worktrees, so it needs the local bare repo. **Run it from the
@@ -120,12 +122,66 @@ Classify the input before ordering anything.
 
 1. `superpowers:brainstorming` turns the idea into an approved spec at `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. It has a hard gate — no worktree, no plan, no implementation until the user approves — and a feature spanning independent subsystems comes out as sub-project specs, which become your phases.
 2. `superpowers:writing-plans` turns each approved spec into a task-by-task plan at `docs/superpowers/plans/YYYY-MM-DD-<name>.md`, one per phase. Note each plan's **Global Constraints**; they go into every dispatch.
-3. Run the `stress-plan` skill on each phase's plan before dispatching that phase. A wrong assumption in a plan is copied faithfully by a good implementer and comes back as a clean diff doing the wrong thing; no downstream review catches it, because every downstream review checks the work against the plan rather than the plan against the repo. Every finding is closed before Step 2 cuts the worktree: fixed in the plan, rejected in writing only when you can name the fact it got wrong, or escalated to the user when its facts stand and the choice is theirs. An escalated finding waits for the answer.
-4. The ordered phases are the tasks Step 0 orders — one phase, one branch, one PR. Inside a phase, the plan's tasks are the subagent's work, not yours.
+3. Run the `stress-plan` skill on each phase's plan before dispatching that phase, in that phase's own session (§One phase per session). A wrong assumption in a plan is copied faithfully by a good implementer and comes back as a clean diff doing the wrong thing; no downstream review catches it, because every downstream review checks the work against the plan rather than the plan against the repo. Every finding is closed before Step 2 cuts the worktree: fixed in the plan, rejected in writing only when you can name the fact it got wrong, or escalated to the user when its facts stand and the choice is theirs. An escalated finding waits for the answer.
+4. The ordered phases are the tasks Step 0 orders — one phase, one branch, one PR, one session. Inside a phase, the plan's tasks are the subagent's work, not yours.
 
 Point every dispatch and every reviewer at the phase's **plan file path** and its Global Constraints. The plan is the single source of requirements; do not paste task detail into a dispatch.
 
 For a feature with more phases than prose can hold, a `.canvas` beside the plan (`obsidian:json-canvas` — one node per phase, edges for dependencies, labelled with the files two phases both touch) lets the user check the ordering. Optional, and the plan file stays the source of truth.
+
+## One phase per session
+
+A session finishes **at most one phase**, then hands off and stops. A long session pays again for every token it has read on each turn it takes, so a three-phase run in one session costs far more than three one-phase sessions. This holds whether the owner is watching or away, and a subagent this session dispatches counts as this session: no dispatch here starts the next phase.
+
+**The design phase is a phase.** The session that runs Step 00 ends once the spec and every phase's plan are approved. It does not run `stress-plan` on the plans; each phase's session does that for its own plan, against `main` as the phases before it left it.
+
+**A phase ends** when its pull request has reached one of these:
+
+- merged, and its worktree removed (Step 5);
+- parked as a draft that waits on the owner (Step 5);
+- queued, or waiting on a pull request ahead of it, with nothing left for this session to do but wait. The handoff then names that wait, and the merge watch and teardown, as the next session's first step.
+
+A phase stopped short — a usage limit near, an owner question with no answer — hands off the same way, with `## Next phase` naming the unfinished phase and where it stands.
+
+**Then, in order:**
+
+1. Bring `ORCHESTRATE.md` up to date.
+2. Write `HANDOFF-<feature>.md` in the `main` worktree, beside `ORCHESTRATE.md`. The next session knows nothing but this file and what it points to, so it carries every fact that session needs and no history:
+
+   ```markdown
+   # HANDOFF — <feature>
+
+   Spec: docs/superpowers/specs/<file>.md
+   Run log: ORCHESTRATE.md (look things up there; do not read it whole)
+
+   ## Phases
+   1. <name> — plan <path> — PR #<n>, merged <sha>
+   2. <name> — plan <path> — next
+   3. <name> — plan <path> — not started
+
+   ## Done this session
+   Phase 1: PR #<n> (<one line>), its state, anything it left for the owner.
+
+   ## Next phase
+   Phase 2: <name>
+   Plan: <path>; Global Constraints: <copied from the plan>
+   Issue: #<n> (claimed: <the claimed: line>)
+   Base: origin/main (or the parent branch, for a stacked phase)
+   First steps: <wait or teardown left from the last phase, if any>; then stress-plan
+   on the plan, then Step 1 of orchestrate for it.
+
+   ## Owner decisions in force
+   - <each standing rule or answer the owner gave in this run, in their words>
+
+   ## Waiting on the owner
+   - <each draft, decision or action still open>
+   ```
+
+   Rewrite the file each phase; it states where the work stands now. The last phase's session deletes it once its closing summary is sent.
+3. Start the next session: `bash scripts/next-session.sh /Users/ac/.work/osn.git/main/HANDOFF-<feature>.md`. With Rex it opens a new session in the `main` worktree running `claude`, pointed at the file, and prints its id. Exit 2 means no Rex: it prints a fish command instead, which goes to the owner word for word.
+4. Send the closing summary, naming the new session's id or the command the owner must run, and stop. Start no further work in this session, even when the owner is present: the new session is where they carry on.
+
+A ready task list with no phases is not split this way. One `orchestrate` run of independent tasks still keeps Step 0's limit of four stacked pull requests.
 
 ## Step 0 — Order the work
 
@@ -533,6 +589,7 @@ Subagents cannot prompt the user; they surface `NEEDS INPUT` in their report. Th
 The full table, with the reason behind each, is `references/gotchas.md`. The ones that cost a run:
 
 - Feature input dispatched straight into the loop → the subagent guesses scope. Step 00 first.
+- A second phase started in the session that finished the first → every turn re-reads the first phase's whole context. Hand off and stop (§One phase per session).
 - `gh pr ready` — never on a pull request whose body carries a `**Do not merge until**` line — does not propagate at once; a still-draft PR shows `BLOCKED` with green checks. Wait, then read.
 - Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. When no fixed version exists, an `--ignore` entry is possible only on the terms in the comment above `audit` in `lefthook.yml`, with its dated `DROP AFTER` marker (never for a malicious-package advisory), and it is the owner's call, not yours: write the evidence into the issue, label it `needs:decision`, and open that pull request as a draft, which only the owner marks ready (`prep-pr` Step 9).
 - Merging several PRs in sequence: the release workflow versions on every merge, so sibling PRs touching `wrangler.toml` or an `index.ts` conflict. Merge in dependency order; one a sibling's merge left conflicting waits for the owner's green light (Step 5, `DIRTY`).

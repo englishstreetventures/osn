@@ -1,6 +1,6 @@
 ---
 name: stress-plan
-description: Use when an implementation plan has just been written and before any code is written — hands the plan to a second model in a fresh context to attack it, then requires every finding to be fixed, rejected in writing, or put to the owner. Invoked by new-feat at the end of its planning step and by orchestrate once per phase, and worth running on its own for any plan whose assumptions have not been checked against the code.
+description: Use when an implementation plan has just been written and before any code is written — hands the plan to a second model in a fresh context to attack it, then requires every finding to be fixed, rejected in writing, or put to the owner. Invoked by new-feat at the end of its planning step and by orchestrate once per phase in that phase's own session, and worth running on its own for any plan whose assumptions have not been checked against the code.
 ---
 
 Attack the plan for `$ARGUMENTS` before anything is built on it. If `$ARGUMENTS`
