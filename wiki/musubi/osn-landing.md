@@ -12,7 +12,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-27
 ---
 
 # Musubi Landing
@@ -94,7 +94,8 @@ under jsdom / SSR). No `console.*` anywhere (observability rule).
    standards (OIDC, self-hosting planned).
 6. **FAQ** — native `<details>` accordion, works with zero JS.
 7. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` carries
-   `/privacy` + `/terms` (present as review drafts).
+   `/privacy` + `/terms`, published notices that take the operator's details
+   from `@shared/legal` ([[gdpr]], item 4).
 
 ## Configuration
 

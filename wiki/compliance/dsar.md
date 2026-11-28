@@ -30,7 +30,7 @@ runbook, two regimes, because the operational steps overlap.
 | `DELETE /api/organiser/account` (cire-api, Flow B) | A host removes their Cire data without losing OSN: "Remove my Cire data" in the portal's account menu | `@cire/api` — the account erasure's `host` scope, after a passkey step-up confirmed on Musubi, with the same 72-hour hold ([[cire-auth#A host removes their Cire data]]). Then refused, 409 `holds_payout_account`, while a profile of the account holds the Stripe account a live wedding's money gifts are paid into, as an owner beside another owner ([[#Art. 17 — Right of erasure]]) | Immediate once confirmed, unless refused for a payout account; the person clears that refusal themselves |
 | `privacy@englishstventures.com`, named on every privacy notice (`LEGAL_ENTITY.privacyEmail`) | Anyone via email | The operator's privacy inbox, hosted by Hostinger ([[subprocessors]]) | 30 d (GDPR) / 45 d (CCPA) |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
-| Post | No one: the legal pages publish no postal address, by the owner's decision, so a written request comes by email | — | — |
+| Post | No one is pointed to it: the legal pages publish no postal address, by the owner's decision. A letter that arrives anyway is still a request | Whoever opens it forwards it to the privacy inbox, where it is handled as an email request | 30 d (GDPR) / 45 d (CCPA), from the day the letter arrived |
 
 ## Step-by-step for a written request
 
