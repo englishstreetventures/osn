@@ -753,3 +753,11 @@ is registered, the issues it closes, and any close it could not make — a
 tracker line the classifier refused, or a stacked PR's closes — so the owner
 can make it by hand.
 
+When this branch is one phase of several (its `NEW-FEAT.md` has a `## Phases`
+list) and this session was not dispatched by `orchestrate`, the phase ends with
+this report: write `HANDOFF-<feature>.md`, start the next session with
+`bash scripts/next-session.sh` and stop, as `orchestrate` §One phase per
+session says. Under `orchestrate`, the orchestrator does that. On the remote
+environment, with no `main` worktree to hold the file, post the handoff as a
+comment on the next phase's issue and give the owner its link instead.
+

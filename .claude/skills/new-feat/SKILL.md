@@ -128,6 +128,8 @@ The plan names:
 - the changeset — always needed unless every changed file is on the allowlist in `scripts/changeset-required.sh`; `@cire/*` packages are version-less and never share a changeset with a versioned one
 - **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` (on osn-api and cire-api these join Cloudflare's trace, beside its own D1 and outbound `fetch` spans); which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/shared/observability/overview.md` holds the rules.
 
+**Work too big for one pull request is split into phases**: a `## Phases` list in `NEW-FEAT.md`, one line each, naming what the phase delivers and the pull request it opens. This branch plans, attacks and builds the first unfinished phase only. The session that finishes it hands off and stops (`AGENTS.md` §How work runs, One phase per session); the next session cuts the next phase's branch with its own `new-feat` run, from `HANDOFF-<feature>.md`. A feature with open scope goes to `orchestrate` Step 00 instead.
+
 ## Step 3 — Attack the plan before building on it
 
 Invoke the `stress-plan` skill with the path to `NEW-FEAT.md`. It hands the plan
