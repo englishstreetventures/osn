@@ -63,7 +63,7 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <p>
     Depending on where you live, you may have rights to access, correct, delete or port your
     information, and to object to certain uses. To exercise them, contact us at
-    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>. You may also complain to your local data
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>. You may also complain to your local data
     protection regulator (<span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>).
   </p>
   <p>
@@ -74,6 +74,6 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <h2>Contact</h2>
   <p>
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> —
-    <span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span>.
+    <a href={`mailto:${LEGAL_ENTITY.privacyEmail}`}><span class={ph(LEGAL_ENTITY.privacyEmail)}>{LEGAL_ENTITY.privacyEmail}</span></a>.
   </p>
 </LegalLayout>

@@ -22,6 +22,16 @@ describe("Pulse site legal pages", () => {
     expect(terms).not.toContain("LEGAL_ENTITY.privacyEmail");
   });
 
+  /** Every mailbox a page names is a `mailto:` link, as on the Pulse app's
+   *  own legal pages. */
+  it("name each mailbox as a link", () => {
+    for (const page of [privacy, terms]) {
+      expect(page).not.toMatch(
+        /(?<!mailto:\$\{LEGAL_ENTITY\.\w+\}`\}>)<span class=\{ph\(LEGAL_ENTITY\.(privacy|support)Email\)\}>/,
+      );
+    }
+  });
+
   /** Each page names only details the operator's record holds. The record
    *  holds no postal address, so a contact line that still prints one fails
    *  here. */

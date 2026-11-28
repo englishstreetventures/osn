@@ -77,6 +77,6 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span>.
+    Questions about these terms: <a href={`mailto:${LEGAL_ENTITY.supportEmail}`}><span class={ph(LEGAL_ENTITY.supportEmail)}>{LEGAL_ENTITY.supportEmail}</span></a>.
   </p>
 </LegalLayout>
