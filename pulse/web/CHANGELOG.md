@@ -1,5 +1,12 @@
 # @osn/pulse
 
+## 0.24.122
+
+### Patch Changes
+
+- Updated dependencies [e265f5d]
+  - @shared/legal@0.2.0
+
 ## 0.24.121
 
 ### Patch Changes

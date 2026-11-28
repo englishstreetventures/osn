@@ -1,5 +1,12 @@
 # @osn/social
 
+## 0.28.6
+
+### Patch Changes
+
+- Updated dependencies [e265f5d]
+  - @shared/legal@0.2.0
+
 ## 0.28.5
 
 ### Patch Changes
