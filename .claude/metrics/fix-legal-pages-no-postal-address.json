@@ -1,0 +1,202 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/legal-pages-no-postal-address",
+    "base_sha": "b33ca9f3b6441f7611717206f8138a4503f9b5a8",
+    "head_sha": "4e412001628aa0d290e642e6004a3989af5910f5",
+    "generated_at": "2026-11-28T01:17:25.466Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2585,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-27T06:17:08.109Z",
+    "last_ts": "2026-11-28T01:17:22.764Z",
+    "span_seconds": 68415,
+    "active_seconds": 2828,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 31.1304688,
+    "tokens": {
+      "input": 501,
+      "output": 180025,
+      "thinking": 57062,
+      "cache_write_5m": 1224434,
+      "cache_write_1h": 670069,
+      "cache_read": 40113107
+    },
+    "by_model": {
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 4
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 501,
+          "output": 180025,
+          "thinking": 57062,
+          "cache_write_5m": 1224434,
+          "cache_write_1h": 670069,
+          "cache_read": 40113107
+        },
+        "usd_equivalent": 31.1304688,
+        "messages": 237
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 7,
+          "output": 826,
+          "thinking": 31,
+          "cache_write_5m": 0,
+          "cache_write_1h": 670069,
+          "cache_read": 2120194
+        },
+        "usd_equivalent": 6.2251776,
+        "messages": 6
+      },
+      "subagent": {
+        "tokens": {
+          "input": 494,
+          "output": 179199,
+          "thinking": 57031,
+          "cache_write_5m": 1224434,
+          "cache_write_1h": 0,
+          "cache_read": 37992913
+        },
+        "usd_equivalent": 24.905291200000004,
+        "messages": 235
+      }
+    },
+    "effort": {
+      "high": 67,
+      "xhigh": 170
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 3,
+      "docs": 4,
+      "config": 0,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 40,
+        "deleted": 0
+      },
+      "test": {
+        "added": 83,
+        "deleted": 10
+      },
+      "docs": {
+        "added": 11,
+        "deleted": 9
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 56,
+        "deleted": 47
+      }
+    },
+    "packages": [
+      "cire/landing",
+      "cire/ui",
+      "musubi/landing",
+      "pulse/landing",
+      "shared/legal"
+    ],
+    "touches_migration": false,
+    "commits": 5
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 188,
+      "Edit": 83,
+      "Read": 25,
+      "Write": 24,
+      "Skill": 14,
+      "SendMessage": 2,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "mcp__claude-in-chrome__tabs_context_mcp": 1,
+      "SubagentHandback": 1,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 13,
+      "max_edits_one_file": 18
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "write-pr": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "design-system": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "reviewer": 1
+    },
+    "requests": {
+      "main": 4,
+      "subagent": 233,
+      "with_tools": 234,
+      "with_one_tool": 176,
+      "context_median": 156766,
+      "context_p90": 307582
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 7,
+    "located": 7,
+    "acted_on": 3,
+    "paired": 6,
+    "acted_on_paired": 3,
+    "control_changed": 1,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

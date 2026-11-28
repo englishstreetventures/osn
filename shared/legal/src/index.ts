@@ -4,7 +4,7 @@
  * ## Why this is a package
  *
  * Every privacy notice and terms page, on every product, names the same
- * operator, address, mailboxes, regulator and governing law. Holding them here
+ * operator, mailboxes, regulator and governing law. Holding them here
  * means one edit reaches every page, and each page's draft banner is derived
  * from these values rather than hand-maintained: `draftPending` stays true
  * while any value a page renders is still a `{{PLACEHOLDER}}`, so a page
@@ -13,19 +13,17 @@
  * ## What may live here
  *
  * Only what a published legal page must already say out loud: the operating
- * entity's name, its service address, its two mailboxes, its regulator and the
- * governing law. Naming the controller and how to contact it is a GDPR
- * Art. 13(1)(a) / APP 1.4 requirement, so none of it is confidential once a
- * notice is live.
+ * entity's name, its two mailboxes, its regulator and the governing law.
+ * Naming the controller and how to contact it is a GDPR Art. 13(1)(a) /
+ * APP 1.4 requirement, so none of it is confidential once a notice is live.
  *
- * Nothing else. Company numbers, tax registrations, banking details and
- * commercial terms are not required on a notice and do not belong in the repo.
+ * Nothing else. The pages publish no postal address, by the owner's choice.
+ * Company numbers, tax registrations, banking details and commercial terms are
+ * not required on a notice and do not belong in the repo.
  */
 export interface LegalEntity {
   /** Registered name, plus any trading name, exactly as it should be published. */
   readonly name: string;
-  /** Service address for legal notices — a postal address, not a PO box alone. */
-  readonly postalAddress: string;
   /**
    * Where a person exercises their privacy rights or complains: every privacy
    * notice names this one. Must be monitored by a human.
@@ -55,13 +53,12 @@ export interface LegalEntity {
 }
 
 /**
- * Fill the remaining `{{PLACEHOLDER}}` values before the pages are treated as
- * published — see `draftPending`, which every page calls to decide whether to
- * show its draft banner.
+ * A field whose value is not yet known holds a `{{PLACEHOLDER}}` token, and
+ * `draftPending`, which every page calls to decide whether to show its draft
+ * banner, keeps each page that renders it a draft until it is filled.
  */
 export const LEGAL_ENTITY: LegalEntity = {
   name: "English Street Ventures Pty Ltd",
-  postalAddress: "{{POSTAL_ADDRESS}}",
   privacyEmail: "privacy@englishstventures.com",
   supportEmail: "hello@englishstventures.com",
   regulator: "Office of the Australian Information Commissioner (OAIC)",
@@ -74,17 +71,20 @@ export function isPlaceholder(value: string): boolean {
 }
 
 /**
- * The fields every legal page renders, whatever else it says: the operator,
- * its address and both mailboxes (a privacy notice renders one mailbox and the
- * terms the other). This is the part of the draft banner no page has to ask
- * for.
+ * The fields every legal page renders, whatever else it says: the operator and
+ * both mailboxes (a privacy notice renders one mailbox and the terms the
+ * other). This is the part of the draft banner no page has to ask for.
  */
 export const IDENTITY_FIELD_NAMES = [
   "name",
-  "postalAddress",
   "privacyEmail",
   "supportEmail",
 ] as const satisfies readonly (keyof LegalEntity)[];
+
+/** True while any identity field of `entity` is still a placeholder. */
+export function identityPending(entity: LegalEntity): boolean {
+  return IDENTITY_FIELD_NAMES.some((field) => isPlaceholder(entity[field]));
+}
 
 /**
  * True while any field every page renders is unfilled.
@@ -93,9 +93,7 @@ export const IDENTITY_FIELD_NAMES = [
  * directly, because a page also has to answer for the extra fields it names.
  * Call `draftPending` instead; this is what it checks on every caller's behalf.
  */
-export const LEGAL_DETAILS_PENDING: boolean = IDENTITY_FIELD_NAMES.some((field) =>
-  isPlaceholder(LEGAL_ENTITY[field]),
-);
+export const LEGAL_DETAILS_PENDING: boolean = identityPending(LEGAL_ENTITY);
 
 /**
  * Whether a page must show its draft banner.

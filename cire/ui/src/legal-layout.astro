@@ -72,6 +72,13 @@ const { title, siteName, back } = Astro.props
         text-underline-offset: 2px;
       }
 
+      /* The back link keeps its own space below it, so the title sits the
+         same distance down whether or not a draft banner follows. No spacing
+         token at 1.5rem. */
+      .legal-back {
+        margin: 0 0 1.5rem;
+      }
+
       /* A link label, so sentence case, as cire's link labels are. */
       .legal-back a {
         font-family: var(--ui-font-body);
@@ -104,10 +111,6 @@ const { title, siteName, back } = Astro.props
         /* No type token at 0.875rem. */
         font-size: 0.875rem;
         color: var(--ui-ink-secondary);
-      }
-
-      .legal-back + .draft-banner {
-        margin-top: 1.5rem;
       }
 
       .legal .draft-banner strong {

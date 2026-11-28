@@ -11,7 +11,7 @@ related:
   - "[[cire-landing]]"
   - "[[venues]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-11-25
+last-reviewed: 2026-11-27
 ---
 
 # Pulse Landing
@@ -115,7 +115,8 @@ and city are real.
    the real venue-page feature. See [[venues]].
 7. **FAQ** — native `<details>` accordion.
 8. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` carries
-   `/privacy` + `/terms` (review drafts).
+   `/privacy` + `/terms`, published notices that take the operator's details
+   from `@shared/legal` ([[gdpr]], item 4).
 
 ## Configuration
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   draftPending,
   IDENTITY_FIELD_NAMES,
+  identityPending,
   isPlaceholder,
   LEGAL_DETAILS_PENDING,
   LEGAL_ENTITY,
@@ -23,25 +24,44 @@ describe("IDENTITY_FIELD_NAMES", () => {
   /**
    * Every page renders at least one of these, so a placeholder in any of them
    * must show every page's draft banner. Both mailboxes are here: a privacy
-   * notice renders one and the terms the other.
+   * notice renders one and the terms the other. No page publishes a postal
+   * address, so there is none to check.
    */
-  it("names the operator, its address and both mailboxes", () => {
+  it("names the operator and both mailboxes", () => {
     expect(new Set(IDENTITY_FIELD_NAMES)).toEqual(
-      new Set(["name", "postalAddress", "privacyEmail", "supportEmail"]),
+      new Set(["name", "privacyEmail", "supportEmail"]),
     );
-    expect(IDENTITY_FIELD_NAMES).toHaveLength(4);
+    expect(IDENTITY_FIELD_NAMES).toHaveLength(3);
+  });
+});
+
+describe("identityPending", () => {
+  /**
+   * The banner's identity half: one unfilled identity field is enough to make
+   * every page a draft, whichever field it is.
+   */
+  it.each(IDENTITY_FIELD_NAMES)("is true while %s alone is a placeholder", (field) => {
+    expect(identityPending({ ...LEGAL_ENTITY, [field]: "{{UNFILLED}}" })).toBe(true);
+  });
+
+  it("is false for a record whose identity fields are all filled", () => {
+    expect(identityPending(LEGAL_ENTITY)).toBe(false);
   });
 });
 
 describe("LEGAL_DETAILS_PENDING", () => {
   /**
-   * The postal address is still a placeholder, so every page must be flagged
-   * a draft. When the address is filled this test fails on purpose: replace it
-   * with one asserting `false`, once every identity field is real.
+   * Every identity field is filled, so no page is a draft on their account.
+   * A placeholder put back into any of them fails this test, and shows every
+   * page's banner again.
    */
-  it("is true while the postal address is still a placeholder", () => {
-    expect(LEGAL_ENTITY.postalAddress).toBe("{{POSTAL_ADDRESS}}");
-    expect(LEGAL_DETAILS_PENDING).toBe(true);
+  it("is false once every identity field is filled", () => {
+    expect(IDENTITY_FIELD_NAMES.filter((field) => isPlaceholder(LEGAL_ENTITY[field]))).toEqual([]);
+    expect(LEGAL_DETAILS_PENDING).toBe(false);
+  });
+
+  it("is the identity check of the published record", () => {
+    expect(LEGAL_DETAILS_PENDING).toBe(identityPending(LEGAL_ENTITY));
   });
 });
 
@@ -53,6 +73,15 @@ describe("LEGAL_ENTITY", () => {
   it("keeps privacy requests and everything else in separate mailboxes", () => {
     expect(LEGAL_ENTITY.privacyEmail).toMatch(/^privacy@/);
     expect(LEGAL_ENTITY.supportEmail).toMatch(/^hello@/);
+  });
+
+  /** Only what a page must publish: the operator's name, its two mailboxes,
+   *  the regulator and the governing law. No postal address, no company
+   *  number. */
+  it("holds the operator's published details and nothing else", () => {
+    expect(new Set(Object.keys(LEGAL_ENTITY))).toEqual(
+      new Set(["name", "privacyEmail", "supportEmail", "regulator", "governingLaw"]),
+    );
   });
 });
 
