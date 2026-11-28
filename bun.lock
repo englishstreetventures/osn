@@ -337,7 +337,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.23",
+      "version": "0.2.24",
       "dependencies": {
         "@astrojs/solid-js": "7.1.5",
         "@shared/legal": "workspace:*",
@@ -358,7 +358,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.28.5",
+      "version": "0.28.6",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -542,7 +542,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.39",
+      "version": "0.1.40",
       "dependencies": {
         "@astrojs/solid-js": "7.1.5",
         "@shared/legal": "workspace:*",
@@ -564,7 +564,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.121",
+      "version": "0.24.122",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -729,7 +729,7 @@
     },
     "shared/legal": {
       "name": "@shared/legal",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "5.0.5",
