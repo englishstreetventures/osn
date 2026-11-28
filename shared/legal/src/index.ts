@@ -15,8 +15,7 @@
  * Only what a published legal page must already say out loud: the operating
  * entity's name, its two mailboxes, its regulator and the governing law.
  * Naming the controller and how to contact it is a GDPR Art. 13(1)(a) /
- * APP 1.4 requirement, which the name and the mailboxes meet, so none of it is
- * confidential once a notice is live.
+ * APP 1.4 requirement, so none of it is confidential once a notice is live.
  *
  * Nothing else. The pages publish no postal address, by the owner's choice.
  * Company numbers, tax registrations, banking details and commercial terms are
@@ -82,6 +81,11 @@ export const IDENTITY_FIELD_NAMES = [
   "supportEmail",
 ] as const satisfies readonly (keyof LegalEntity)[];
 
+/** True while any identity field of `entity` is still a placeholder. */
+export function identityPending(entity: LegalEntity): boolean {
+  return IDENTITY_FIELD_NAMES.some((field) => isPlaceholder(entity[field]));
+}
+
 /**
  * True while any field every page renders is unfilled.
  *
@@ -89,9 +93,7 @@ export const IDENTITY_FIELD_NAMES = [
  * directly, because a page also has to answer for the extra fields it names.
  * Call `draftPending` instead; this is what it checks on every caller's behalf.
  */
-export const LEGAL_DETAILS_PENDING: boolean = IDENTITY_FIELD_NAMES.some((field) =>
-  isPlaceholder(LEGAL_ENTITY[field]),
-);
+export const LEGAL_DETAILS_PENDING: boolean = identityPending(LEGAL_ENTITY);
 
 /**
  * Whether a page must show its draft banner.

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   draftPending,
   IDENTITY_FIELD_NAMES,
+  identityPending,
   isPlaceholder,
   LEGAL_DETAILS_PENDING,
   LEGAL_ENTITY,
@@ -34,6 +35,20 @@ describe("IDENTITY_FIELD_NAMES", () => {
   });
 });
 
+describe("identityPending", () => {
+  /**
+   * The banner's identity half: one unfilled identity field is enough to make
+   * every page a draft, whichever field it is.
+   */
+  it.each(IDENTITY_FIELD_NAMES)("is true while %s alone is a placeholder", (field) => {
+    expect(identityPending({ ...LEGAL_ENTITY, [field]: "{{UNFILLED}}" })).toBe(true);
+  });
+
+  it("is false for a record whose identity fields are all filled", () => {
+    expect(identityPending(LEGAL_ENTITY)).toBe(false);
+  });
+});
+
 describe("LEGAL_DETAILS_PENDING", () => {
   /**
    * Every identity field is filled, so no page is a draft on their account.
@@ -43,6 +58,10 @@ describe("LEGAL_DETAILS_PENDING", () => {
   it("is false once every identity field is filled", () => {
     expect(IDENTITY_FIELD_NAMES.filter((field) => isPlaceholder(LEGAL_ENTITY[field]))).toEqual([]);
     expect(LEGAL_DETAILS_PENDING).toBe(false);
+  });
+
+  it("is the identity check of the published record", () => {
+    expect(LEGAL_DETAILS_PENDING).toBe(identityPending(LEGAL_ENTITY));
   });
 });
 
@@ -63,7 +82,6 @@ describe("LEGAL_ENTITY", () => {
     expect(new Set(Object.keys(LEGAL_ENTITY))).toEqual(
       new Set(["name", "privacyEmail", "supportEmail", "regulator", "governingLaw"]),
     );
-    expect(Object.keys(LEGAL_ENTITY)).toHaveLength(5);
   });
 });
 
